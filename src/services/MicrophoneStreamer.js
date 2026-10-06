@@ -21,6 +21,14 @@ export default class MicrophoneStreamer {
     this.opening = null;
     this.sink = null;
     this.preRoll = [];
+    this.queue = Promise.resolve(); // open/close/restart never overlap (native recorder races)
+    this.stats = { chunks: 0, lastChunkAt: 0, sampleRate: 0, lastError: null };
+  }
+
+  enqueue(task) {
+    const run = this.queue.then(task);
+    this.queue = run.catch(() => {});
+    return run;
   }
 
   async ensurePermission() {
@@ -31,11 +39,15 @@ export default class MicrophoneStreamer {
 
   /** Idempotent: resolves immediately when the mic is already running. */
   open() {
-    if (this.running) return Promise.resolve();
-    this.opening ??= this.startRecorder().finally(() => {
-      this.opening = null;
+    return this.enqueue(async () => {
+      if (this.running) return;
+      try {
+        await this.startRecorder();
+      } catch (error) {
+        this.stats.lastError = String(error.message ?? error);
+        throw error;
+      }
     });
-    return this.opening;
   }
 
   async startRecorder() {
@@ -49,8 +61,16 @@ export default class MicrophoneStreamer {
     this.running = true;
   }
 
+  /** Tear the native recorder down and bring it back up (recovers from a silent recorder). */
+  restart() {
+    return this.close().then(() => this.open());
+  }
+
   handleBuffer(buffer) {
     const samples = buffer.getChannelData(0);
+    this.stats.chunks++;
+    this.stats.lastChunkAt = Date.now();
+    this.stats.sampleRate = buffer.sampleRate;
     // The OS may not honour the requested rate: report the real one so the
     // consumer can declare it to Deepgram.
     const chunk = { pcm16: floatToPcm16(samples), sampleRate: buffer.sampleRate, level: rmsLevel(samples) };
@@ -69,12 +89,18 @@ export default class MicrophoneStreamer {
     if (fn) buffered.forEach(fn);
   }
 
-  async close() {
-    this.sink = null;
-    this.preRoll = [];
-    if (!this.running) return;
-    this.running = false;
-    this.recorder.clearOnAudioReady();
-    await this.recorder.stop();
+  close() {
+    return this.enqueue(async () => {
+      this.sink = null;
+      this.preRoll = [];
+      if (!this.running) return;
+      this.running = false;
+      try {
+        this.recorder.clearOnAudioReady();
+        await this.recorder.stop();
+      } catch (error) {
+        this.stats.lastError = String(error.message ?? error);
+      }
+    });
   }
 }

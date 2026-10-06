@@ -37,11 +37,12 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {{synthesize(text, opts): Promise<object>}} deps.tts
  * @param {{playPanned(source, pan): Promise<void>, stopAll(): void}} deps.audio
  * @param {boolean} [deps.autoStop]  end the turn by itself after a pause in speech (Deepgram UtteranceEnd)
+ * @param {number} [deps.noAudioMs]  give up waiting for the first audio chunk after this long (restart mic, then fail)
  * @param {number} [deps.tailMs]  keep capturing this long after the stop tap (don't clip the last word)
  */
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500 }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs });
     this.state = STATE.IDLE;
     this.listeners = new Set();
     this.turnId = 0; // invalidates in-flight work when a new turn / cancel happens
@@ -113,6 +114,7 @@ export default class TranslationEngine {
         language,
         sampleRate,
         onInterim: (text) => this.turnId === id && this.emit({ type: 'interim', side, text }),
+        onError: (error) => this.fail(id, error),
         onFinal: (text) => {
           if (this.turnId !== id) return;
           turn.buffer.push(text).forEach((segment) => this.enqueue(turn, segment));
@@ -131,9 +133,53 @@ export default class TranslationEngine {
     // synchronously, so STARTING → LISTENING is near-instant.
     turn.startup = this.mic
       .open()
-      .then(() => this.turnId === id && this.mic.setSink(onChunk))
+      .then(() => {
+        if (this.turnId !== id) return;
+        this.mic.setSink(onChunk);
+        this.armWatchdog(turn, onChunk);
+      })
       .catch((error) => this.fail(id, error));
     await turn.startup;
+  }
+
+  /**
+   * If no audio arrives shortly after the tap, the warm recorder has gone silent:
+   * restart it once (what a cold start does), and if it is still silent, say so
+   * instead of leaving the user on "Préparation…" forever.
+   */
+  armWatchdog(turn, onChunk, retried = false) {
+    turn.watchdog = setTimeout(async () => {
+      const id = turn.id;
+      if (this.turnId !== id || turn.live || turn.ended) return;
+      if (retried) {
+        return this.fail(
+          id,
+          new Error('Le micro ne renvoie aucun son. Vérifiez la permission Micro de l\'app dans les réglages du téléphone.'),
+        );
+      }
+      try {
+        await this.mic.restart();
+        if (this.turnId !== id || turn.live || turn.ended) return;
+        this.mic.setSink(onChunk);
+        this.armWatchdog(turn, onChunk, true);
+      } catch (error) {
+        this.fail(id, error);
+      }
+    }, this.noAudioMs);
+  }
+
+  /** Snapshot for the on-screen diagnostics panel. */
+  diagnostics() {
+    const mic = this.mic.stats ?? {};
+    return {
+      state: this.state,
+      micRunning: Boolean(this.mic.running),
+      chunks: mic.chunks ?? 0,
+      msSinceChunk: mic.lastChunkAt ? Date.now() - mic.lastChunkAt : null,
+      sampleRate: mic.sampleRate ?? 0,
+      micError: mic.lastError ?? null,
+      stt: this.turn?.session?.status ?? null,
+    };
   }
 
   async endTurn() {
@@ -146,6 +192,7 @@ export default class TranslationEngine {
       await turn.startup;
       if (this.turnId !== id) return; // startup failed or a newer turn took over
       turn.ended = true;
+      clearTimeout(turn.watchdog);
       this.syncState(turn); // immediate feedback; capture continues for the tail
       if (this.tailMs > 0) await new Promise((r) => setTimeout(r, this.tailMs));
       this.mic.setSink(null);
@@ -210,6 +257,7 @@ export default class TranslationEngine {
   /** Abort everything in flight (also called automatically by startTurn). */
   cancel() {
     this.turnId++; // any pending await of the previous turn becomes a no-op
+    clearTimeout(this.turn?.watchdog);
     this.turn?.session?.abort();
     this.mic.setSink(null); // the mic itself stays warm
     this.audio.stopAll();
@@ -220,6 +268,7 @@ export default class TranslationEngine {
   fail(id, error) {
     if (this.turnId !== id) return;
     this.turnId++;
+    clearTimeout(this.turn?.watchdog);
     this.turn?.session?.abort();
     this.mic.setSink(null);
     this.emit({ type: 'error', error });

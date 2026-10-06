@@ -4,17 +4,20 @@ import test from 'node:test';
 import { PAN } from '../src/config/languages.js';
 import TranslationEngine, { STATE } from '../src/services/TranslationEngine.js';
 
-function setup({ transcript = 'bonjour', segments = transcript ? [transcript] : [], sttDelay = 0, translateDelay = () => 0 } = {}) {
-  const calls = { translate: [], tts: [], play: [], played: [], sessions: [], stopAll: 0 };
+function setup({ noAudioMs = 1000, transcript = 'bonjour', segments = transcript ? [transcript] : [], sttDelay = 0, translateDelay = () => 0 } = {}) {
+  const calls = { translate: [], tts: [], play: [], played: [], sessions: [], stopAll: 0, restarts: 0 };
   let sink = null;
   const engine = new TranslationEngine({
     tailMs: 0,
+    noAudioMs,
     languages: { A: 'fr', B: 'en' },
     voices: { A: 'voice-fr', B: 'voice-en' },
     mic: {
       open: async () => {},
       setSink: (fn) => { sink = fn; },
       close: async () => {},
+      restart: async () => { calls.restarts++; },
+      stats: {},
     },
     stt: {
       createSession: (opts) => {
@@ -214,4 +217,34 @@ test('cancel mid-turn stops later sentences from playing', async () => {
   engine.cancel();
   await new Promise((r) => setTimeout(r, 60));
   assert.deepEqual(calls.play, []);
+});
+
+test('silent recorder: restarts the mic once, then reports a clear error instead of hanging', async () => {
+  const { engine, calls, events } = setup({ noAudioMs: 20 });
+  await engine.toggle('A'); // no chunk ever arrives
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(calls.restarts, 1);
+  const err = events.find((e) => e.type === 'error');
+  assert.match(err.error.message, /micro/i);
+  assert.equal(engine.state, STATE.IDLE);
+});
+
+test('silent recorder that recovers after the restart does not error', async () => {
+  const { engine, calls, events, chunk } = setup({ noAudioMs: 30 });
+  await engine.toggle('A');
+  await new Promise((r) => setTimeout(r, 45)); // watchdog fired → restart → sink re-attached
+  assert.equal(calls.restarts, 1);
+  chunk(); // audio finally flows
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(events.some((e) => e.type === 'error'), false);
+  assert.equal(engine.state, STATE.LISTENING);
+});
+
+test('Deepgram connection error surfaces immediately, not only when the user stops talking', async () => {
+  const { engine, calls, events, chunk } = setup();
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onError(new Error('Deepgram : connexion impossible'));
+  assert.match(events.find((e) => e.type === 'error').error.message, /Deepgram/);
+  assert.equal(engine.state, STATE.IDLE);
 });

@@ -12,9 +12,12 @@ const UTTERANCE_END_MS = 1500;
 export default class DeepgramSession {
   /**
    * @param {{language: string, sampleRate: number, onInterim?: (text: string) => void,
-   *          onFinal?: (text: string) => void, onUtteranceEnd?: () => void}} opts
+   *          onFinal?: (text: string) => void, onUtteranceEnd?: () => void,
+   *          onError?: (error: Error) => void}} opts
    */
-  constructor({ language, sampleRate, onInterim, onFinal, onUtteranceEnd }) {
+  constructor({ language, sampleRate, onInterim, onFinal, onUtteranceEnd, onError }) {
+    this.onError = onError;
+    this.status = 'connecting'; // shown in the diagnostics panel
     this.onInterim = onInterim;
     this.onFinal = onFinal;
     this.onUtteranceEnd = onUtteranceEnd;
@@ -50,14 +53,19 @@ export default class DeepgramSession {
     this.done.catch(() => {}); // surfaced through finish(); avoid unhandled-rejection noise
 
     this.ws.onopen = () => {
+      this.status = 'open';
       this.isOpen = true;
       this.pending.forEach((chunk) => this.ws.send(chunk));
       this.pending = [];
       if (this.closed) this.flush(); // user already released before the handshake ended
     };
     this.ws.onmessage = (e) => this.handleMessage(e.data);
-    this.ws.onerror = () => this.fail(new Error('Deepgram WebSocket error'));
-    this.ws.onclose = () => this.settle();
+    this.ws.onerror = (e) =>
+      this.fail(new Error(`Deepgram : connexion impossible (${e?.message || 'clé invalide ou réseau ?'})`));
+    this.ws.onclose = (e) => {
+      if (this.status !== 'error') this.status = `closed ${e?.code ?? ''} ${e?.reason ?? ''}`.trim();
+      this.settle();
+    };
   }
 
   handleMessage(raw) {
@@ -133,6 +141,8 @@ export default class DeepgramSession {
 
   fail(err) {
     clearTimeout(this.timer);
+    this.status = 'error';
     this.rejectDone(err);
+    this.onError?.(err); // surface right away, not only when the user stops talking
   }
 }

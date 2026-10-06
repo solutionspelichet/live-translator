@@ -46,6 +46,7 @@ function Translator({ onOpenSettings }) {
   const [activeSide, setActiveSide] = useState(null);
   const [level, setLevel] = useState(0);
   const [autoStop, setAutoStop] = useState(true);
+  const [diag, setDiag] = useState(null); // null = hidden
   const [texts, setTexts] = useState({ [SIDE.A]: '', [SIDE.B]: '' });
 
   useEffect(() => {
@@ -84,6 +85,13 @@ function Translator({ onOpenSettings }) {
     };
   }, [engine]);
 
+  // Diagnostics panel (long-press ⚙︎): lets a tester see whether the mic and STT really work.
+  useEffect(() => {
+    if (!diag) return undefined;
+    const t = setInterval(() => setDiag(engine.diagnostics()), 400);
+    return () => clearInterval(t);
+  }, [engine, !!diag]);
+
   return (
     <View style={styles.flex}>
       <StatusBar style="light" />
@@ -108,10 +116,26 @@ function Translator({ onOpenSettings }) {
         >
           <Text style={styles.chipText}>{autoStop ? 'Auto ✓' : 'Auto'}</Text>
         </Pressable>
-        <Pressable style={styles.gear} onPress={onOpenSettings} hitSlop={16} accessibilityLabel="Réglages">
+        <Pressable
+          style={styles.gear}
+          onPress={onOpenSettings}
+          onLongPress={() => setDiag((d) => (d ? null : engine.diagnostics()))}
+          hitSlop={16}
+          accessibilityLabel="Réglages"
+        >
           <Text style={styles.gearText}>⚙︎</Text>
         </Pressable>
       </View>
+      {diag && (
+        <View style={styles.diag} pointerEvents="none">
+          <Text style={styles.diagText}>
+            {`micro: ${diag.micRunning ? 'ouvert' : 'FERMÉ'} · paquets: ${diag.chunks}`}
+            {diag.msSinceChunk != null ? ` · dernier il y a ${diag.msSinceChunk} ms` : ' · aucun paquet reçu'}
+            {`\nfréquence: ${diag.sampleRate} Hz · état: ${diag.state} · Deepgram: ${diag.stt ?? '—'}`}
+            {diag.micError ? `\nerreur micro: ${diag.micError}` : ''}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -139,5 +163,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  diag: { position: 'absolute', left: 8, right: 8, bottom: 24, backgroundColor: '#000D', borderRadius: 8, padding: 8 },
+  diagText: { color: '#7CE0A3', fontFamily: 'Courier', fontSize: 11 },
   gearText: { color: '#fff', fontSize: 20 },
 });
