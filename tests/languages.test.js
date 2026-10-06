@@ -18,29 +18,31 @@ test('unknown language throws', () => {
   assert.throws(() => getLanguage('xx'), /Unsupported/);
 });
 
-import {
-  activeProfile,
-  DEFAULT_SETTINGS,
-  pickLanguage,
-  sanitizeSettings,
-  updateProfile,
-  resolveUsage,
-  USAGE_CHOICES,
-  USAGE_MODES,
-} from '../src/config/settingsModel.js';
+import { DEFAULT_SETTINGS, pickLanguage, sanitizeSettings } from '../src/config/settingsModel.js';
 
 test('sanitizeSettings: defaults for missing / corrupt data', () => {
   assert.deepEqual(sanitizeSettings(null), DEFAULT_SETTINGS);
   assert.deepEqual(sanitizeSettings('garbage'), DEFAULT_SETTINGS);
-  assert.deepEqual(sanitizeSettings({ languages: { A: 'xx', B: 'yy' }, autoStop: 'yes', usage: 'moon' }), DEFAULT_SETTINGS);
+  assert.deepEqual(sanitizeSettings({ languages: { A: 'xx', B: 'yy' }, autoStop: 'yes', micGain: 99, voiceVolume: 10 }), DEFAULT_SETTINGS);
 });
 
 test('sanitizeSettings keeps valid values', () => {
-  const s = sanitizeSettings({ languages: { A: 'de', B: 'es' }, autoStop: false, background: false, usage: 'ear' });
-  assert.deepEqual(s.languages, { A: 'de', B: 'es' });
-  assert.equal(s.autoStop, false);
-  assert.equal(s.background, false);
-  assert.equal(s.usage, 'ear');
+  const s = sanitizeSettings({
+    languages: { A: 'de', B: 'es' },
+    autoStop: false,
+    background: false,
+    micGain: 16,
+    voiceVolume: 1.5,
+    input: { id: '7', name: 'Headset mic' },
+  });
+  assert.deepEqual(s, {
+    languages: { A: 'de', B: 'es' },
+    autoStop: false,
+    background: false,
+    micGain: 16,
+    voiceVolume: 1.5,
+    input: { id: '7', name: 'Headset mic' },
+  });
 });
 
 test('sanitizeSettings never returns the same language on both ears', () => {
@@ -53,44 +55,30 @@ test('pickLanguage swaps when the other side already uses it', () => {
   assert.deepEqual(pickLanguage({ A: 'fr', B: 'en' }, 'B', 'de'), { A: 'fr', B: 'de' });
 });
 
-test('two usage modes with their own AGC preset', () => {
-  assert.equal(USAGE_MODES.handsfree.agcPreset, 'far');
-  assert.equal(USAGE_MODES.ear.agcPreset, 'near');
-});
-
-test('each mode has independent audio settings, hands-free louder by default', () => {
-  const s = sanitizeSettings({});
-  assert.equal(s.usage, 'auto');
-  assert.ok(s.profiles.handsfree.voiceVolume > s.profiles.ear.voiceVolume);
-  const edited = updateProfile(s, 'ear', { micGain: 8 });
-  assert.equal(edited.profiles.ear.micGain, 8);
-  assert.equal(edited.profiles.handsfree.micGain, 'auto', 'the other mode is untouched');
-});
-
-test('activeProfile follows the usage mode', () => {
-  const s = updateProfile(sanitizeSettings({ usage: 'ear' }), 'ear', { micGain: 4 });
-  assert.equal(activeProfile(s).micGain, 4);
-  assert.equal(activeProfile({ ...s, usage: 'handsfree' }).micGain, 'auto');
-});
-
-test('settings saved before profiles existed migrate to the hands-free profile', () => {
-  const s = sanitizeSettings({ micGain: 16, voiceVolume: 2.5 });
-  assert.equal(s.profiles.handsfree.micGain, 16);
-  assert.equal(s.profiles.handsfree.voiceVolume, 2.5);
-  assert.equal(s.profiles.ear.micGain, 'auto');
-});
-
-test('profile values are validated', () => {
-  const s = sanitizeSettings({ profiles: { handsfree: { micGain: 99, voiceVolume: 10 }, ear: { micGain: 32 } } });
-  assert.equal(s.profiles.handsfree.micGain, 'auto');
-  assert.equal(s.profiles.handsfree.voiceVolume, 2);
-  assert.equal(s.profiles.ear.micGain, 32);
+test('micGain and voiceVolume default to auto / 2 and reject unknown values', () => {
+  assert.equal(sanitizeSettings({}).micGain, 'auto');
+  assert.equal(sanitizeSettings({}).voiceVolume, 2);
+  assert.equal(sanitizeSettings({ micGain: 32 }).micGain, 32);
+  assert.equal(sanitizeSettings({ micGain: 7 }).micGain, 'auto');
+  assert.equal(sanitizeSettings({ voiceVolume: 1.5 }).voiceVolume, 1.5);
+  assert.equal(sanitizeSettings({ voiceVolume: 10 }).voiceVolume, 2);
 });
 
 test('a chosen microphone is kept only when well-formed', () => {
-  const ok = sanitizeSettings({ profiles: { ear: { input: { id: '7', name: 'Headset mic' } } } });
-  assert.deepEqual(ok.profiles.ear.input, { id: '7', name: 'Headset mic' });
-  assert.equal(sanitizeSettings({ profiles: { ear: { input: { id: 7 } } } }).profiles.ear.input, null);
+  assert.deepEqual(sanitizeSettings({ input: { id: '7', name: 'Headset mic' } }).input, { id: '7', name: 'Headset mic' });
+  assert.equal(sanitizeSettings({ input: { id: 7 } }).input, null);
+});
+
+test('settings saved by the short-lived per-mode version keep their hands-free values', () => {
+  const s = sanitizeSettings({
+    usage: 'auto',
+    profiles: { handsfree: { micGain: 16, voiceVolume: 2.5, input: { id: '3', name: 'Mic' } }, ear: { micGain: 1 } },
+  });
+  assert.equal(s.micGain, 16);
+  assert.equal(s.voiceVolume, 2.5);
+  assert.deepEqual(s.input, { id: '3', name: 'Mic' });
+  assert.equal('usage' in s, false);
+  assert.equal('profiles' in s, false);
 });
 
 test('Arabic and its Maghreb variants use Nova-3 and keep DeepL on standard Arabic', () => {
@@ -125,23 +113,3 @@ test('32 languages, no duplicate service codes for the speech models', () => {
   assert.equal(new Set(entries.map((l) => l.label)).size, entries.length);
 });
 
-test("'auto' usage follows the proximity sensor; fixed modes ignore it", () => {
-  assert.equal(resolveUsage('auto', true), 'ear');
-  assert.equal(resolveUsage('auto', false), 'handsfree');
-  assert.equal(resolveUsage('handsfree', true), 'handsfree');
-  assert.equal(resolveUsage('ear', false), 'ear');
-  assert.equal(resolveUsage('???', true), 'handsfree');
-});
-
-test('usage choices and sanitizing', () => {
-  assert.deepEqual([...USAGE_CHOICES], ['auto', 'handsfree', 'ear']);
-  assert.equal(sanitizeSettings({ usage: 'ear' }).usage, 'ear');
-  assert.equal(sanitizeSettings({ usage: 'auto' }).usage, 'auto');
-  assert.equal(sanitizeSettings({ usage: 'nope' }).usage, 'auto');
-});
-
-test('activeProfile picks the at-the-ear profile when the phone is near the face in auto mode', () => {
-  const s = updateProfile(sanitizeSettings({ usage: 'auto' }), 'ear', { micGain: 2 });
-  assert.equal(activeProfile(s, true).micGain, 2);
-  assert.equal(activeProfile(s, false).micGain, 'auto');
-});

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import MicGain, { AGC_PRESETS, applyGain } from '../src/utils/gain.js';
+import MicGain, { applyGain } from '../src/utils/gain.js';
 import { rmsLevel } from '../src/utils/pcm.js';
 
 const tone = (amp, n = 1600) => Float32Array.from({ length: n }, (_, i) => amp * Math.sin(i / 7));
@@ -56,26 +56,4 @@ test('the level meter reads higher after gain', () => {
   const g = new MicGain({ mode: 8 });
   const quiet = tone(0.02);
   assert.ok(rmsLevel(g.process(quiet)) > rmsLevel(quiet));
-});
-
-test("'near' preset (phone at the mouth) caps the auto boost far below the 'far' preset", () => {
-  const far = new MicGain({ mode: 'auto', preset: 'far' });
-  const near = new MicGain({ mode: 'auto', preset: 'near' });
-  for (let i = 0; i < 10; i++) {
-    far.process(tone(0.0004));
-    near.process(tone(0.0004));
-  }
-  for (let i = 0; i < 40; i++) {
-    far.process(tone(0.004));
-    near.process(tone(0.004));
-  }
-  assert.ok(near.current <= AGC_PRESETS.near.maxGain);
-  assert.ok(far.current > 2 * near.current, `far ${far.current} near ${near.current}`);
-});
-
-test('switching preset lowers the current gain immediately when above the new cap', () => {
-  const g = new MicGain({ mode: 'auto', preset: 'far' });
-  g.current = 30;
-  g.setMode('auto', 'near');
-  assert.equal(g.current, AGC_PRESETS.near.maxGain);
 });

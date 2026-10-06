@@ -17,15 +17,6 @@ export function applyGain(samples, from, to) {
 export const MANUAL_GAINS = Object.freeze([1, 2, 4, 8, 16, 32]);
 
 /**
- * Automatic-gain presets: 'far' for a phone lying on a table (faint, distant voice → up to ×40),
- * 'near' for a phone held at the mouth (loud, close voice → a modest boost, no noise pumping).
- */
-export const AGC_PRESETS = Object.freeze({
-  far: Object.freeze({ maxGain: 40, initialGain: 4 }),
-  near: Object.freeze({ maxGain: 8, initialGain: 1.5 }),
-});
-
-/**
  * Gain stage with two modes:
  *  - 'auto': automatic gain control — quiet or distant speech is lifted towards a comfortable
  *    level (up to ×40), never so far that it clips, and background noise is NOT boosted. "Speech"
@@ -34,8 +25,7 @@ export const AGC_PRESETS = Object.freeze({
  *  - a number (1…32): fixed gain.
  */
 export default class MicGain {
-  constructor({ mode = 'auto', preset = 'far', target = 0.12, minSpeechRms = 0.0007 } = {}) {
-    const { maxGain, initialGain } = AGC_PRESETS[preset] ?? AGC_PRESETS.far;
+  constructor({ mode = 'auto', target = 0.12, maxGain = 40, minSpeechRms = 0.0007, initialGain = 4 } = {}) {
     this.mode = mode;
     this.target = target; // RMS we aim for (≈ −18 dBFS: clear speech with headroom)
     this.maxGain = maxGain;
@@ -45,13 +35,8 @@ export default class MicGain {
     this.current = mode === 'auto' ? initialGain : mode;
   }
 
-  /** Change mode ('auto' or a fixed gain) and, optionally, the auto preset ('far' | 'near'). */
-  setMode(mode, preset) {
+  setMode(mode) {
     this.mode = mode;
-    if (preset && AGC_PRESETS[preset]) {
-      this.maxGain = AGC_PRESETS[preset].maxGain;
-      if (this.current > this.maxGain) this.current = this.maxGain;
-    }
     if (mode !== 'auto') this.current = mode;
   }
 

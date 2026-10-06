@@ -4,14 +4,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 import { currentValues, saveKeys, SETUP_FIELDS } from '../config/env';
 import { LANGUAGES } from '../config/languages';
 import { saveSettings } from '../config/settings';
-import {
-  MIC_GAIN_CHOICES,
-  pickLanguage,
-  updateProfile,
-  USAGE_CHOICES,
-  USAGE_MODES,
-  VOICE_VOLUME_CHOICES,
-} from '../config/settingsModel';
+import { MIC_GAIN_CHOICES, pickLanguage, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 
@@ -25,17 +18,10 @@ export default function SetupScreen({ settings, onDone }) {
   const [values, setValues] = useState(currentValues());
   const [languages, setLanguages] = useState(settings.languages);
   const [background, setBackground] = useState(settings.background);
-  // `draft` holds the audio part being edited: the usage mode and one profile per mode.
-  // `editing` = which mode's settings are shown below (independent from the mode in use).
-  const [draft, setDraft] = useState({
-    usage: settings.usage,
-    editing: settings.usage === 'ear' ? 'ear' : 'handsfree',
-    profiles: settings.profiles,
-  });
+  const [micGain, setMicGain] = useState(settings.micGain);
+  const [voiceVolume, setVoiceVolume] = useState(settings.voiceVolume);
+  const [input, setInput] = useState(settings.input);
   const [inputs, setInputs] = useState([]);
-  const profile = draft.profiles[draft.editing];
-  const edit = (patch) => setDraft((d) => updateProfile(d, d.editing, patch));
-  const editingMode = USAGE_MODES[draft.editing];
 
   useEffect(() => {
     audio.listInputs().then(setInputs);
@@ -62,47 +48,16 @@ export default function SetupScreen({ settings, onDone }) {
           onSelect={(code) => setLanguages((l) => pickLanguage(l, 'B', code))}
         />
 
-        <Text style={styles.section}>Utilisation</Text>
+        <Text style={styles.section}>Micro et voix</Text>
+        <Text style={styles.label}>Micro utilisé</Text>
         <View style={styles.chips}>
-          {USAGE_CHOICES.map((key) => (
-            <Chip
-              key={key}
-              label={key === 'auto' ? '📡 Automatique' : `${USAGE_MODES[key].icon} ${USAGE_MODES[key].label}`}
-              on={draft.usage === key}
-              onPress={() => setDraft((d) => ({ ...d, usage: key, editing: key === 'auto' ? d.editing : key }))}
-            />
-          ))}
-        </View>
-        <Text style={styles.hint}>
-          Automatique : le capteur de proximité détecte le téléphone collé au visage (« à l'oreille ») ou posé / tenu à distance
-          (« mains libres »), et applique les réglages du mode correspondant. Le bouton au centre de l'écran change aussi de mode.
-        </Text>
-
-        <Text style={styles.label}>Réglages à modifier</Text>
-        <View style={styles.chips}>
-          {Object.entries(USAGE_MODES).map(([key, mode]) => (
-            <Chip
-              key={key}
-              label={`${mode.icon} ${mode.label}`}
-              on={draft.editing === key}
-              onPress={() => setDraft((d) => ({ ...d, editing: key }))}
-            />
-          ))}
-        </View>
-        <Text style={styles.hint}>
-          {editingMode.hint}. Posé à plat, la voix arrive faible et lointaine (forte amplification) ; tenu près de la bouche,
-          elle arrive forte (amplification modérée).
-        </Text>
-
-        <Text style={styles.label}>{`Micro utilisé — ${editingMode.label}`}</Text>
-        <View style={styles.chips}>
-          <Chip label="Automatique (micro du téléphone)" on={profile.input == null} onPress={() => edit({ input: null })} />
+          <Chip label="Automatique (micro du téléphone)" on={input == null} onPress={() => setInput(null)} />
           {inputs.map((d) => (
             <Chip
               key={d.id}
               label={`${d.name}${/bluetooth|sco|hfp/i.test(`${d.category} ${d.name}`) ? ' ⚠' : ''}`}
-              on={profile.input?.id === d.id}
-              onPress={() => edit({ input: { id: d.id, name: d.name } })}
+              on={input?.id === d.id}
+              onPress={() => setInput({ id: d.id, name: d.name })}
             />
           ))}
         </View>
@@ -110,28 +65,26 @@ export default function SetupScreen({ settings, onDone }) {
           ⚠ Un micro Bluetooth fait passer les écouteurs en mono : la séparation gauche/droite des deux voix est perdue.
         </Text>
 
-        <Text style={styles.label}>{`Sensibilité du micro — ${editingMode.label}`}</Text>
+        <Text style={styles.label}>Sensibilité du micro</Text>
         <View style={styles.chips}>
           {MIC_GAIN_CHOICES.map((g) => (
             <Chip
               key={String(g)}
               label={g === 'auto' ? 'Auto' : `×${g}`}
-              on={profile.micGain === g}
-              onPress={() => edit({ micGain: g })}
+              on={micGain === g}
+              onPress={() => setMicGain(g)}
             />
           ))}
         </View>
         <Text style={styles.hint}>
-          {draft.editing === 'handsfree'
-            ? 'Auto amplifie fortement la voix faible ou lointaine (jusqu\'à ×40) sans amplifier le bruit. Encore trop faible ? Essayez ×16 ou ×32.'
-            : 'Auto amplifie modérément (jusqu\'à ×8) : la voix est proche. Si ça sature ou capte trop de bruit, choisissez ×1 ou ×2.'}{' '}
+          Auto amplifie fortement la voix faible ou lointaine (jusqu'à ×40) sans amplifier le bruit. Encore trop faible ? Essayez ×16 ou ×32.
           La barre de volume s'affiche pendant l'enregistrement.
         </Text>
 
-        <Text style={styles.label}>{`Volume de la voix traduite — ${editingMode.label}`}</Text>
+        <Text style={styles.label}>Volume de la voix traduite</Text>
         <View style={styles.chips}>
           {VOICE_VOLUME_CHOICES.map((v) => (
-            <Chip key={String(v)} label={v === 1 ? 'Normal' : `×${v}`} on={profile.voiceVolume === v} onPress={() => edit({ voiceVolume: v })} />
+            <Chip key={String(v)} label={v === 1 ? 'Normal' : `×${v}`} on={voiceVolume === v} onPress={() => setVoiceVolume(v)} />
           ))}
         </View>
         <Text style={styles.hint}>
@@ -189,7 +142,7 @@ export default function SetupScreen({ settings, onDone }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, languages, background, usage: draft.usage, profiles: draft.profiles });
+            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume, input });
             setSaving(false);
             onDone(saved);
           }}

@@ -110,27 +110,14 @@ Un service de premier plan ne suffit pas : Android endort le processeur et le Wi
 diagnostic (appui long sur ⚙︎) affiche un journal des derniers événements pour comprendre ce qui s'est passé écran éteint.
 Le module n'a pas pu être compilé ni testé en local : seul le build GitHub le valide.
 
-## Sensibilité du micro
+## Sensibilité du micro et choix du micro
 
 Android n'expose pas de réglage de sensibilité aux apps ; l'app amplifie donc elle-même le son avant la reconnaissance
-(`src/utils/gain.js`). Réglage dans ⚙︎ : **Auto** (contrôle automatique du gain, jusqu'à ×40 : relève la voix faible ou lointaine, détectée par rapport au bruit de fond
+(`src/utils/gain.js`). Réglage dans ⚙︎ (« Micro et voix ») : **Auto** (contrôle automatique du gain, jusqu'à ×40 : relève la voix faible ou lointaine, détectée par rapport au bruit de fond
 appris en continu, sans saturer ni amplifier le bruit) ou un gain fixe ×1 à ×32. La barre de volume pendant l'enregistrement et le
-« gain micro » du panneau de diagnostic montrent ce qui est réellement envoyé.
-
-## Mains libres / à l'oreille
-
-Deux modes d'utilisation, chacun avec **ses propres réglages**. Le mode **📡 Automatique** (défaut) utilise le capteur de proximité :
-téléphone collé au visage → « à l'oreille », sinon « mains libres » (changement confirmé après ~1 s, appliqué entre deux prises de parole,
-jamais en plein milieu d'une phrase). Le bouton au centre de l'écran fait défiler Auto → 🖐️ → 👂 ; ⚙︎ → Utilisation permet aussi de
-fixer le mode. Réglages de chaque mode :
-micro utilisé, sensibilité du micro et volume de la voix traduite.
-- **Mains libres** (téléphone posé à plat) : la voix arrive faible et lointaine → amplification automatique forte (jusqu'à ×40), voix traduite ×2.
-- **À l'oreille** (téléphone tenu près de la bouche) : la voix arrive forte → amplification automatique modérée (jusqu'à ×8), voix ×1,5.
-Le micro peut être choisi parmi ceux que le téléphone expose (micro intégré, casque filaire, Bluetooth…). Un micro Bluetooth fait
-passer les écouteurs en mono (profil HFP) : la séparation gauche/droite est alors perdue.
-
-Limite du mode automatique : un téléphone dans une poche ou face contre une table peut aussi masquer le capteur de proximité et
-basculer en « à l'oreille » (gain plus faible) ; fixez alors le mode sur 🖐️.
+« gain micro » du panneau de diagnostic montrent ce qui est réellement envoyé. Le micro utilisé peut être choisi parmi ceux
+que le téléphone expose (micro intégré, casque filaire, Bluetooth…) ; un micro Bluetooth fait passer les écouteurs en mono
+(profil HFP) : la séparation gauche/droite est alors perdue. Android ne laisse pas choisir entre les micros internes du téléphone.
 
 ## Volume de la voix traduite
 
