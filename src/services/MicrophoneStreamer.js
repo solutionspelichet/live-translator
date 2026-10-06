@@ -1,5 +1,6 @@
 import { AudioManager, AudioRecorder } from 'react-native-audio-api';
 
+import MicGain from '../utils/gain';
 import { floatToPcm16, rmsLevel } from '../utils/pcm';
 
 const TARGET_RATE = 16000; // plenty for speech, a third of the bandwidth of 48 kHz
@@ -21,8 +22,9 @@ export default class MicrophoneStreamer {
     this.opening = null;
     this.sink = null;
     this.preRoll = [];
+    this.gain = new MicGain({ mode: 'auto' });
     this.queue = Promise.resolve(); // open/close/restart never overlap (native recorder races)
-    this.stats = { chunks: 0, lastChunkAt: 0, sampleRate: 0, lastError: null };
+    this.stats = { chunks: 0, lastChunkAt: 0, sampleRate: 0, gain: 1, lastError: null };
   }
 
   enqueue(task) {
@@ -35,6 +37,11 @@ export default class MicrophoneStreamer {
     let status = await AudioManager.checkRecordingPermissions();
     if (status !== 'Granted') status = await AudioManager.requestRecordingPermissions();
     if (status !== 'Granted') throw new Error('Microphone permission denied');
+  }
+
+  /** 'auto' (automatic gain control) or a fixed gain: 1, 2, 4, 8. */
+  setGain(mode) {
+    this.gain.setMode(mode);
   }
 
   /** Idempotent: resolves immediately when the mic is already running. */
@@ -67,8 +74,10 @@ export default class MicrophoneStreamer {
   }
 
   handleBuffer(buffer) {
-    const samples = buffer.getChannelData(0);
+    // Amplify before recognition: the phone usually lies flat between two people.
+    const samples = this.gain.process(buffer.getChannelData(0));
     this.stats.chunks++;
+    this.stats.gain = this.gain.current;
     this.stats.lastChunkAt = Date.now();
     this.stats.sampleRate = buffer.sampleRate;
     // The OS may not honour the requested rate: report the real one so the

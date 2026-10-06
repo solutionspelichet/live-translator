@@ -4,7 +4,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 import { currentValues, saveKeys, SETUP_FIELDS } from '../config/env';
 import { LANGUAGES } from '../config/languages';
 import { saveSettings } from '../config/settings';
-import { pickLanguage } from '../config/settingsModel';
+import { MIC_GAIN_CHOICES, pickLanguage } from '../config/settingsModel';
 import Power from '../../modules/dualcast-power';
 
 /**
@@ -17,6 +17,7 @@ export default function SetupScreen({ settings, onDone }) {
   const [values, setValues] = useState(currentValues());
   const [languages, setLanguages] = useState(settings.languages);
   const [background, setBackground] = useState(settings.background);
+  const [micGain, setMicGain] = useState(settings.micGain);
   const [saving, setSaving] = useState(false);
   const complete = SETUP_FIELDS.every((f) => values[f.name]?.trim());
 
@@ -38,6 +39,25 @@ export default function SetupScreen({ settings, onDone }) {
           selected={languages.B}
           onSelect={(code) => setLanguages((l) => pickLanguage(l, 'B', code))}
         />
+
+        <Text style={styles.section}>Sensibilité du micro</Text>
+        <View style={styles.chips}>
+          {MIC_GAIN_CHOICES.map((g) => (
+            <Pressable
+              key={String(g)}
+              style={[styles.chip, micGain === g && styles.chipOn]}
+              onPress={() => setMicGain(g)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: micGain === g }}
+            >
+              <Text style={styles.chipText}>{g === 'auto' ? 'Auto' : `×${g}`}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          Auto amplifie la voix lointaine ou faible sans amplifier le bruit. Si la voix est mal captée, essayez ×4 ou ×8.
+          La barre de volume s'affiche pendant l'enregistrement.
+        </Text>
 
         <Text style={styles.section}>Arrière-plan</Text>
         <Pressable
@@ -90,7 +110,7 @@ export default function SetupScreen({ settings, onDone }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, languages, background });
+            const saved = await saveSettings({ ...settings, languages, background, micGain });
             setSaving(false);
             onDone(saved);
           }}

@@ -10,6 +10,7 @@ import { loadStoredKeys, missingEnv } from './src/config/env';
 import { SIDE } from './src/config/languages';
 import { loadSettings, saveSettings } from './src/config/settings';
 import { DEFAULT_SETTINGS } from './src/config/settingsModel';
+import Power from './modules/dualcast-power';
 import audio from './src/services/AudioRoutingService';
 import BackgroundService from './src/services/BackgroundService';
 import EventLog from './src/services/EventLog';
@@ -57,6 +58,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
   const engine = useMemo(() => {
     const e = createEngine(languages);
     e.autoStop = settings.autoStop;
+    e.mic.setGain(settings.micGain);
     return e;
   }, [languages.A, languages.B]); // eslint-disable-line react-hooks/exhaustive-deps
   const [state, setState] = useState(STATE.IDLE);
@@ -164,6 +166,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
             {diag.msSinceChunk != null ? ` · dernier il y a ${diag.msSinceChunk} ms` : ' · aucun paquet reçu'}
             {`\nfréquence: ${diag.sampleRate} Hz · état: ${diag.state} · Deepgram: ${diag.stt ?? '—'}`}
             {`\narrière-plan: ${settings.background ? BackgroundService.status : 'désactivé'}`}
+            {`\nveille: verrou ${BackgroundService.lockHeld ? 'oui' : 'NON'} · batterie sans limite: ${Power.isIgnoringBatteryOptimizations() ? 'oui' : 'NON'} · gain micro: ×${Number(diag.gain).toFixed(1)}`}
             {diag.micError ? `\nerreur micro: ${diag.micError}` : ''}
             {`\n— journal —\n${EventLog.last(7).join('\n') || '(vide)'}`}
           </Text>

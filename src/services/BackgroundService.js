@@ -25,6 +25,7 @@ const withTimeout = (promise, label) =>
  */
 const BackgroundService = {
   status: 'inactif',
+  lockHeld: false,
 
   async start() {
     this.status = 'démarrage…';
@@ -40,6 +41,7 @@ const BackgroundService = {
       );
       // Keep the CPU and Wi-Fi awake with the screen off (a foreground service alone doesn't).
       const locked = Power.acquireWakeLocks();
+      this.lockHeld = locked;
       this.status = locked ? 'actif (veille bloquée)' : 'actif (sans verrou de veille)';
     } catch (error) {
       this.status = `erreur: ${String(error.message ?? error)}`;
@@ -49,6 +51,7 @@ const BackgroundService = {
 
   async stop() {
     Power.releaseWakeLocks();
+    this.lockHeld = false;
     try {
       await withTimeout(RecordingNotificationManager.hide(), 'arrêt');
     } catch {}

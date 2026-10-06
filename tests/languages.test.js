@@ -28,7 +28,7 @@ test('sanitizeSettings: defaults for missing / corrupt data', () => {
 
 test('sanitizeSettings keeps valid values', () => {
   const s = sanitizeSettings({ languages: { A: 'de', B: 'es' }, autoStop: false });
-  assert.deepEqual(s, { languages: { A: 'de', B: 'es' }, autoStop: false, background: true });
+  assert.deepEqual(s, { languages: { A: 'de', B: 'es' }, autoStop: false, background: true, micGain: 'auto' });
 });
 
 test('sanitizeSettings never returns the same language on both ears', () => {
@@ -76,4 +76,10 @@ test('Arabic and its Maghreb variants use Nova-3 and keep DeepL on standard Arab
 
 test('a stored Moroccan Arabic setting survives sanitizing', () => {
   assert.deepEqual(sanitizeSettings({ languages: { A: 'fr', B: 'ar-MA' } }).languages, { A: 'fr', B: 'ar-MA' });
+});
+
+test('micGain defaults to auto and rejects unknown values', () => {
+  assert.equal(sanitizeSettings({}).micGain, 'auto');
+  assert.equal(sanitizeSettings({ micGain: 4 }).micGain, 4);
+  assert.equal(sanitizeSettings({ micGain: 99 }).micGain, 'auto');
 });
