@@ -77,12 +77,17 @@ Le build ne contient aucune clé : le dépôt étant public, ses artefacts le so
   `EXPO_PUBLIC_DEEPL_BASE_URL`, `EXPO_PUBLIC_DEEPGRAM_WS_URL`, `EXPO_PUBLIC_ELEVENLABS_BASE_URL` dessus
   (idéalement Deepgram via clés temporaires). Pour EAS Build : `eas env:create` plutôt qu'un `.env` committé.
 
-## Langues (28)
+## Langues (32)
 
 Français, English, Español, Deutsch, Italiano, Português (Brasil), Nederlands, Polski, Русский, Українська, Türkçe, Svenska,
 Dansk, Norsk, Suomi, Ελληνικά, Čeština, Slovenčina, Magyar, Română, Български, 日本語, 한국어, 中文 (mandarin), हिन्दी,
-Bahasa Indonesia, Bahasa Melayu, Tiếng Việt. Seules les langues gérées par les **trois** services (Deepgram Nova-2 en streaming,
-DeepL, ElevenLabs Turbo v2.5) sont proposées ; arabe, croate, filipino et tamoul sont exclus car Nova-2 ne les transcrit pas.
+Bahasa Indonesia, Bahasa Melayu, Tiếng Việt, et l'arabe : العربية (فصحى), المغرب, الجزائر, تونس.
+Seules les langues gérées par les **trois** services (Deepgram en streaming, DeepL, ElevenLabs Turbo v2.5) sont proposées ;
+croate, filipino et tamoul sont exclus car Deepgram ne les transcrit pas en direct.
+
+**Arabe et dialectes** : Deepgram (modèle Nova-3) transcrit `ar-MA`, `ar-DZ`, `ar-TN`. DeepL et ElevenLabs ne connaissent que
+l'arabe standard : un locuteur marocain/algérien/tunisien est compris, mais la traduction *vers* l'arabe est dite en arabe standard,
+pas en darija. Le mélange darija/français au sein d'une phrase est mal transcrit.
 Hindi, malais et vietnamien sont des ajouts récents chez DeepL : non testés ici.
 
 ## Arrière-plan et écran éteint (Android)
@@ -96,6 +101,14 @@ toujours par un appui sur l'écran : il n'y a pas (encore) de mode mains libres.
 
 ⚙︎ → choix des deux langues (A = écouteur gauche, B = écouteur droit) et clés API ; le bouton « Auto » est aussi mémorisé.
 Tout est stocké dans le stockage sécurisé du téléphone (`expo-secure-store`).
+
+### Écran éteint
+
+Un service de premier plan ne suffit pas : Android endort le processeur et le Wi-Fi écran éteint. Un petit module natif
+(`modules/dualcast-power`) garde un verrou de veille (CPU + Wi-Fi) tant que « Rester actif écran éteint » est activé ; le bouton
+« 🔋 Autoriser sans limite de batterie » dans ⚙︎ ouvre la fenêtre Android d'exemption d'optimisation de batterie. Le panneau de
+diagnostic (appui long sur ⚙︎) affiche un journal des derniers événements pour comprendre ce qui s'est passé écran éteint.
+Le module n'a pas pu être compilé ni testé en local : seul le build GitHub le valide.
 
 ## Points matériels à connaître
 

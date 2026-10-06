@@ -5,6 +5,7 @@ import { currentValues, saveKeys, SETUP_FIELDS } from '../config/env';
 import { LANGUAGES } from '../config/languages';
 import { saveSettings } from '../config/settings';
 import { pickLanguage } from '../config/settingsModel';
+import Power from '../../modules/dualcast-power';
 
 /**
  * First-launch / settings form. API keys and preferences (languages, auto-send) are stored in
@@ -52,6 +53,20 @@ export default function SetupScreen({ settings, onDone }) {
         <Text style={styles.hint}>
           Affiche une notification permanente. Si la traduction ne fonctionne plus, essayez de le désactiver.
         </Text>
+        {Power.available && (
+          <>
+            <Pressable
+              style={[styles.chip, { alignSelf: 'flex-start' }]}
+              onPress={() => Power.requestIgnoreBatteryOptimizations()}
+              accessibilityRole="button"
+            >
+              <Text style={styles.chipText}>🔋 Autoriser sans limite de batterie</Text>
+            </Pressable>
+            <Text style={styles.hint}>
+              Recommandé pour que la traduction continue écran éteint : Android limite sinon les apps en veille.
+            </Text>
+          </>
+        )}
 
         <Text style={styles.section}>Clés API</Text>
         {SETUP_FIELDS.map((f) => (

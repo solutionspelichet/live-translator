@@ -1,4 +1,5 @@
 import { env } from '../../config/env';
+import { getLanguage } from '../../config/languages';
 
 const FINALIZE_TIMEOUT_MS = 4000;
 // Silence after the last recognised word before Deepgram sends `UtteranceEnd` (min 1000).
@@ -34,9 +35,11 @@ export default class DeepgramSession {
     this.firstInterimAt = 0;
     this.forceFinalTimer = null;
 
+    // `language` is our key ('pt', 'ar-MA'…): map it to the code and the model Deepgram wants.
+    const lang = getLanguage(language);
     const params = new URLSearchParams({
-      model: 'nova-2',
-      language,
+      model: lang.deepgramModel ?? 'nova-2',
+      language: lang.deepgram,
       encoding: 'linear16',
       sample_rate: String(sampleRate),
       channels: '1',

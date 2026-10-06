@@ -12,6 +12,7 @@ import { loadSettings, saveSettings } from './src/config/settings';
 import { DEFAULT_SETTINGS } from './src/config/settingsModel';
 import audio from './src/services/AudioRoutingService';
 import BackgroundService from './src/services/BackgroundService';
+import EventLog from './src/services/EventLog';
 import createEngine from './src/services/createEngine';
 import { STATE } from './src/services/TranslationEngine';
 
@@ -83,11 +84,14 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
     // service keeps the mic and the network alive, and a turn in progress keeps translating.
     // On return, make sure the mic is still open (the OS may have reclaimed it).
     const appState = AppState.addEventListener('change', (next) => {
+      const d = engine.diagnostics();
+      EventLog.add(`app: ${next} (micro ${d.micRunning ? 'ouvert' : 'fermé'}, ${d.chunks} paquets, dernier il y a ${d.msSinceChunk ?? '—'} ms)`);
       if (next === 'active') engine.warmUp();
     });
 
     const off = engine.subscribe((ev) => {
       if (ev.type === 'state') {
+        EventLog.add(`état: ${ev.state}`);
         setState(ev.state);
         setActiveSide(ev.side);
         if (ev.state === STATE.STARTING) setTexts({ [SIDE.A]: '', [SIDE.B]: '' });
@@ -97,7 +101,10 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
       } else if (ev.type === 'level') setLevel(ev.level);
       else if (ev.type === 'interim' || ev.type === 'transcript' || ev.type === 'translation') {
         setTexts((t) => ({ ...t, [ev.side]: ev.text }));
-      } else if (ev.type === 'error') Alert.alert('Erreur', String(ev.error?.message ?? ev.error));
+      } else if (ev.type === 'error') {
+        EventLog.add(`ERREUR: ${String(ev.error?.message ?? ev.error)}`);
+        Alert.alert('Erreur', String(ev.error?.message ?? ev.error));
+      }
     });
     return () => {
       off();
@@ -158,6 +165,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
             {`\nfréquence: ${diag.sampleRate} Hz · état: ${diag.state} · Deepgram: ${diag.stt ?? '—'}`}
             {`\narrière-plan: ${settings.background ? BackgroundService.status : 'désactivé'}`}
             {diag.micError ? `\nerreur micro: ${diag.micError}` : ''}
+            {`\n— journal —\n${EventLog.last(7).join('\n') || '(vide)'}`}
           </Text>
         </View>
       )}

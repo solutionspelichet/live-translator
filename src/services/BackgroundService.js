@@ -1,5 +1,7 @@
 import { AudioManager, RecordingNotificationManager } from 'react-native-audio-api';
 
+import Power from '../../modules/dualcast-power';
+
 const STEP_TIMEOUT_MS = 4000;
 
 const withTimeout = (promise, label) =>
@@ -36,7 +38,9 @@ const BackgroundService = {
         }),
         'notification',
       );
-      this.status = 'actif';
+      // Keep the CPU and Wi-Fi awake with the screen off (a foreground service alone doesn't).
+      const locked = Power.acquireWakeLocks();
+      this.status = locked ? 'actif (veille bloquée)' : 'actif (sans verrou de veille)';
     } catch (error) {
       this.status = `erreur: ${String(error.message ?? error)}`;
       console.warn('[BackgroundService] could not start:', error);
@@ -44,6 +48,7 @@ const BackgroundService = {
   },
 
   async stop() {
+    Power.releaseWakeLocks();
     try {
       await withTimeout(RecordingNotificationManager.hide(), 'arrêt');
     } catch {}

@@ -56,9 +56,24 @@ test('every language declares all four service codes', () => {
   }
 });
 
-test('28 languages, no duplicate service codes for the speech models', () => {
+test('32 languages, no duplicate service codes for the speech models', () => {
   const entries = Object.values(LANGUAGES);
-  assert.equal(entries.length, 28);
+  assert.equal(entries.length, 32);
   assert.equal(new Set(entries.map((l) => l.deepgram)).size, entries.length);
   assert.equal(new Set(entries.map((l) => l.label)).size, entries.length);
+});
+
+test('Arabic and its Maghreb variants use Nova-3 and keep DeepL on standard Arabic', () => {
+  for (const key of ['ar', 'ar-MA', 'ar-DZ', 'ar-TN']) {
+    assert.equal(LANGUAGES[key].deepgramModel, 'nova-3', key);
+    assert.equal(LANGUAGES[key].deeplSource, 'AR');
+    assert.equal(LANGUAGES[key].deeplTarget, 'AR');
+    assert.equal(LANGUAGES[key].eleven, 'ar');
+  }
+  assert.equal(LANGUAGES['ar-MA'].deepgram, 'ar-MA');
+  assert.equal(LANGUAGES.fr.deepgramModel, undefined); // Nova-2 by default
+});
+
+test('a stored Moroccan Arabic setting survives sanitizing', () => {
+  assert.deepEqual(sanitizeSettings({ languages: { A: 'fr', B: 'ar-MA' } }).languages, { A: 'fr', B: 'ar-MA' });
 });

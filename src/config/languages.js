@@ -1,6 +1,9 @@
 // One entry per supported language: only languages handled by ALL THREE services
-// (Deepgram Nova-2 streaming ∩ DeepL ∩ ElevenLabs Turbo v2.5) are listed — 28 today.
-// Excluded because Nova-2 can't transcribe them: Arabic, Croatian, Filipino, Tamil. The three vendors disagree on codes:
+// (Deepgram streaming ∩ DeepL ∩ ElevenLabs Turbo v2.5) are listed — 32 today.
+// Arabic (+ Moroccan/Algerian/Tunisian) is transcribed by Deepgram's Nova-3 (`deepgramModel`);
+// every other language uses Nova-2. DeepL only knows standard Arabic (AR), and ElevenLabs speaks
+// standard Arabic: dialects are understood when SPOKEN but answered in standard Arabic.
+// Excluded because Deepgram can't transcribe them live: Croatian, Filipino, Tamil. The three vendors disagree on codes:
 //  - Deepgram Nova-2 : BCP-47-ish  ("fr", "en", "pt-BR")
 //  - DeepL source    : bare upper  ("FR", "EN", "PT")
 //  - DeepL target    : regional    ("EN-US", "PT-BR") — bare "EN"/"PT" are rejected as target
@@ -11,6 +14,10 @@ export const LANGUAGES = Object.freeze({
   de: { label: 'Deutsch', flag: '🇩🇪', deepgram: 'de', deeplSource: 'DE', deeplTarget: 'DE', eleven: 'de' },
   it: { label: 'Italiano', flag: '🇮🇹', deepgram: 'it', deeplSource: 'IT', deeplTarget: 'IT', eleven: 'it' },
   pt: { label: 'Português (Brasil)', flag: '🇧🇷', deepgram: 'pt-BR', deeplSource: 'PT', deeplTarget: 'PT-BR', eleven: 'pt' },
+  ar: { label: 'العربية (الفصحى)', flag: '🇸🇦', deepgram: 'ar', deepgramModel: 'nova-3', deeplSource: 'AR', deeplTarget: 'AR', eleven: 'ar' },
+  'ar-MA': { label: 'العربية — المغرب (دارجة)', flag: '🇲🇦', deepgram: 'ar-MA', deepgramModel: 'nova-3', deeplSource: 'AR', deeplTarget: 'AR', eleven: 'ar' },
+  'ar-DZ': { label: 'العربية — الجزائر (دارجة)', flag: '🇩🇿', deepgram: 'ar-DZ', deepgramModel: 'nova-3', deeplSource: 'AR', deeplTarget: 'AR', eleven: 'ar' },
+  'ar-TN': { label: 'العربية — تونس (دارجة)', flag: '🇹🇳', deepgram: 'ar-TN', deepgramModel: 'nova-3', deeplSource: 'AR', deeplTarget: 'AR', eleven: 'ar' },
   nl: { label: 'Nederlands', flag: '🇳🇱', deepgram: 'nl', deeplSource: 'NL', deeplTarget: 'NL', eleven: 'nl' },
   pl: { label: 'Polski', flag: '🇵🇱', deepgram: 'pl', deeplSource: 'PL', deeplTarget: 'PL', eleven: 'pl' },
   ru: { label: 'Русский', flag: '🇷🇺', deepgram: 'ru', deeplSource: 'RU', deeplTarget: 'RU', eleven: 'ru' },
