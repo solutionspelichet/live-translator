@@ -4,12 +4,14 @@ import test from 'node:test';
 import { PAN } from '../src/config/languages.js';
 import TranslationEngine, { STATE } from '../src/services/TranslationEngine.js';
 
-function setup({ noAudioMs = 1000, transcript = 'bonjour', segments = transcript ? [transcript] : [], sttDelay = 0, translateDelay = () => 0 } = {}) {
+function setup({ flushAfterMs = 1000, autoEndMs = 20, noAudioMs = 1000, transcript = 'bonjour', segments = transcript ? [transcript] : [], sttDelay = 0, translateDelay = () => 0 } = {}) {
   const calls = { translate: [], tts: [], play: [], played: [], sessions: [], stopAll: 0, restarts: 0 };
   let sink = null;
   const engine = new TranslationEngine({
     tailMs: 0,
     noAudioMs,
+    flushAfterMs,
+    autoEndMs,
     languages: { A: 'fr', B: 'en' },
     voices: { A: 'voice-fr', B: 'voice-en' },
     mic: {
@@ -140,7 +142,7 @@ test('auto-stop: Deepgram UtteranceEnd ends the turn without a second tap', asyn
   await engine.toggle('A');
   chunk();
   calls.sessions[0].onUtteranceEnd();
-  await new Promise((r) => setTimeout(r, 20));
+  await new Promise((r) => setTimeout(r, 70));
   assert.deepEqual(calls.translate, [['bonjour', 'fr', 'en']]);
   assert.deepEqual(calls.play, [PAN.B]);
 });
@@ -247,4 +249,38 @@ test('Deepgram connection error surfaces immediately, not only when the user sto
   calls.sessions[0].onError(new Error('Deepgram : connexion impossible'));
   assert.match(events.find((e) => e.type === 'error').error.message, /Deepgram/);
   assert.equal(engine.state, STATE.IDLE);
+});
+
+test('monologue: a pause translates the pending words at once but keeps the turn open', async () => {
+  const { engine, calls, chunk } = setup({ segments: [], autoEndMs: 80 });
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onFinal('et donc je disais que'); // no sentence end → held
+  assert.equal(calls.translate.length, 0);
+  calls.sessions[0].onUtteranceEnd(); // 1.5 s pause
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(calls.translate, [['et donc je disais que', 'fr', 'en']]);
+  assert.equal(engine.state, STATE.LISTENING, 'still listening: the speaker may continue');
+  await new Promise((r) => setTimeout(r, 120)); // silence goes on → turn ends by itself
+  assert.equal(engine.state, STATE.IDLE);
+});
+
+test('monologue: speech resuming after a pause keeps the turn alive', async () => {
+  const { engine, calls, chunk } = setup({ segments: [], autoEndMs: 40 });
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onUtteranceEnd();
+  calls.sessions[0].onInterim('je continue'); // words again before the end delay
+  await new Promise((r) => setTimeout(r, 90));
+  assert.equal(engine.state, STATE.LISTENING);
+});
+
+test('monologue: words without punctuation are translated after a short wait, not held forever', async () => {
+  const { engine, calls, chunk } = setup({ segments: [], flushAfterMs: 15 });
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onFinal('et puis ensuite nous avons');
+  await new Promise((r) => setTimeout(r, 40));
+  assert.deepEqual(calls.translate, [['et puis ensuite nous avons', 'fr', 'en']]);
+  assert.equal(engine.state, STATE.LISTENING);
 });

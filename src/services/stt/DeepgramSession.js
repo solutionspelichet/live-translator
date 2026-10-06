@@ -3,6 +3,9 @@ import { env } from '../../config/env';
 const FINALIZE_TIMEOUT_MS = 4000;
 // Silence after the last recognised word before Deepgram sends `UtteranceEnd` (min 1000).
 const UTTERANCE_END_MS = 1500;
+// Deepgram only validates text after a real pause. In a monologue without one, force a final
+// this often so translation can start instead of waiting for the speaker to breathe.
+const FORCE_FINAL_EVERY_MS = 4000;
 
 /**
  * One push-to-talk utterance = one Deepgram streaming session (Nova-2).
@@ -27,6 +30,9 @@ export default class DeepgramSession {
     this.isOpen = false;
     this.closed = false;
     this.settled = false;
+    this.lastFinalAt = 0;
+    this.firstInterimAt = 0;
+    this.forceFinalTimer = null;
 
     const params = new URLSearchParams({
       model: 'nova-2',
@@ -55,6 +61,7 @@ export default class DeepgramSession {
     this.ws.onopen = () => {
       this.status = 'open';
       this.isOpen = true;
+      this.startForceFinalTimer();
       this.pending.forEach((chunk) => this.ws.send(chunk));
       this.pending = [];
       if (this.closed) this.flush(); // user already released before the handshake ended
@@ -83,11 +90,26 @@ export default class DeepgramSession {
     if (msg.is_final) {
       this.finals.push(text);
       this.lastInterim = '';
+      this.lastFinalAt = Date.now();
       this.onFinal?.(text); // lets the caller translate while the user is still talking
     } else {
+      if (!this.lastInterim) this.firstInterimAt = Date.now();
       this.lastInterim = text;
     }
     this.onInterim?.([...this.finals, this.lastInterim].filter(Boolean).join(' '));
+  }
+
+  /** Ask Deepgram to validate what it has so far when a run of speech has gone on too long. */
+  startForceFinalTimer() {
+    this.forceFinalTimer = setInterval(() => {
+      if (!this.isOpen || this.closed || !this.lastInterim) return;
+      const since = Date.now() - Math.max(this.lastFinalAt, this.firstInterimAt);
+      if (since < FORCE_FINAL_EVERY_MS) return;
+      try {
+        this.ws.send(JSON.stringify({ type: 'Finalize' }));
+      } catch {}
+      this.lastFinalAt = Date.now();
+    }, 1000);
   }
 
   sendAudio(pcm16) {
@@ -116,6 +138,7 @@ export default class DeepgramSession {
     this.closed = true;
     this.settled = true;
     this.onFinal = null;
+    clearInterval(this.forceFinalTimer);
     clearTimeout(this.timer);
     try {
       this.ws.close();
@@ -127,6 +150,7 @@ export default class DeepgramSession {
     if (this.settled) return;
     this.settled = true;
     clearTimeout(this.timer);
+    clearInterval(this.forceFinalTimer);
     // If the last words never got an is_final before close, keep the best interim guess.
     if (this.lastInterim) {
       this.finals.push(this.lastInterim);
@@ -141,6 +165,7 @@ export default class DeepgramSession {
 
   fail(err) {
     clearTimeout(this.timer);
+    clearInterval(this.forceFinalTimer);
     this.status = 'error';
     this.rejectDone(err);
     this.onError?.(err); // surface right away, not only when the user stops talking
