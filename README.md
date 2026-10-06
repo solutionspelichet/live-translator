@@ -77,6 +77,18 @@ Le build ne contient aucune clé : le dépôt étant public, ses artefacts le so
   `EXPO_PUBLIC_DEEPL_BASE_URL`, `EXPO_PUBLIC_DEEPGRAM_WS_URL`, `EXPO_PUBLIC_ELEVENLABS_BASE_URL` dessus
   (idéalement Deepgram via clés temporaires). Pour EAS Build : `eas env:create` plutôt qu'un `.env` committé.
 
+## Arrière-plan et écran éteint (Android)
+
+Un service de premier plan de type *microphone* (notification permanente « DualCast Translate — Traduction active »)
+garde le micro et le réseau vivants quand l'app passe en arrière-plan ou que l'écran s'éteint ; une traduction en cours
+n'est plus interrompue. Il démarre au lancement (Android l'interdit depuis l'arrière-plan). Un tour de parole se démarre
+toujours par un appui sur l'écran : il n'y a pas (encore) de mode mains libres.
+
+## Réglages mémorisés
+
+⚙︎ → choix des deux langues (A = écouteur gauche, B = écouteur droit) et clés API ; le bouton « Auto » est aussi mémorisé.
+Tout est stocké dans le stockage sécurisé du téléphone (`expo-secure-store`).
+
 ## Points matériels à connaître
 
 - **Le micro ne doit pas passer par le Bluetooth.** Si le micro BT (profil HFP) est utilisé, la sortie bascule en mono basse qualité

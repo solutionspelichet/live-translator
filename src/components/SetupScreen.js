@@ -1,11 +1,20 @@
 import { Fragment, useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { currentValues, saveKeys, SETUP_FIELDS } from '../config/env';
+import { LANGUAGES } from '../config/languages';
+import { saveSettings } from '../config/settings';
+import { pickLanguage } from '../config/settingsModel';
 
-/** First-launch / settings form: keys are stored in the device's secure storage. */
-export default function SetupScreen({ onDone }) {
+/**
+ * First-launch / settings form. API keys and preferences (languages, auto-send) are stored in
+ * the device's secure storage.
+ * @param {{languages: {A: string, B: string}, autoStop: boolean}} props.settings
+ * @param {(settings) => void} props.onDone  called with the saved settings
+ */
+export default function SetupScreen({ settings, onDone }) {
   const [values, setValues] = useState(currentValues());
+  const [languages, setLanguages] = useState(settings.languages);
   const [saving, setSaving] = useState(false);
   const complete = SETUP_FIELDS.every((f) => values[f.name]?.trim());
 
@@ -16,6 +25,19 @@ export default function SetupScreen({ onDone }) {
         <Text style={styles.hint}>
           Collez vos clés API. Elles restent dans le stockage sécurisé de ce téléphone, jamais dans le code.
         </Text>
+        <Text style={styles.section}>Langues</Text>
+        <LanguagePicker
+          title="Langue A — écouteur gauche"
+          selected={languages.A}
+          onSelect={(code) => setLanguages((l) => pickLanguage(l, 'A', code))}
+        />
+        <LanguagePicker
+          title="Langue B — écouteur droit"
+          selected={languages.B}
+          onSelect={(code) => setLanguages((l) => pickLanguage(l, 'B', code))}
+        />
+
+        <Text style={styles.section}>Clés API</Text>
         {SETUP_FIELDS.map((f) => (
           <Fragment key={f.name}>
             <Text style={styles.label}>{f.label}</Text>
@@ -37,8 +59,9 @@ export default function SetupScreen({ onDone }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
+            const saved = await saveSettings({ ...settings, languages });
             setSaving(false);
-            onDone();
+            onDone(saved);
           }}
         >
           <Text style={styles.buttonText}>Enregistrer</Text>
@@ -48,7 +71,33 @@ export default function SetupScreen({ onDone }) {
   );
 }
 
+function LanguagePicker({ title, selected, onSelect }) {
+  return (
+    <>
+      <Text style={styles.label}>{title}</Text>
+      <View style={styles.chips}>
+        {Object.entries(LANGUAGES).map(([code, lang]) => (
+          <Pressable
+            key={code}
+            style={[styles.chip, selected === code && styles.chipOn]}
+            onPress={() => onSelect(code)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: selected === code }}
+          >
+            <Text style={styles.chipText}>{`${lang.flag} ${lang.label}`}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
+  section: { color: '#fff', fontSize: 18, fontWeight: '700', marginTop: 24 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: { backgroundColor: '#16233B', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14 },
+  chipOn: { backgroundColor: '#2F6FED' },
+  chipText: { color: '#fff', fontSize: 15 },
   root: { flex: 1, backgroundColor: '#0B0F1A' },
   content: { padding: 24, paddingTop: 48 },
   title: { color: '#fff', fontSize: 26, fontWeight: '700' },

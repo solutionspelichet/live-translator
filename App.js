@@ -8,12 +8,12 @@ import SplitScreen from './src/components/SplitScreen';
 import SetupScreen from './src/components/SetupScreen';
 import { loadStoredKeys, missingEnv } from './src/config/env';
 import { SIDE } from './src/config/languages';
+import { loadSettings, saveSettings } from './src/config/settings';
+import { DEFAULT_SETTINGS } from './src/config/settingsModel';
 import audio from './src/services/AudioRoutingService';
+import BackgroundService from './src/services/BackgroundService';
 import createEngine from './src/services/createEngine';
 import { STATE } from './src/services/TranslationEngine';
-
-// Language bound to each side of the phone AND each ear: A = left earbud, B = right earbud.
-const LANGUAGES = { [SIDE.A]: 'fr', [SIDE.B]: 'en' };
 
 export default function App() {
   useKeepAwake();
@@ -21,47 +21,66 @@ export default function App() {
   const [editing, setEditing] = useState(false);
   // Bumped after saving so the engine is rebuilt with the new keys.
   const [version, setVersion] = useState(0);
+  // Language bound to each side AND each ear (A = left earbud, B = right earbud), auto-send…
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
 
   useEffect(() => {
-    loadStoredKeys().finally(() => setReady(true));
+    Promise.all([loadStoredKeys(), loadSettings().then(setSettings)]).finally(() => setReady(true));
   }, []);
 
   if (!ready) return <View style={styles.missing} />;
   if (editing || missingEnv().length) {
     return (
       <SetupScreen
-        onDone={() => {
+        settings={settings}
+        onDone={(saved) => {
+          setSettings(saved);
           setVersion((v) => v + 1);
           setEditing(false);
         }}
       />
     );
   }
-  return <Translator key={version} onOpenSettings={() => setEditing(true)} />;
+  return (
+    <Translator
+      key={version}
+      settings={settings}
+      onSettingsChange={(next) => saveSettings(next).then(setSettings)}
+      onOpenSettings={() => setEditing(true)}
+    />
+  );
 }
 
-function Translator({ onOpenSettings }) {
-  const engine = useMemo(() => createEngine(LANGUAGES), []);
+function Translator({ settings, onSettingsChange, onOpenSettings }) {
+  const languages = settings.languages;
+  const engine = useMemo(() => {
+    const e = createEngine(languages);
+    e.autoStop = settings.autoStop;
+    return e;
+  }, [languages.A, languages.B]); // eslint-disable-line react-hooks/exhaustive-deps
   const [state, setState] = useState(STATE.IDLE);
   const [activeSide, setActiveSide] = useState(null);
   const [level, setLevel] = useState(0);
-  const [autoStop, setAutoStop] = useState(true);
+  const [autoStop, setAutoStop] = useState(settings.autoStop);
   const [diag, setDiag] = useState(null); // null = hidden
   const [texts, setTexts] = useState({ [SIDE.A]: '', [SIDE.B]: '' });
 
   useEffect(() => {
-    // Audio session first, then open the mic: the first tap is then instant.
+    // Audio session first, then the background service (must start while the app is visible),
+    // then open the mic: the first tap is then instant.
     audio
       .init()
+      .then(() => BackgroundService.start())
       .then(() => engine.warmUp())
       .then(() => audio.hasHeadphones())
       .then((ok) => ok || Alert.alert('Écouteurs requis', 'Connectez les écouteurs Bluetooth : sans eux, la voix sortira du haut-parleur sur les deux canaux.'))
       .catch((e) => Alert.alert('Audio', String(e.message ?? e)));
 
-    // Release the mic when the app leaves the foreground, reopen it on return.
+    // Going to the background / turning the screen off must NOT stop anything: the foreground
+    // service keeps the mic and the network alive, and a turn in progress keeps translating.
+    // On return, make sure the mic is still open (the OS may have reclaimed it).
     const appState = AppState.addEventListener('change', (next) => {
       if (next === 'active') engine.warmUp();
-      else engine.sleep();
     });
 
     const off = engine.subscribe((ev) => {
@@ -81,6 +100,7 @@ function Translator({ onOpenSettings }) {
       off();
       appState.remove();
       engine.sleep();
+      BackgroundService.stop();
       audio.dispose();
     };
   }, [engine]);
@@ -96,7 +116,7 @@ function Translator({ onOpenSettings }) {
     <View style={styles.flex}>
       <StatusBar style="light" />
       <SplitScreen
-        languages={LANGUAGES}
+        languages={languages}
         state={state}
         activeSide={activeSide}
         texts={texts}
@@ -110,6 +130,7 @@ function Translator({ onOpenSettings }) {
           onPress={() => {
             engine.autoStop = !autoStop;
             setAutoStop(!autoStop);
+            onSettingsChange({ ...settings, autoStop: !autoStop }); // remembered across launches
           }}
           hitSlop={12}
           accessibilityLabel="Envoi automatique après une pause"

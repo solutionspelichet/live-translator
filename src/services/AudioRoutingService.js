@@ -155,11 +155,14 @@ class AudioRoutingService {
   }
 
   async dispose() {
-    this.stopAll();
-    await this.ctx?.close();
-    this.ctx = null;
-    await AudioManager.setAudioSessionActivity(false);
+    // Flip the flag first so a quick re-init (settings screen → back) starts a fresh session
+    // instead of reusing the one being torn down.
+    const ctx = this.ctx;
     this.sessionReady = false;
+    this.ctx = null;
+    this.stopAll();
+    await ctx?.close();
+    await AudioManager.setAudioSessionActivity(false);
   }
 }
 

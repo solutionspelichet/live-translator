@@ -17,3 +17,26 @@ test('DeepL target codes are regional where DeepL requires it', () => {
 test('unknown language throws', () => {
   assert.throws(() => getLanguage('xx'), /Unsupported/);
 });
+
+import { DEFAULT_SETTINGS, pickLanguage, sanitizeSettings } from '../src/config/settingsModel.js';
+
+test('sanitizeSettings: defaults for missing / corrupt data', () => {
+  assert.deepEqual(sanitizeSettings(null), DEFAULT_SETTINGS);
+  assert.deepEqual(sanitizeSettings('garbage'), DEFAULT_SETTINGS);
+  assert.deepEqual(sanitizeSettings({ languages: { A: 'xx', B: 'yy' }, autoStop: 'yes' }), DEFAULT_SETTINGS);
+});
+
+test('sanitizeSettings keeps valid values', () => {
+  const s = sanitizeSettings({ languages: { A: 'de', B: 'es' }, autoStop: false });
+  assert.deepEqual(s, { languages: { A: 'de', B: 'es' }, autoStop: false });
+});
+
+test('sanitizeSettings never returns the same language on both ears', () => {
+  const s = sanitizeSettings({ languages: { A: 'fr', B: 'fr' } });
+  assert.notEqual(s.languages.A, s.languages.B);
+});
+
+test('pickLanguage swaps when the other side already uses it', () => {
+  assert.deepEqual(pickLanguage({ A: 'fr', B: 'en' }, 'A', 'en'), { A: 'en', B: 'fr' });
+  assert.deepEqual(pickLanguage({ A: 'fr', B: 'en' }, 'B', 'de'), { A: 'fr', B: 'de' });
+});
