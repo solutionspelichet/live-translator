@@ -37,3 +37,11 @@ test('resampleLinear is a no-op at equal rates', () => {
   const input = new Float32Array([0.1, 0.2]);
   assert.equal(resampleLinear(input, 16000, 16000), input);
 });
+
+import { rmsLevel } from '../src/utils/pcm.js';
+
+test('rmsLevel: silence is 0, loud signal is clamped to 1', () => {
+  assert.equal(rmsLevel(new Float32Array(100)), 0);
+  assert.equal(rmsLevel(new Float32Array(100).fill(0.9)), 1);
+  assert.equal(rmsLevel(new Float32Array(0)), 0);
+});

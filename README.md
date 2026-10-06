@@ -5,7 +5,7 @@ Le micro du téléphone capte la voix ; la traduction est restituée dans des é
 **langue A → écouteur gauche (pan −1.0)**, **langue B → écouteur droit (pan +1.0)**.
 
 ```
- Push-to-talk (zone A ou B)
+ Appui sur la zone A ou B (un appui pour parler, un appui pour finir)
         │  langue source = zone pressée
         ▼
  Micro (PCM16 16 kHz) ─▶ Deepgram Nova-2 (WebSocket) ─▶ DeepL ─▶ ElevenLabs Turbo v2.5 (pcm_24000)
@@ -30,7 +30,7 @@ src/
     stt/DeepgramSession.js          1 énoncé = 1 session WebSocket Nova-2
     translate/DeepLClient.js
     tts/ElevenLabsClient.js
-  components/SplitScreen.js         deux zones push-to-talk
+  components/SplitScreen.js         deux zones tactiles (appui simple)
   utils/pcm.js                      conversions PCM (pures, testées)
 tests/                              node --test (pipeline avec faux services)
 ```

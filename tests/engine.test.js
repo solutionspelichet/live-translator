@@ -6,13 +6,15 @@ import TranslationEngine, { STATE } from '../src/services/TranslationEngine.js';
 
 function setup({ transcript = 'bonjour', sttDelay = 0 } = {}) {
   const calls = { translate: [], tts: [], play: [], sessions: [], stopAll: 0 };
-  let onChunk;
+  let sink = null;
   const engine = new TranslationEngine({
+    tailMs: 0,
     languages: { A: 'fr', B: 'en' },
     voices: { A: 'voice-fr', B: 'voice-en' },
     mic: {
-      start: async (cb) => { onChunk = cb; },
-      stop: async () => {},
+      open: async () => {},
+      setSink: (fn) => { sink = fn; },
+      close: async () => {},
     },
     stt: {
       createSession: (opts) => {
@@ -30,12 +32,13 @@ function setup({ transcript = 'bonjour', sttDelay = 0 } = {}) {
   });
   const events = [];
   engine.subscribe((e) => events.push(e));
+  const chunk = () => sink({ pcm16: new ArrayBuffer(2), sampleRate: 16000, level: 0.5 });
   const speak = async (side) => {
     await engine.startTurn(side);
-    onChunk({ pcm16: new ArrayBuffer(2), sampleRate: 16000 });
+    chunk();
     await engine.endTurn();
   };
-  return { engine, calls, events, speak };
+  return { engine, calls, events, speak, chunk, hasSink: () => sink !== null };
 }
 
 test('A speaks French → English voice with A\'s partner on the RIGHT ear', async () => {
@@ -78,4 +81,38 @@ test('pipeline errors surface as an event and return to idle', async () => {
   await speak('A');
   assert.equal(events.find((e) => e.type === 'error').error.message, 'DeepL 456');
   assert.equal(engine.state, STATE.IDLE);
+});
+
+test('single-tap flow: tap starts, state turns LISTENING only once audio flows, tap again sends', async () => {
+  const { engine, calls, chunk, events } = setup();
+  await engine.toggle('A');
+  assert.equal(engine.state, STATE.STARTING, 'no audio yet → not "listening" yet');
+  chunk();
+  assert.equal(engine.state, STATE.LISTENING);
+  assert.ok(events.some((e) => e.type === 'level'));
+  await engine.toggle('A'); // second tap ends the turn
+  assert.deepEqual(calls.play, [PAN.B]);
+  assert.equal(engine.state, STATE.IDLE);
+});
+
+test('tapping the OTHER zone while recording also ends the turn (hand-over)', async () => {
+  const { engine, calls, chunk } = setup();
+  await engine.toggle('A');
+  chunk();
+  await engine.toggle('B');
+  assert.deepEqual(calls.translate, [['bonjour', 'fr', 'en']]);
+});
+
+test('tap-tap with no audio yields "empty", no API calls', async () => {
+  const { engine, calls, events } = setup();
+  await engine.toggle('A');
+  await engine.toggle('A');
+  assert.ok(events.some((e) => e.type === 'empty'));
+  assert.equal(calls.translate.length, 0);
+});
+
+test('mic sink is detached after the turn so nothing is streamed while idle', async () => {
+  const { speak, hasSink } = setup();
+  await speak('A');
+  assert.equal(hasSink(), false);
 });

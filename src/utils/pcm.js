@@ -39,3 +39,11 @@ export function resampleLinear(input, fromRate, toRate) {
   }
   return out;
 }
+
+/** Perceived loudness of a Float32 chunk, 0..1 (RMS, boosted because speech RMS is small). */
+export function rmsLevel(float32) {
+  if (float32.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
+  return Math.min(1, Math.sqrt(sum / float32.length) * 6);
+}

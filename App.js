@@ -1,7 +1,8 @@
 import { useKeepAwake } from 'expo-keep-awake';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import SplitScreen from './src/components/SplitScreen';
 import SetupScreen from './src/components/SetupScreen';
@@ -43,24 +44,41 @@ function Translator({ onOpenSettings }) {
   const engine = useMemo(() => createEngine(LANGUAGES), []);
   const [state, setState] = useState(STATE.IDLE);
   const [activeSide, setActiveSide] = useState(null);
+  const [level, setLevel] = useState(0);
   const [texts, setTexts] = useState({ [SIDE.A]: '', [SIDE.B]: '' });
 
   useEffect(() => {
+    // Audio session first, then open the mic: the first tap is then instant.
     audio
       .init()
+      .then(() => engine.warmUp())
       .then(() => audio.hasHeadphones())
       .then((ok) => ok || Alert.alert('Écouteurs requis', 'Connectez les écouteurs Bluetooth : sans eux, la voix sortira du haut-parleur sur les deux canaux.'))
       .catch((e) => Alert.alert('Audio', String(e.message ?? e)));
 
+    // Release the mic when the app leaves the foreground, reopen it on return.
+    const appState = AppState.addEventListener('change', (next) => {
+      if (next === 'active') engine.warmUp();
+      else engine.sleep();
+    });
+
     const off = engine.subscribe((ev) => {
-      if (ev.type === 'state') setState(ev.state);
+      if (ev.type === 'state') {
+        setState(ev.state);
+        setActiveSide(ev.side);
+        if (ev.state === STATE.STARTING) setTexts({ [SIDE.A]: '', [SIDE.B]: '' });
+        // Distinct buzz = "the mic is really live, speak now".
+        if (ev.state === STATE.LISTENING) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        if (ev.state !== STATE.LISTENING) setLevel(0);
+      } else if (ev.type === 'level') setLevel(ev.level);
       else if (ev.type === 'interim' || ev.type === 'transcript' || ev.type === 'translation') {
         setTexts((t) => ({ ...t, [ev.side]: ev.text }));
       } else if (ev.type === 'error') Alert.alert('Erreur', String(ev.error?.message ?? ev.error));
     });
     return () => {
       off();
-      engine.cancel();
+      appState.remove();
+      engine.sleep();
       audio.dispose();
     };
   }, [engine]);
@@ -73,12 +91,8 @@ function Translator({ onOpenSettings }) {
         state={state}
         activeSide={activeSide}
         texts={texts}
-        onPressIn={(side) => {
-          setActiveSide(side);
-          setTexts({ [SIDE.A]: '', [SIDE.B]: '' });
-          engine.startTurn(side);
-        }}
-        onPressOut={() => engine.endTurn()}
+        level={level}
+        onPress={(side) => engine.toggle(side)}
       />
       <Pressable style={styles.gear} onPress={onOpenSettings} hitSlop={16} accessibilityLabel="Réglages">
         <Text style={styles.gearText}>⚙︎</Text>

@@ -2,7 +2,8 @@ import { PAN, SIDE } from '../config/languages.js';
 
 export const STATE = Object.freeze({
   IDLE: 'idle',
-  LISTENING: 'listening',
+  STARTING: 'starting', // tap received, waiting for the first audio to actually flow
+  LISTENING: 'listening', // audio is flowing: the user can speak
   PROCESSING: 'processing',
   SPEAKING: 'speaking',
 });
@@ -10,11 +11,11 @@ export const STATE = Object.freeze({
 const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
 
 /**
- * Orchestrates one push-to-talk turn:   mic ─▶ STT ─▶ NMT ─▶ TTS ─▶ panned playback
+ * Orchestrates one turn:   mic ─▶ STT ─▶ NMT ─▶ TTS ─▶ panned playback
  *
- *   press zone X   → startTurn(X): stream mic to Deepgram in X's language
- *   release zone X → endTurn():    final transcript → DeepL (X → other) → ElevenLabs
- *                                  → played ONLY on the other person's earbud
+ *   tap zone X (idle)        → startTurn(X): stream mic to Deepgram in X's language
+ *   tap again (any zone)     → endTurn():    final transcript → DeepL (X → other) → ElevenLabs
+ *                                            → played ONLY on the other person's earbud
  *
  * Routing rule: the synthesized voice is in the *listener's* language, and each
  * language owns one ear — language A = left (pan -1), language B = right (pan +1).
@@ -25,23 +26,23 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {object} deps
  * @param {{A: string, B: string}} deps.languages   language code bound to each side
  * @param {{A: string, B: string}} deps.voices      ElevenLabs voice id for speech *in* each side's language
- * @param {{start(onChunk): Promise<void>, stop(): Promise<void>}} deps.mic
+ * @param {{open(): Promise<void>, setSink(fn|null): void, close(): Promise<void>}} deps.mic
  * @param {{createSession(opts): {sendAudio, finish, abort}}} deps.stt
  * @param {{translate(text, from, to): Promise<string>}} deps.translator
  * @param {{synthesize(text, opts): Promise<object>}} deps.tts
  * @param {{playPanned(source, pan): Promise<void>, stopAll(): void}} deps.audio
+ * @param {number} [deps.tailMs]  keep capturing this long after the stop tap (don't clip the last word)
  */
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200 }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs });
     this.state = STATE.IDLE;
     this.listeners = new Set();
     this.turnId = 0; // invalidates in-flight work when a new turn / cancel happens
     this.turn = null;
-    this.micIdle = Promise.resolve();
   }
 
-  /** Subscribe to {type: 'state'|'interim'|'transcript'|'translation'|'empty'|'error', ...}. */
+  /** Subscribe to {type: 'state'|'level'|'interim'|'transcript'|'translation'|'empty'|'error', ...}. */
   subscribe(listener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -53,20 +54,41 @@ export default class TranslationEngine {
 
   setState(state) {
     this.state = state;
-    this.emit({ type: 'state', state });
+    this.emit({ type: 'state', state, side: this.turn?.side ?? null });
+  }
+
+  /** Open the microphone ahead of time so the first tap is instant. */
+  warmUp() {
+    return this.mic.open().catch((error) => this.emit({ type: 'error', error }));
+  }
+
+  /** Release the microphone (app in background). */
+  sleep() {
+    this.cancel();
+    return this.mic.close().catch(() => {});
+  }
+
+  /** Single-tap behaviour: a tap while recording ends the turn, otherwise it starts one. */
+  toggle(side) {
+    const recording = this.state === STATE.STARTING || this.state === STATE.LISTENING;
+    return recording ? this.endTurn() : this.startTurn(side);
   }
 
   async startTurn(side) {
-    // Barge-in: pressing a zone interrupts anything still playing or processing.
+    // Barge-in: a tap interrupts anything still playing or processing.
     this.cancel();
     const id = ++this.turnId;
     const language = this.languages[side];
-    const turn = { id, side, language, session: null, startup: null };
+    const turn = { id, side, language, session: null, live: false, startup: null };
     this.turn = turn;
-    this.setState(STATE.LISTENING);
+    this.setState(STATE.STARTING);
 
-    const onChunk = ({ pcm16, sampleRate }) => {
+    const onChunk = ({ pcm16, sampleRate, level }) => {
       if (this.turnId !== id) return;
+      if (!turn.live) {
+        turn.live = true;
+        this.setState(STATE.LISTENING); // first audio really flowing → tell the user to speak
+      }
       // Open Deepgram lazily on the first chunk: that's when the true sample rate is known.
       turn.session ??= this.stt.createSession({
         language,
@@ -74,25 +96,31 @@ export default class TranslationEngine {
         onInterim: (text) => this.turnId === id && this.emit({ type: 'interim', side, text }),
       });
       turn.session.sendAudio(pcm16);
+      this.emit({ type: 'level', level });
     };
-    // Wait for a previous turn's mic.stop() so start/stop never overlap on the recorder.
-    turn.startup = this.micIdle
-      .then(() => this.mic.start(onChunk))
+
+    // When the mic is already warm, open() resolves at once and the pre-roll is replayed
+    // synchronously, so STARTING → LISTENING is near-instant.
+    turn.startup = this.mic
+      .open()
+      .then(() => this.turnId === id && this.mic.setSink(onChunk))
       .catch((error) => this.fail(id, error));
     await turn.startup;
   }
 
   async endTurn() {
     const turn = this.turn;
-    if (!turn || turn.id !== this.turnId || this.state !== STATE.LISTENING) return;
+    if (!turn || turn.id !== this.turnId) return;
+    if (this.state !== STATE.STARTING && this.state !== STATE.LISTENING) return;
     const { id, side, language } = turn;
 
     try {
-      await turn.startup; // user may release before the mic finished starting
+      await turn.startup;
       if (this.turnId !== id) return; // startup failed or a newer turn took over
-      await this.mic.stop();
+      this.setState(STATE.PROCESSING); // immediate feedback; capture continues for the tail
+      if (this.tailMs > 0) await new Promise((r) => setTimeout(r, this.tailMs));
+      this.mic.setSink(null);
       if (this.turnId !== id) return;
-      this.setState(STATE.PROCESSING);
 
       const transcript = turn.session ? await turn.session.finish() : '';
       if (this.turnId !== id) return;
@@ -126,7 +154,7 @@ export default class TranslationEngine {
   cancel() {
     this.turnId++; // any pending await of the previous turn becomes a no-op
     this.turn?.session?.abort();
-    this.micIdle = this.mic.stop().catch(() => {});
+    this.mic.setSink(null); // the mic itself stays warm
     this.audio.stopAll();
     this.turn = null;
     if (this.state !== STATE.IDLE) this.setState(STATE.IDLE);
@@ -136,7 +164,7 @@ export default class TranslationEngine {
     if (this.turnId !== id) return;
     this.turnId++;
     this.turn?.session?.abort();
-    this.micIdle = this.mic.stop().catch(() => {});
+    this.mic.setSink(null);
     this.emit({ type: 'error', error });
     this.setState(STATE.IDLE);
   }
