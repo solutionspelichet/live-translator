@@ -45,3 +45,20 @@ test('background defaults to on and can be switched off', () => {
   assert.equal(sanitizeSettings({}).background, true);
   assert.equal(sanitizeSettings({ background: false }).background, false);
 });
+
+test('every language declares all four service codes', () => {
+  for (const [code, lang] of Object.entries(LANGUAGES)) {
+    for (const field of ['label', 'flag', 'deepgram', 'deeplSource', 'deeplTarget', 'eleven']) {
+      assert.ok(lang[field], `${code}.${field} missing`);
+    }
+    assert.equal(lang.deeplSource, lang.deeplSource.toUpperCase(), `${code} DeepL source must be upper-case`);
+    assert.ok(!/-/.test(lang.deeplSource), `${code} DeepL source must be bare (no region)`);
+  }
+});
+
+test('28 languages, no duplicate service codes for the speech models', () => {
+  const entries = Object.values(LANGUAGES);
+  assert.equal(entries.length, 28);
+  assert.equal(new Set(entries.map((l) => l.deepgram)).size, entries.length);
+  assert.equal(new Set(entries.map((l) => l.label)).size, entries.length);
+});

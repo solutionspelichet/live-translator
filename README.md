@@ -77,6 +77,14 @@ Le build ne contient aucune clé : le dépôt étant public, ses artefacts le so
   `EXPO_PUBLIC_DEEPL_BASE_URL`, `EXPO_PUBLIC_DEEPGRAM_WS_URL`, `EXPO_PUBLIC_ELEVENLABS_BASE_URL` dessus
   (idéalement Deepgram via clés temporaires). Pour EAS Build : `eas env:create` plutôt qu'un `.env` committé.
 
+## Langues (28)
+
+Français, English, Español, Deutsch, Italiano, Português (Brasil), Nederlands, Polski, Русский, Українська, Türkçe, Svenska,
+Dansk, Norsk, Suomi, Ελληνικά, Čeština, Slovenčina, Magyar, Română, Български, 日本語, 한국어, 中文 (mandarin), हिन्दी,
+Bahasa Indonesia, Bahasa Melayu, Tiếng Việt. Seules les langues gérées par les **trois** services (Deepgram Nova-2 en streaming,
+DeepL, ElevenLabs Turbo v2.5) sont proposées ; arabe, croate, filipino et tamoul sont exclus car Nova-2 ne les transcrit pas.
+Hindi, malais et vietnamien sont des ajouts récents chez DeepL : non testés ici.
+
 ## Arrière-plan et écran éteint (Android)
 
 Un service de premier plan de type *microphone* (notification permanente « DualCast Translate — Traduction active »)

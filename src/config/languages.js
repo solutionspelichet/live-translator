@@ -1,4 +1,6 @@
-// One entry per supported language. The three vendors disagree on codes:
+// One entry per supported language: only languages handled by ALL THREE services
+// (Deepgram Nova-2 streaming ∩ DeepL ∩ ElevenLabs Turbo v2.5) are listed — 28 today.
+// Excluded because Nova-2 can't transcribe them: Arabic, Croatian, Filipino, Tamil. The three vendors disagree on codes:
 //  - Deepgram Nova-2 : BCP-47-ish  ("fr", "en", "pt-BR")
 //  - DeepL source    : bare upper  ("FR", "EN", "PT")
 //  - DeepL target    : regional    ("EN-US", "PT-BR") — bare "EN"/"PT" are rejected as target
@@ -8,7 +10,29 @@ export const LANGUAGES = Object.freeze({
   es: { label: 'Español', flag: '🇪🇸', deepgram: 'es', deeplSource: 'ES', deeplTarget: 'ES', eleven: 'es' },
   de: { label: 'Deutsch', flag: '🇩🇪', deepgram: 'de', deeplSource: 'DE', deeplTarget: 'DE', eleven: 'de' },
   it: { label: 'Italiano', flag: '🇮🇹', deepgram: 'it', deeplSource: 'IT', deeplTarget: 'IT', eleven: 'it' },
-  pt: { label: 'Português', flag: '🇧🇷', deepgram: 'pt-BR', deeplSource: 'PT', deeplTarget: 'PT-BR', eleven: 'pt' },
+  pt: { label: 'Português (Brasil)', flag: '🇧🇷', deepgram: 'pt-BR', deeplSource: 'PT', deeplTarget: 'PT-BR', eleven: 'pt' },
+  nl: { label: 'Nederlands', flag: '🇳🇱', deepgram: 'nl', deeplSource: 'NL', deeplTarget: 'NL', eleven: 'nl' },
+  pl: { label: 'Polski', flag: '🇵🇱', deepgram: 'pl', deeplSource: 'PL', deeplTarget: 'PL', eleven: 'pl' },
+  ru: { label: 'Русский', flag: '🇷🇺', deepgram: 'ru', deeplSource: 'RU', deeplTarget: 'RU', eleven: 'ru' },
+  uk: { label: 'Українська', flag: '🇺🇦', deepgram: 'uk', deeplSource: 'UK', deeplTarget: 'UK', eleven: 'uk' },
+  tr: { label: 'Türkçe', flag: '🇹🇷', deepgram: 'tr', deeplSource: 'TR', deeplTarget: 'TR', eleven: 'tr' },
+  sv: { label: 'Svenska', flag: '🇸🇪', deepgram: 'sv', deeplSource: 'SV', deeplTarget: 'SV', eleven: 'sv' },
+  da: { label: 'Dansk', flag: '🇩🇰', deepgram: 'da', deeplSource: 'DA', deeplTarget: 'DA', eleven: 'da' },
+  no: { label: 'Norsk', flag: '🇳🇴', deepgram: 'no', deeplSource: 'NB', deeplTarget: 'NB', eleven: 'no' },
+  fi: { label: 'Suomi', flag: '🇫🇮', deepgram: 'fi', deeplSource: 'FI', deeplTarget: 'FI', eleven: 'fi' },
+  el: { label: 'Ελληνικά', flag: '🇬🇷', deepgram: 'el', deeplSource: 'EL', deeplTarget: 'EL', eleven: 'el' },
+  cs: { label: 'Čeština', flag: '🇨🇿', deepgram: 'cs', deeplSource: 'CS', deeplTarget: 'CS', eleven: 'cs' },
+  sk: { label: 'Slovenčina', flag: '🇸🇰', deepgram: 'sk', deeplSource: 'SK', deeplTarget: 'SK', eleven: 'sk' },
+  hu: { label: 'Magyar', flag: '🇭🇺', deepgram: 'hu', deeplSource: 'HU', deeplTarget: 'HU', eleven: 'hu' },
+  ro: { label: 'Română', flag: '🇷🇴', deepgram: 'ro', deeplSource: 'RO', deeplTarget: 'RO', eleven: 'ro' },
+  bg: { label: 'Български', flag: '🇧🇬', deepgram: 'bg', deeplSource: 'BG', deeplTarget: 'BG', eleven: 'bg' },
+  ja: { label: '日本語', flag: '🇯🇵', deepgram: 'ja', deeplSource: 'JA', deeplTarget: 'JA', eleven: 'ja' },
+  ko: { label: '한국어', flag: '🇰🇷', deepgram: 'ko', deeplSource: 'KO', deeplTarget: 'KO', eleven: 'ko' },
+  zh: { label: '中文 (普通话)', flag: '🇨🇳', deepgram: 'zh-CN', deeplSource: 'ZH', deeplTarget: 'ZH', eleven: 'zh' },
+  hi: { label: 'हिन्दी', flag: '🇮🇳', deepgram: 'hi', deeplSource: 'HI', deeplTarget: 'HI', eleven: 'hi' },
+  id: { label: 'Bahasa Indonesia', flag: '🇮🇩', deepgram: 'id', deeplSource: 'ID', deeplTarget: 'ID', eleven: 'id' },
+  ms: { label: 'Bahasa Melayu', flag: '🇲🇾', deepgram: 'ms', deeplSource: 'MS', deeplTarget: 'MS', eleven: 'ms' },
+  vi: { label: 'Tiếng Việt', flag: '🇻🇳', deepgram: 'vi', deeplSource: 'VI', deeplTarget: 'VI', eleven: 'vi' },
 });
 
 export function getLanguage(code) {
