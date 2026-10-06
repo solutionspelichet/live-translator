@@ -24,6 +24,8 @@ import {
   pickLanguage,
   sanitizeSettings,
   updateProfile,
+  resolveUsage,
+  USAGE_CHOICES,
   USAGE_MODES,
 } from '../src/config/settingsModel.js';
 
@@ -58,7 +60,7 @@ test('two usage modes with their own AGC preset', () => {
 
 test('each mode has independent audio settings, hands-free louder by default', () => {
   const s = sanitizeSettings({});
-  assert.equal(s.usage, 'handsfree');
+  assert.equal(s.usage, 'auto');
   assert.ok(s.profiles.handsfree.voiceVolume > s.profiles.ear.voiceVolume);
   const edited = updateProfile(s, 'ear', { micGain: 8 });
   assert.equal(edited.profiles.ear.micGain, 8);
@@ -121,4 +123,25 @@ test('32 languages, no duplicate service codes for the speech models', () => {
   assert.equal(entries.length, 32);
   assert.equal(new Set(entries.map((l) => l.deepgram)).size, entries.length);
   assert.equal(new Set(entries.map((l) => l.label)).size, entries.length);
+});
+
+test("'auto' usage follows the proximity sensor; fixed modes ignore it", () => {
+  assert.equal(resolveUsage('auto', true), 'ear');
+  assert.equal(resolveUsage('auto', false), 'handsfree');
+  assert.equal(resolveUsage('handsfree', true), 'handsfree');
+  assert.equal(resolveUsage('ear', false), 'ear');
+  assert.equal(resolveUsage('???', true), 'handsfree');
+});
+
+test('usage choices and sanitizing', () => {
+  assert.deepEqual([...USAGE_CHOICES], ['auto', 'handsfree', 'ear']);
+  assert.equal(sanitizeSettings({ usage: 'ear' }).usage, 'ear');
+  assert.equal(sanitizeSettings({ usage: 'auto' }).usage, 'auto');
+  assert.equal(sanitizeSettings({ usage: 'nope' }).usage, 'auto');
+});
+
+test('activeProfile picks the at-the-ear profile when the phone is near the face in auto mode', () => {
+  const s = updateProfile(sanitizeSettings({ usage: 'auto' }), 'ear', { micGain: 2 });
+  assert.equal(activeProfile(s, true).micGain, 2);
+  assert.equal(activeProfile(s, false).micGain, 'auto');
 });

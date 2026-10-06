@@ -119,12 +119,18 @@ appris en continu, sans saturer ni amplifier le bruit) ou un gain fixe ×1 à ×
 
 ## Mains libres / à l'oreille
 
-Deux modes d'utilisation (bouton 🖐️ / 👂 au centre de l'écran, ou ⚙︎ → Utilisation), chacun avec **ses propres réglages** :
+Deux modes d'utilisation, chacun avec **ses propres réglages**. Le mode **📡 Automatique** (défaut) utilise le capteur de proximité :
+téléphone collé au visage → « à l'oreille », sinon « mains libres » (changement confirmé après ~1 s, appliqué entre deux prises de parole,
+jamais en plein milieu d'une phrase). Le bouton au centre de l'écran fait défiler Auto → 🖐️ → 👂 ; ⚙︎ → Utilisation permet aussi de
+fixer le mode. Réglages de chaque mode :
 micro utilisé, sensibilité du micro et volume de la voix traduite.
 - **Mains libres** (téléphone posé à plat) : la voix arrive faible et lointaine → amplification automatique forte (jusqu'à ×40), voix traduite ×2.
 - **À l'oreille** (téléphone tenu près de la bouche) : la voix arrive forte → amplification automatique modérée (jusqu'à ×8), voix ×1,5.
 Le micro peut être choisi parmi ceux que le téléphone expose (micro intégré, casque filaire, Bluetooth…). Un micro Bluetooth fait
 passer les écouteurs en mono (profil HFP) : la séparation gauche/droite est alors perdue.
+
+Limite du mode automatique : un téléphone dans une poche ou face contre une table peut aussi masquer le capteur de proximité et
+basculer en « à l'oreille » (gain plus faible) ; fixez alors le mode sur 🖐️.
 
 ## Volume de la voix traduite
 

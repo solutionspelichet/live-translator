@@ -9,7 +9,7 @@ import SetupScreen from './src/components/SetupScreen';
 import { loadStoredKeys, missingEnv } from './src/config/env';
 import { SIDE } from './src/config/languages';
 import { loadSettings, saveSettings } from './src/config/settings';
-import { activeProfile, DEFAULT_SETTINGS, USAGE_MODES } from './src/config/settingsModel';
+import { activeProfile, DEFAULT_SETTINGS, resolveUsage, USAGE_CHOICES, USAGE_MODES } from './src/config/settingsModel';
 import Power from './modules/dualcast-power';
 import audio from './src/services/AudioRoutingService';
 import BackgroundService from './src/services/BackgroundService';
@@ -59,13 +59,34 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
     const e = createEngine(languages);
     e.autoStop = settings.autoStop;
     const p = activeProfile(settings);
-    e.mic.setGain(p.micGain, USAGE_MODES[settings.usage].agcPreset);
+    e.mic.setGain(p.micGain, USAGE_MODES[resolveUsage(settings.usage, false)].agcPreset);
     audio.setVoiceVolume(p.voiceVolume);
     return e;
   }, [languages.A, languages.B]); // eslint-disable-line react-hooks/exhaustive-deps
-  const profile = activeProfile(settings);
-  const usageMode = USAGE_MODES[settings.usage];
   const [state, setState] = useState(STATE.IDLE);
+  // Proximity sensor (phone against the face = "at the ear"). A change must hold for a moment
+  // (a hand passing over the phone is not a call) and is only applied between turns, so the
+  // microphone gain never jumps in the middle of a sentence.
+  const [near, setNear] = useState(false);
+  const [appliedNear, setAppliedNear] = useState(false);
+  useEffect(() => {
+    if (settings.usage !== 'auto') return undefined;
+    let timer;
+    const stop = Power.watchProximity((isNear) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => setNear(isNear), isNear ? 1200 : 600);
+    });
+    return () => {
+      clearTimeout(timer);
+      stop();
+    };
+  }, [settings.usage]);
+  useEffect(() => {
+    if (state === STATE.IDLE) setAppliedNear(settings.usage === 'auto' ? near : false);
+  }, [near, state, settings.usage]);
+  const effectiveUsage = resolveUsage(settings.usage, appliedNear);
+  const profile = settings.profiles[effectiveUsage];
+  const usageMode = USAGE_MODES[effectiveUsage];
   const [activeSide, setActiveSide] = useState(null);
   const [level, setLevel] = useState(0);
   const [autoStop, setAutoStop] = useState(settings.autoStop);
@@ -129,7 +150,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
   useEffect(() => {
     engine.mic.setGain(profile.micGain, usageMode.agcPreset);
     audio.setVoiceVolume(profile.voiceVolume);
-  }, [engine, settings.usage, profile.micGain, profile.voiceVolume]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [engine, effectiveUsage, profile.micGain, profile.voiceVolume]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (firstRun.current) {
       firstRun.current = false; // the initial selection is done in the startup chain
@@ -163,11 +184,11 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
       <View style={styles.controls} pointerEvents="box-none">
         <Pressable
           style={styles.chip}
-          onPress={() => onSettingsChange({ ...settings, usage: settings.usage === 'ear' ? 'handsfree' : 'ear' })}
+          onPress={() => onSettingsChange({ ...settings, usage: USAGE_CHOICES[(USAGE_CHOICES.indexOf(settings.usage) + 1) % USAGE_CHOICES.length] })}
           hitSlop={12}
-          accessibilityLabel="Changer de mode d'utilisation : mains libres ou à l'oreille"
+          accessibilityLabel="Changer de mode d'utilisation : automatique, mains libres ou à l'oreille"
         >
-          <Text style={styles.chipText}>{`${usageMode.icon} ${usageMode.label}`}</Text>
+          <Text style={styles.chipText}>{settings.usage === 'auto' ? `📡 Auto · ${usageMode.icon}` : `${usageMode.icon} ${usageMode.label}`}</Text>
         </Pressable>
         <Pressable
           style={[styles.chip, autoStop && styles.chipOn]}
@@ -198,7 +219,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
             {diag.msSinceChunk != null ? ` · dernier il y a ${diag.msSinceChunk} ms` : ' · aucun paquet reçu'}
             {`\nfréquence: ${diag.sampleRate} Hz · état: ${diag.state} · Deepgram: ${diag.stt ?? '—'}`}
             {`\narrière-plan: ${settings.background ? BackgroundService.status : 'désactivé'}`}
-            {`\nmode: ${usageMode.label} · micro: ${profile.input?.name ?? 'téléphone (auto)'}`}
+            {`\nmode: ${settings.usage === 'auto' ? 'auto → ' : ''}${usageMode.label} (capteur: ${near ? 'près' : 'loin'}) · micro: ${profile.input?.name ?? 'téléphone (auto)'}`}
             {`\nveille: verrou ${BackgroundService.lockHeld ? 'oui' : 'NON'} · batterie sans limite: ${Power.isIgnoringBatteryOptimizations() ? 'oui' : 'NON'} · gain micro: ×${Number(diag.gain).toFixed(1)}`}
             {diag.micError ? `\nerreur micro: ${diag.micError}` : ''}
             {`\n— journal —\n${EventLog.last(7).join('\n') || '(vide)'}`}

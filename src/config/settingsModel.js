@@ -14,6 +14,15 @@ export const USAGE_MODES = Object.freeze({
   ear: { label: "À l'oreille", hint: 'téléphone tenu près de la bouche', icon: '👂', agcPreset: 'near' },
 });
 
+/** How the mode is chosen: 'auto' follows the proximity sensor, the others are fixed. */
+export const USAGE_CHOICES = Object.freeze(['auto', 'handsfree', 'ear']);
+
+/** The profile that applies right now: 'auto' = at the ear when something is close to the phone. */
+export function resolveUsage(usage, near) {
+  if (usage === 'auto') return near ? 'ear' : 'handsfree';
+  return USAGE_MODES[usage] ? usage : 'handsfree';
+}
+
 const DEFAULT_PROFILES = Object.freeze({
   handsfree: Object.freeze({ micGain: 'auto', voiceVolume: 2, input: null }),
   ear: Object.freeze({ micGain: 'auto', voiceVolume: 1.5, input: null }),
@@ -23,7 +32,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   languages: Object.freeze({ A: 'fr', B: 'en' }),
   autoStop: true,
   background: true, // keep working with the screen off (Android foreground service)
-  usage: 'handsfree',
+  usage: 'auto', // 'auto' (proximity sensor) | 'handsfree' | 'ear'
   profiles: DEFAULT_PROFILES,
 });
 
@@ -59,7 +68,7 @@ export function sanitizeSettings(raw) {
     languages: { A: a, B: b },
     autoStop: typeof input.autoStop === 'boolean' ? input.autoStop : DEFAULT_SETTINGS.autoStop,
     background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,
-    usage: USAGE_MODES[input.usage] ? input.usage : DEFAULT_SETTINGS.usage,
+    usage: USAGE_CHOICES.includes(input.usage) ? input.usage : DEFAULT_SETTINGS.usage,
     profiles: {
       handsfree: sanitizeProfile(input.profiles?.handsfree, DEFAULT_PROFILES.handsfree, legacy),
       ear: sanitizeProfile(input.profiles?.ear, DEFAULT_PROFILES.ear),
@@ -67,9 +76,9 @@ export function sanitizeSettings(raw) {
   };
 }
 
-/** Audio settings of the mode currently in use. */
-export function activeProfile(settings) {
-  return settings.profiles[settings.usage];
+/** Audio settings of the mode currently in use (`near`: phone against the face, from the proximity sensor). */
+export function activeProfile(settings, near = false) {
+  return settings.profiles[resolveUsage(settings.usage, near)];
 }
 
 export function updateProfile(settings, usage, patch) {
