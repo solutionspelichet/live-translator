@@ -1,0 +1,38 @@
+name: Build Android APK
+
+# Lancer à la main : onglet Actions → "Build Android APK" → Run workflow.
+# Aucun secret n'est injecté : les clés API se saisissent dans l'app au premier lancement.
+on:
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - run: npm ci
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build release APK (JS bundled, signed with the debug key — fine for sideloading)
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dualcast-translate-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 7

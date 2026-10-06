@@ -1,10 +1,11 @@
 import { useKeepAwake } from 'expo-keep-awake';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import SplitScreen from './src/components/SplitScreen';
-import { missingEnv } from './src/config/env';
+import SetupScreen from './src/components/SetupScreen';
+import { loadStoredKeys, missingEnv } from './src/config/env';
 import { SIDE } from './src/config/languages';
 import audio from './src/services/AudioRoutingService';
 import createEngine from './src/services/createEngine';
@@ -15,12 +16,30 @@ const LANGUAGES = { [SIDE.A]: 'fr', [SIDE.B]: 'en' };
 
 export default function App() {
   useKeepAwake();
-  const missing = missingEnv();
-  if (missing.length) return <MissingEnv names={missing} />;
-  return <Translator />;
+  const [ready, setReady] = useState(false);
+  const [editing, setEditing] = useState(false);
+  // Bumped after saving so the engine is rebuilt with the new keys.
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    loadStoredKeys().finally(() => setReady(true));
+  }, []);
+
+  if (!ready) return <View style={styles.missing} />;
+  if (editing || missingEnv().length) {
+    return (
+      <SetupScreen
+        onDone={() => {
+          setVersion((v) => v + 1);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+  return <Translator key={version} onOpenSettings={() => setEditing(true)} />;
 }
 
-function Translator() {
+function Translator({ onOpenSettings }) {
   const engine = useMemo(() => createEngine(LANGUAGES), []);
   const [state, setState] = useState(STATE.IDLE);
   const [activeSide, setActiveSide] = useState(null);
@@ -61,27 +80,27 @@ function Translator() {
         }}
         onPressOut={() => engine.endTurn()}
       />
+      <Pressable style={styles.gear} onPress={onOpenSettings} hitSlop={16} accessibilityLabel="Réglages">
+        <Text style={styles.gearText}>⚙︎</Text>
+      </Pressable>
     </View>
-  );
-}
-
-function MissingEnv({ names }) {
-  return (
-    <SafeAreaView style={styles.missing}>
-      <Text style={styles.title}>Clés API manquantes</Text>
-      <Text style={styles.body}>Copiez .env.example vers .env, renseignez :</Text>
-      {names.map((n) => (
-        <Text key={n} style={styles.code}>{n}</Text>
-      ))}
-      <Text style={styles.body}>puis relancez : npx expo start -c</Text>
-    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  missing: { flex: 1, backgroundColor: '#0B0F1A', padding: 24, justifyContent: 'center' },
-  title: { color: '#fff', fontSize: 24, fontWeight: '700', marginBottom: 12 },
-  body: { color: '#9AA6C4', fontSize: 16, marginVertical: 8 },
-  code: { color: '#7CE0A3', fontFamily: 'Courier', fontSize: 14 },
+  missing: { flex: 1, backgroundColor: '#0B0F1A' },
+  gear: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '50%',
+    marginTop: -20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#000C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gearText: { color: '#fff', fontSize: 20 },
 });

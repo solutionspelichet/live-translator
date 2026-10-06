@@ -56,17 +56,16 @@ npx expo start --dev-client # ensuite, juste Metro
 npm test
 ```
 
-## Tester sur son téléphone (sans Mac ni Android Studio)
+## Tester sur son téléphone, sans ordinateur (Android)
 
-Expo Go ne marche pas (module audio natif) : il faut installer **une fois** un build de développement fabriqué par EAS.
+1. GitHub (navigateur du téléphone) → onglet **Actions** → **Build Android APK** → **Run workflow**.
+2. Attendre ~10-15 min, ouvrir l'exécution terminée, télécharger l'artefact `dualcast-translate-apk` (un .zip).
+3. Dézipper (app Fichiers), ouvrir `app-release.apk`, autoriser « sources inconnues ».
+4. Au 1er lancement, coller les 3 clés API et les 2 voice ID (stockés dans le stockage sécurisé du téléphone).
+   Le bouton ⚙︎ au centre de l'écran rouvre cette page.
 
-```bash
-npx eas-cli login
-npx eas-cli build --profile development --platform android   # lien/QR vers l'APK → l'installer sur le téléphone
-npx expo start --dev-client --tunnel                          # puis ouvrir l'app installée et scanner le QR
-```
-Les clés du `.env` sont lues par Metro au démarrage (`npx expo start -c` si elles changent).
-iOS : même commande avec `--platform ios`, mais exige un compte Apple Developer payant et l'enregistrement de l'appareil.
+Le build ne contient aucune clé : le dépôt étant public, ses artefacts le sont aussi.
+(Alternative avec ordinateur : `npx eas-cli build --profile development --platform android`.)
 
 ## Gestion des clés (`.env`)
 

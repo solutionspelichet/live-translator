@@ -47,7 +47,8 @@
           ]
         }
       ],
-      "expo-build-properties"
+      "expo-build-properties",
+      "expo-secure-store"
     ]
   }
 }
