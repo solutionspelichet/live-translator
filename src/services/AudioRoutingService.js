@@ -69,6 +69,37 @@ class AudioRoutingService {
     }
   }
 
+  /** Microphones the phone currently offers: [{ id, name, category }]. */
+  async listInputs() {
+    try {
+      const { availableInputs } = await AudioManager.getDevicesInfo();
+      return availableInputs.map((d) => ({ id: d.id, name: d.name, category: d.category }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Use the chosen microphone ({ id, name }), or the phone's built-in one when `choice` is null or
+   * no longer connected. Ids can change between sessions, so fall back to matching by name.
+   * @returns {Promise<string|null>} id of the selected device, null if the built-in mic was used
+   */
+  async selectInput(choice) {
+    try {
+      const { availableInputs } = await AudioManager.getDevicesInfo();
+      const device = choice && (availableInputs.find((d) => d.id === choice.id) ?? availableInputs.find((d) => d.name === choice.name));
+      if (!device) {
+        await this.pinBuiltInMic();
+        return null;
+      }
+      await AudioManager.setInputDevice(device.id);
+      return device.id;
+    } catch (err) {
+      console.warn('[AudioRouting] could not select the microphone:', err);
+      return null;
+    }
+  }
+
   /** True when a non-speaker, non-earpiece output (Bluetooth/wired) is connected. */
   async hasHeadphones() {
     try {

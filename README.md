@@ -117,6 +117,15 @@ Android n'expose pas de réglage de sensibilité aux apps ; l'app amplifie donc 
 appris en continu, sans saturer ni amplifier le bruit) ou un gain fixe ×1 à ×32. La barre de volume pendant l'enregistrement et le
 « gain micro » du panneau de diagnostic montrent ce qui est réellement envoyé.
 
+## Mains libres / à l'oreille
+
+Deux modes d'utilisation (bouton 🖐️ / 👂 au centre de l'écran, ou ⚙︎ → Utilisation), chacun avec **ses propres réglages** :
+micro utilisé, sensibilité du micro et volume de la voix traduite.
+- **Mains libres** (téléphone posé à plat) : la voix arrive faible et lointaine → amplification automatique forte (jusqu'à ×40), voix traduite ×2.
+- **À l'oreille** (téléphone tenu près de la bouche) : la voix arrive forte → amplification automatique modérée (jusqu'à ×8), voix ×1,5.
+Le micro peut être choisi parmi ceux que le téléphone expose (micro intégré, casque filaire, Bluetooth…). Un micro Bluetooth fait
+passer les écouteurs en mono (profil HFP) : la séparation gauche/droite est alors perdue.
+
 ## Volume de la voix traduite
 
 La voix ElevenLabs est ramenée à un niveau sonore confortable (RMS, pas seulement le pic) puis les pics sont écrêtés en douceur

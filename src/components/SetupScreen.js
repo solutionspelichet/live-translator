@@ -1,10 +1,17 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { currentValues, saveKeys, SETUP_FIELDS } from '../config/env';
 import { LANGUAGES } from '../config/languages';
 import { saveSettings } from '../config/settings';
-import { MIC_GAIN_CHOICES, pickLanguage, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
+import {
+  MIC_GAIN_CHOICES,
+  pickLanguage,
+  updateProfile,
+  USAGE_MODES,
+  VOICE_VOLUME_CHOICES,
+} from '../config/settingsModel';
+import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 
 /**
@@ -17,8 +24,15 @@ export default function SetupScreen({ settings, onDone }) {
   const [values, setValues] = useState(currentValues());
   const [languages, setLanguages] = useState(settings.languages);
   const [background, setBackground] = useState(settings.background);
-  const [micGain, setMicGain] = useState(settings.micGain);
-  const [voiceVolume, setVoiceVolume] = useState(settings.voiceVolume);
+  // `draft` holds the audio part being edited: the usage mode and one profile per mode.
+  const [draft, setDraft] = useState({ usage: settings.usage, profiles: settings.profiles });
+  const [inputs, setInputs] = useState([]);
+  const profile = draft.profiles[draft.usage];
+  const edit = (patch) => setDraft((d) => updateProfile(d, d.usage, patch));
+
+  useEffect(() => {
+    audio.listInputs().then(setInputs);
+  }, []);
   const [saving, setSaving] = useState(false);
   const complete = SETUP_FIELDS.every((f) => values[f.name]?.trim());
 
@@ -41,41 +55,67 @@ export default function SetupScreen({ settings, onDone }) {
           onSelect={(code) => setLanguages((l) => pickLanguage(l, 'B', code))}
         />
 
-        <Text style={styles.section}>Volume de la voix traduite</Text>
+        <Text style={styles.section}>Utilisation</Text>
+        <View style={styles.chips}>
+          {Object.entries(USAGE_MODES).map(([key, mode]) => (
+            <Pressable
+              key={key}
+              style={[styles.chip, draft.usage === key && styles.chipOn]}
+              onPress={() => setDraft((d) => ({ ...d, usage: key }))}
+              accessibilityRole="button"
+              accessibilityState={{ selected: draft.usage === key }}
+            >
+              <Text style={styles.chipText}>{`${mode.icon} ${mode.label}`}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          {USAGE_MODES[draft.usage].hint}. Chaque mode a ses propres réglages ci-dessous : posé à plat, la voix arrive faible et
+          lointaine (forte amplification) ; tenu près de la bouche, elle arrive forte (amplification modérée).
+        </Text>
+
+        <Text style={styles.label}>{`Micro utilisé — ${USAGE_MODES[draft.usage].label}`}</Text>
+        <View style={styles.chips}>
+          <Chip label="Automatique (micro du téléphone)" on={profile.input == null} onPress={() => edit({ input: null })} />
+          {inputs.map((d) => (
+            <Chip
+              key={d.id}
+              label={`${d.name}${/bluetooth|sco|hfp/i.test(`${d.category} ${d.name}`) ? ' ⚠' : ''}`}
+              on={profile.input?.id === d.id}
+              onPress={() => edit({ input: { id: d.id, name: d.name } })}
+            />
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          ⚠ Un micro Bluetooth fait passer les écouteurs en mono : la séparation gauche/droite des deux voix est perdue.
+        </Text>
+
+        <Text style={styles.label}>{`Sensibilité du micro — ${USAGE_MODES[draft.usage].label}`}</Text>
+        <View style={styles.chips}>
+          {MIC_GAIN_CHOICES.map((g) => (
+            <Chip
+              key={String(g)}
+              label={g === 'auto' ? 'Auto' : `×${g}`}
+              on={profile.micGain === g}
+              onPress={() => edit({ micGain: g })}
+            />
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          {draft.usage === 'handsfree'
+            ? 'Auto amplifie fortement la voix faible ou lointaine (jusqu\'à ×40) sans amplifier le bruit. Encore trop faible ? Essayez ×16 ou ×32.'
+            : 'Auto amplifie modérément (jusqu\'à ×8) : la voix est proche. Si ça sature ou capte trop de bruit, choisissez ×1 ou ×2.'}{' '}
+          La barre de volume s'affiche pendant l'enregistrement.
+        </Text>
+
+        <Text style={styles.label}>{`Volume de la voix traduite — ${USAGE_MODES[draft.usage].label}`}</Text>
         <View style={styles.chips}>
           {VOICE_VOLUME_CHOICES.map((v) => (
-            <Pressable
-              key={String(v)}
-              style={[styles.chip, voiceVolume === v && styles.chipOn]}
-              onPress={() => setVoiceVolume(v)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: voiceVolume === v }}
-            >
-              <Text style={styles.chipText}>{v === 1 ? 'Normal' : `×${v}`}</Text>
-            </Pressable>
+            <Chip key={String(v)} label={v === 1 ? 'Normal' : `×${v}`} on={profile.voiceVolume === v} onPress={() => edit({ voiceVolume: v })} />
           ))}
         </View>
         <Text style={styles.hint}>
           Amplifie la voix dans les écouteurs sans la déformer. Pensez aussi à monter le volume « média » du téléphone et des écouteurs.
-        </Text>
-
-        <Text style={styles.section}>Sensibilité du micro</Text>
-        <View style={styles.chips}>
-          {MIC_GAIN_CHOICES.map((g) => (
-            <Pressable
-              key={String(g)}
-              style={[styles.chip, micGain === g && styles.chipOn]}
-              onPress={() => setMicGain(g)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: micGain === g }}
-            >
-              <Text style={styles.chipText}>{g === 'auto' ? 'Auto' : `×${g}`}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <Text style={styles.hint}>
-          Auto amplifie fortement la voix faible ou lointaine (jusqu'à ×40) sans amplifier le bruit. Si la voix est encore mal captée, essayez ×16 ou ×32.
-          La barre de volume s'affiche pendant l'enregistrement.
         </Text>
 
         <Text style={styles.section}>Arrière-plan</Text>
@@ -129,7 +169,7 @@ export default function SetupScreen({ settings, onDone }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume });
+            const saved = await saveSettings({ ...settings, languages, background, usage: draft.usage, profiles: draft.profiles });
             setSaving(false);
             onDone(saved);
           }}
@@ -138,6 +178,19 @@ export default function SetupScreen({ settings, onDone }) {
         </Pressable>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function Chip({ label, on, onPress }) {
+  return (
+    <Pressable
+      style={[styles.chip, on && styles.chipOn]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: on }}
+    >
+      <Text style={styles.chipText}>{label}</Text>
+    </Pressable>
   );
 }
 

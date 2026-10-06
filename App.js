@@ -1,6 +1,6 @@
 import { useKeepAwake } from 'expo-keep-awake';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Haptics from 'expo-haptics';
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -9,7 +9,7 @@ import SetupScreen from './src/components/SetupScreen';
 import { loadStoredKeys, missingEnv } from './src/config/env';
 import { SIDE } from './src/config/languages';
 import { loadSettings, saveSettings } from './src/config/settings';
-import { DEFAULT_SETTINGS } from './src/config/settingsModel';
+import { activeProfile, DEFAULT_SETTINGS, USAGE_MODES } from './src/config/settingsModel';
 import Power from './modules/dualcast-power';
 import audio from './src/services/AudioRoutingService';
 import BackgroundService from './src/services/BackgroundService';
@@ -58,10 +58,13 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
   const engine = useMemo(() => {
     const e = createEngine(languages);
     e.autoStop = settings.autoStop;
-    e.mic.setGain(settings.micGain);
-    audio.setVoiceVolume(settings.voiceVolume);
+    const p = activeProfile(settings);
+    e.mic.setGain(p.micGain, USAGE_MODES[settings.usage].agcPreset);
+    audio.setVoiceVolume(p.voiceVolume);
     return e;
   }, [languages.A, languages.B]); // eslint-disable-line react-hooks/exhaustive-deps
+  const profile = activeProfile(settings);
+  const usageMode = USAGE_MODES[settings.usage];
   const [state, setState] = useState(STATE.IDLE);
   const [activeSide, setActiveSide] = useState(null);
   const [level, setLevel] = useState(0);
@@ -74,6 +77,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
     // background service (must start while the app is visible).
     audio
       .init()
+      .then(() => audio.selectInput(profile.input))
       .then(() => engine.warmUp())
       .then(() => {
         // Optional and non-blocking: must never get in the way of the microphone.
@@ -118,6 +122,25 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
     };
   }, [engine]);
 
+  // Switching between hands-free and at-the-ear (or editing a profile) applies instantly:
+  // gain preset + voice volume now, and a new microphone when the choice changed.
+  const firstRun = useRef(true);
+  const inputKey = profile.input?.id ?? 'builtin';
+  useEffect(() => {
+    engine.mic.setGain(profile.micGain, usageMode.agcPreset);
+    audio.setVoiceVolume(profile.voiceVolume);
+  }, [engine, settings.usage, profile.micGain, profile.voiceVolume]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (firstRun.current) {
+      firstRun.current = false; // the initial selection is done in the startup chain
+      return;
+    }
+    audio
+      .selectInput(profile.input)
+      .then(() => engine.mic.restart())
+      .catch(() => {});
+  }, [engine, inputKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Diagnostics panel (long-press ⚙︎): lets a tester see whether the mic and STT really work.
   useEffect(() => {
     if (!diag) return undefined;
@@ -138,6 +161,14 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
         onPress={(side) => engine.toggle(side)}
       />
       <View style={styles.controls} pointerEvents="box-none">
+        <Pressable
+          style={styles.chip}
+          onPress={() => onSettingsChange({ ...settings, usage: settings.usage === 'ear' ? 'handsfree' : 'ear' })}
+          hitSlop={12}
+          accessibilityLabel="Changer de mode d'utilisation : mains libres ou à l'oreille"
+        >
+          <Text style={styles.chipText}>{`${usageMode.icon} ${usageMode.label}`}</Text>
+        </Pressable>
         <Pressable
           style={[styles.chip, autoStop && styles.chipOn]}
           onPress={() => {
@@ -167,6 +198,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
             {diag.msSinceChunk != null ? ` · dernier il y a ${diag.msSinceChunk} ms` : ' · aucun paquet reçu'}
             {`\nfréquence: ${diag.sampleRate} Hz · état: ${diag.state} · Deepgram: ${diag.stt ?? '—'}`}
             {`\narrière-plan: ${settings.background ? BackgroundService.status : 'désactivé'}`}
+            {`\nmode: ${usageMode.label} · micro: ${profile.input?.name ?? 'téléphone (auto)'}`}
             {`\nveille: verrou ${BackgroundService.lockHeld ? 'oui' : 'NON'} · batterie sans limite: ${Power.isIgnoringBatteryOptimizations() ? 'oui' : 'NON'} · gain micro: ×${Number(diag.gain).toFixed(1)}`}
             {diag.micError ? `\nerreur micro: ${diag.micError}` : ''}
             {`\n— journal —\n${EventLog.last(7).join('\n') || '(vide)'}`}

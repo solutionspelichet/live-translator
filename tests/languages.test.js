@@ -18,17 +18,27 @@ test('unknown language throws', () => {
   assert.throws(() => getLanguage('xx'), /Unsupported/);
 });
 
-import { DEFAULT_SETTINGS, pickLanguage, sanitizeSettings } from '../src/config/settingsModel.js';
+import {
+  activeProfile,
+  DEFAULT_SETTINGS,
+  pickLanguage,
+  sanitizeSettings,
+  updateProfile,
+  USAGE_MODES,
+} from '../src/config/settingsModel.js';
 
 test('sanitizeSettings: defaults for missing / corrupt data', () => {
   assert.deepEqual(sanitizeSettings(null), DEFAULT_SETTINGS);
   assert.deepEqual(sanitizeSettings('garbage'), DEFAULT_SETTINGS);
-  assert.deepEqual(sanitizeSettings({ languages: { A: 'xx', B: 'yy' }, autoStop: 'yes' }), DEFAULT_SETTINGS);
+  assert.deepEqual(sanitizeSettings({ languages: { A: 'xx', B: 'yy' }, autoStop: 'yes', usage: 'moon' }), DEFAULT_SETTINGS);
 });
 
 test('sanitizeSettings keeps valid values', () => {
-  const s = sanitizeSettings({ languages: { A: 'de', B: 'es' }, autoStop: false });
-  assert.deepEqual(s, { languages: { A: 'de', B: 'es' }, autoStop: false, background: true, voiceVolume: 2, micGain: 'auto' });
+  const s = sanitizeSettings({ languages: { A: 'de', B: 'es' }, autoStop: false, background: false, usage: 'ear' });
+  assert.deepEqual(s.languages, { A: 'de', B: 'es' });
+  assert.equal(s.autoStop, false);
+  assert.equal(s.background, false);
+  assert.equal(s.usage, 'ear');
 });
 
 test('sanitizeSettings never returns the same language on both ears', () => {
@@ -41,26 +51,44 @@ test('pickLanguage swaps when the other side already uses it', () => {
   assert.deepEqual(pickLanguage({ A: 'fr', B: 'en' }, 'B', 'de'), { A: 'fr', B: 'de' });
 });
 
-test('background defaults to on and can be switched off', () => {
-  assert.equal(sanitizeSettings({}).background, true);
-  assert.equal(sanitizeSettings({ background: false }).background, false);
+test('two usage modes with their own AGC preset', () => {
+  assert.equal(USAGE_MODES.handsfree.agcPreset, 'far');
+  assert.equal(USAGE_MODES.ear.agcPreset, 'near');
 });
 
-test('every language declares all four service codes', () => {
-  for (const [code, lang] of Object.entries(LANGUAGES)) {
-    for (const field of ['label', 'flag', 'deepgram', 'deeplSource', 'deeplTarget', 'eleven']) {
-      assert.ok(lang[field], `${code}.${field} missing`);
-    }
-    assert.equal(lang.deeplSource, lang.deeplSource.toUpperCase(), `${code} DeepL source must be upper-case`);
-    assert.ok(!/-/.test(lang.deeplSource), `${code} DeepL source must be bare (no region)`);
-  }
+test('each mode has independent audio settings, hands-free louder by default', () => {
+  const s = sanitizeSettings({});
+  assert.equal(s.usage, 'handsfree');
+  assert.ok(s.profiles.handsfree.voiceVolume > s.profiles.ear.voiceVolume);
+  const edited = updateProfile(s, 'ear', { micGain: 8 });
+  assert.equal(edited.profiles.ear.micGain, 8);
+  assert.equal(edited.profiles.handsfree.micGain, 'auto', 'the other mode is untouched');
 });
 
-test('32 languages, no duplicate service codes for the speech models', () => {
-  const entries = Object.values(LANGUAGES);
-  assert.equal(entries.length, 32);
-  assert.equal(new Set(entries.map((l) => l.deepgram)).size, entries.length);
-  assert.equal(new Set(entries.map((l) => l.label)).size, entries.length);
+test('activeProfile follows the usage mode', () => {
+  const s = updateProfile(sanitizeSettings({ usage: 'ear' }), 'ear', { micGain: 4 });
+  assert.equal(activeProfile(s).micGain, 4);
+  assert.equal(activeProfile({ ...s, usage: 'handsfree' }).micGain, 'auto');
+});
+
+test('settings saved before profiles existed migrate to the hands-free profile', () => {
+  const s = sanitizeSettings({ micGain: 16, voiceVolume: 2.5 });
+  assert.equal(s.profiles.handsfree.micGain, 16);
+  assert.equal(s.profiles.handsfree.voiceVolume, 2.5);
+  assert.equal(s.profiles.ear.micGain, 'auto');
+});
+
+test('profile values are validated', () => {
+  const s = sanitizeSettings({ profiles: { handsfree: { micGain: 99, voiceVolume: 10 }, ear: { micGain: 32 } } });
+  assert.equal(s.profiles.handsfree.micGain, 'auto');
+  assert.equal(s.profiles.handsfree.voiceVolume, 2);
+  assert.equal(s.profiles.ear.micGain, 32);
+});
+
+test('a chosen microphone is kept only when well-formed', () => {
+  const ok = sanitizeSettings({ profiles: { ear: { input: { id: '7', name: 'Headset mic' } } } });
+  assert.deepEqual(ok.profiles.ear.input, { id: '7', name: 'Headset mic' });
+  assert.equal(sanitizeSettings({ profiles: { ear: { input: { id: 7 } } } }).profiles.ear.input, null);
 });
 
 test('Arabic and its Maghreb variants use Nova-3 and keep DeepL on standard Arabic', () => {
@@ -78,15 +106,19 @@ test('a stored Moroccan Arabic setting survives sanitizing', () => {
   assert.deepEqual(sanitizeSettings({ languages: { A: 'fr', B: 'ar-MA' } }).languages, { A: 'fr', B: 'ar-MA' });
 });
 
-test('micGain defaults to auto and rejects unknown values', () => {
-  assert.equal(sanitizeSettings({}).micGain, 'auto');
-  assert.equal(sanitizeSettings({ micGain: 4 }).micGain, 4);
-  assert.equal(sanitizeSettings({ micGain: 99 }).micGain, 'auto');
-  assert.equal(sanitizeSettings({ micGain: 32 }).micGain, 32);
+test('every language declares all four service codes', () => {
+  for (const [code, lang] of Object.entries(LANGUAGES)) {
+    for (const field of ['label', 'flag', 'deepgram', 'deeplSource', 'deeplTarget', 'eleven']) {
+      assert.ok(lang[field], `${code}.${field} missing`);
+    }
+    assert.equal(lang.deeplSource, lang.deeplSource.toUpperCase(), `${code} DeepL source must be upper-case`);
+    assert.ok(!/-/.test(lang.deeplSource), `${code} DeepL source must be bare (no region)`);
+  }
 });
 
-test('voiceVolume defaults to 2 and rejects unknown values', () => {
-  assert.equal(sanitizeSettings({}).voiceVolume, 2);
-  assert.equal(sanitizeSettings({ voiceVolume: 1.5 }).voiceVolume, 1.5);
-  assert.equal(sanitizeSettings({ voiceVolume: 10 }).voiceVolume, 2);
+test('32 languages, no duplicate service codes for the speech models', () => {
+  const entries = Object.values(LANGUAGES);
+  assert.equal(entries.length, 32);
+  assert.equal(new Set(entries.map((l) => l.deepgram)).size, entries.length);
+  assert.equal(new Set(entries.map((l) => l.label)).size, entries.length);
 });
