@@ -23,3 +23,17 @@ test('clampPan keeps values in [-1, 1]', () => {
   assert.equal(clampPan(3), 1);
   assert.equal(clampPan(0.25), 0.25);
 });
+
+import { resampleLinear } from '../src/utils/pcm.js';
+
+test('resampleLinear 24k→48k doubles the length and keeps duration', () => {
+  const input = Float32Array.from({ length: 2400 }, (_, i) => Math.sin(i / 10));
+  const out = resampleLinear(input, 24000, 48000);
+  assert.equal(out.length, 4800);
+  assert.ok(Math.abs(out[100] - Math.sin(50 / 10)) < 0.01); // sample 100 @48k ≈ sample 50 @24k
+});
+
+test('resampleLinear is a no-op at equal rates', () => {
+  const input = new Float32Array([0.1, 0.2]);
+  assert.equal(resampleLinear(input, 16000, 16000), input);
+});

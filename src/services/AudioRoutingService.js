@@ -1,6 +1,6 @@
 import { AudioContext, AudioManager } from 'react-native-audio-api';
 
-import { clampPan, pcm16ToFloat } from '../utils/pcm';
+import { clampPan, pcm16ToFloat, resampleLinear } from '../utils/pcm';
 
 export const CHANNEL = Object.freeze({ LEFT: -1.0, RIGHT: 1.0 });
 
@@ -78,8 +78,11 @@ class AudioRoutingService {
     if (source.url) return this.ctx.decodeAudioData(source.url);
     if (source.data && source.encoded) return this.ctx.decodeAudioData(source.data);
     if (source.data && source.sampleRate) {
-      const samples = pcm16ToFloat(source.data);
-      const buffer = this.ctx.createBuffer(1, samples.length, source.sampleRate);
+      // Resample to the context's native rate ourselves: handing the engine a 24 kHz buffer
+      // on a 48 kHz context played back at double speed on device.
+      const rate = this.ctx.sampleRate;
+      const samples = resampleLinear(pcm16ToFloat(source.data), source.sampleRate, rate);
+      const buffer = this.ctx.createBuffer(1, samples.length, rate);
       buffer.getChannelData(0).set(samples);
       return buffer;
     }

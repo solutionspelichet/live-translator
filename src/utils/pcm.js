@@ -23,3 +23,19 @@ export function pcm16ToFloat(arrayBuffer) {
 export function clampPan(pan) {
   return Math.max(-1, Math.min(1, pan));
 }
+
+/** Linear-interpolation resampler (mono Float32). Returns the input untouched if rates match. */
+export function resampleLinear(input, fromRate, toRate) {
+  if (fromRate === toRate || input.length === 0) return input;
+  const outLength = Math.round((input.length * toRate) / fromRate);
+  const out = new Float32Array(outLength);
+  const step = fromRate / toRate;
+  for (let i = 0; i < outLength; i++) {
+    const pos = i * step;
+    const i0 = Math.floor(pos);
+    const i1 = Math.min(i0 + 1, input.length - 1);
+    const frac = pos - i0;
+    out[i] = input[i0] * (1 - frac) + input[i1] * frac;
+  }
+  return out;
+}
