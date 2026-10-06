@@ -66,12 +66,15 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
   const [texts, setTexts] = useState({ [SIDE.A]: '', [SIDE.B]: '' });
 
   useEffect(() => {
-    // Audio session first, then the background service (must start while the app is visible),
-    // then open the mic: the first tap is then instant.
+    // Audio session first, then open the mic (the first tap is then instant), then the optional
+    // background service (must start while the app is visible).
     audio
       .init()
-      .then(() => BackgroundService.start())
       .then(() => engine.warmUp())
+      .then(() => {
+        // Optional and non-blocking: must never get in the way of the microphone.
+        if (settings.background) BackgroundService.start();
+      })
       .then(() => audio.hasHeadphones())
       .then((ok) => ok || Alert.alert('Écouteurs requis', 'Connectez les écouteurs Bluetooth : sans eux, la voix sortira du haut-parleur sur les deux canaux.'))
       .catch((e) => Alert.alert('Audio', String(e.message ?? e)));
@@ -100,7 +103,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
       off();
       appState.remove();
       engine.sleep();
-      BackgroundService.stop();
+      if (settings.background) BackgroundService.stop();
       audio.dispose();
     };
   }, [engine]);
@@ -153,6 +156,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
             {`micro: ${diag.micRunning ? 'ouvert' : 'FERMÉ'} · paquets: ${diag.chunks}`}
             {diag.msSinceChunk != null ? ` · dernier il y a ${diag.msSinceChunk} ms` : ' · aucun paquet reçu'}
             {`\nfréquence: ${diag.sampleRate} Hz · état: ${diag.state} · Deepgram: ${diag.stt ?? '—'}`}
+            {`\narrière-plan: ${settings.background ? BackgroundService.status : 'désactivé'}`}
             {diag.micError ? `\nerreur micro: ${diag.micError}` : ''}
           </Text>
         </View>

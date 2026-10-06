@@ -15,6 +15,7 @@ import { pickLanguage } from '../config/settingsModel';
 export default function SetupScreen({ settings, onDone }) {
   const [values, setValues] = useState(currentValues());
   const [languages, setLanguages] = useState(settings.languages);
+  const [background, setBackground] = useState(settings.background);
   const [saving, setSaving] = useState(false);
   const complete = SETUP_FIELDS.every((f) => values[f.name]?.trim());
 
@@ -36,6 +37,21 @@ export default function SetupScreen({ settings, onDone }) {
           selected={languages.B}
           onSelect={(code) => setLanguages((l) => pickLanguage(l, 'B', code))}
         />
+
+        <Text style={styles.section}>Arrière-plan</Text>
+        <Pressable
+          style={[styles.chip, background && styles.chipOn, { alignSelf: 'flex-start', marginTop: 8 }]}
+          onPress={() => setBackground((b) => !b)}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: background }}
+        >
+          <Text style={styles.chipText}>
+            {background ? '✓ Rester actif écran éteint' : 'Rester actif écran éteint : non'}
+          </Text>
+        </Pressable>
+        <Text style={styles.hint}>
+          Affiche une notification permanente. Si la traduction ne fonctionne plus, essayez de le désactiver.
+        </Text>
 
         <Text style={styles.section}>Clés API</Text>
         {SETUP_FIELDS.map((f) => (
@@ -59,7 +75,7 @@ export default function SetupScreen({ settings, onDone }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, languages });
+            const saved = await saveSettings({ ...settings, languages, background });
             setSaving(false);
             onDone(saved);
           }}

@@ -28,7 +28,7 @@ test('sanitizeSettings: defaults for missing / corrupt data', () => {
 
 test('sanitizeSettings keeps valid values', () => {
   const s = sanitizeSettings({ languages: { A: 'de', B: 'es' }, autoStop: false });
-  assert.deepEqual(s, { languages: { A: 'de', B: 'es' }, autoStop: false });
+  assert.deepEqual(s, { languages: { A: 'de', B: 'es' }, autoStop: false, background: true });
 });
 
 test('sanitizeSettings never returns the same language on both ears', () => {
@@ -39,4 +39,9 @@ test('sanitizeSettings never returns the same language on both ears', () => {
 test('pickLanguage swaps when the other side already uses it', () => {
   assert.deepEqual(pickLanguage({ A: 'fr', B: 'en' }, 'A', 'en'), { A: 'en', B: 'fr' });
   assert.deepEqual(pickLanguage({ A: 'fr', B: 'en' }, 'B', 'de'), { A: 'fr', B: 'de' });
+});
+
+test('background defaults to on and can be switched off', () => {
+  assert.equal(sanitizeSettings({}).background, true);
+  assert.equal(sanitizeSettings({ background: false }).background, false);
 });

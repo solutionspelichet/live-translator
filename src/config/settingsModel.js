@@ -4,6 +4,7 @@ import { LANGUAGES } from './languages.js';
 export const DEFAULT_SETTINGS = Object.freeze({
   languages: Object.freeze({ A: 'fr', B: 'en' }),
   autoStop: true,
+  background: true, // keep working with the screen off (Android foreground service)
 });
 
 /** Turn whatever was stored (possibly old/corrupt) into a valid settings object. */
@@ -15,6 +16,7 @@ export function sanitizeSettings(raw) {
   return {
     languages: { A: a, B: b },
     autoStop: typeof input.autoStop === 'boolean' ? input.autoStop : DEFAULT_SETTINGS.autoStop,
+    background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,
   };
 }
 
