@@ -23,10 +23,11 @@ const COLORS = {
  * @param {SIDE|null} props.activeSide               side whose turn is in progress
  * @param {{A: string, B: string}} props.texts       latest text shown in each zone
  * @param {number} props.level                       live microphone level 0..1
+ * @param {boolean} props.autoStop                   a pause in speech sends automatically
  * @param {(side) => void} props.onPress
  */
-export default function SplitScreen({ languages, state, activeSide, texts, level, onPress }) {
-  const shared = { languages, state, activeSide, texts, level, onPress };
+export default function SplitScreen({ languages, state, activeSide, texts, level, autoStop, onPress }) {
+  const shared = { languages, state, activeSide, texts, level, autoStop, onPress };
   return (
     <View style={styles.root}>
       <Zone side={SIDE.A} flipped {...shared} />
@@ -36,7 +37,7 @@ export default function SplitScreen({ languages, state, activeSide, texts, level
   );
 }
 
-function Zone({ side, flipped, languages, state, activeSide, texts, level, onPress }) {
+function Zone({ side, flipped, languages, state, activeSide, texts, level, autoStop, onPress }) {
   const lang = getLanguage(languages[side]);
   const mine = activeSide === side;
   const recording = state === STATE.STARTING || state === STATE.LISTENING;
@@ -46,7 +47,7 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, onPre
   let status = 'Touchez pour parler';
   if (recording && !mine) status = 'Touchez pour terminer';
   else if (starting) status = 'Préparation…';
-  else if (live) status = 'Parlez maintenant — touchez pour terminer';
+  else if (live) status = autoStop ? 'Parlez — une pause envoie la traduction' : 'Parlez maintenant — touchez pour terminer';
   else if (mine && state === STATE.PROCESSING) status = 'Traduction…';
   else if (mine && state === STATE.SPEAKING) status = 'Lecture…';
 

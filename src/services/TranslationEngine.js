@@ -31,11 +31,12 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {{translate(text, from, to): Promise<string>}} deps.translator
  * @param {{synthesize(text, opts): Promise<object>}} deps.tts
  * @param {{playPanned(source, pan): Promise<void>, stopAll(): void}} deps.audio
+ * @param {boolean} [deps.autoStop]  end the turn by itself after a pause in speech (Deepgram UtteranceEnd)
  * @param {number} [deps.tailMs]  keep capturing this long after the stop tap (don't clip the last word)
  */
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200 }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop });
     this.state = STATE.IDLE;
     this.listeners = new Set();
     this.turnId = 0; // invalidates in-flight work when a new turn / cancel happens
@@ -94,6 +95,11 @@ export default class TranslationEngine {
         language,
         sampleRate,
         onInterim: (text) => this.turnId === id && this.emit({ type: 'interim', side, text }),
+        onUtteranceEnd: () => {
+          // A pause after speech ends the turn, same as a second tap. Ignored if the user
+          // turned auto-stop off, or if the turn already moved on.
+          if (this.autoStop && this.turnId === id && this.state === STATE.LISTENING) this.endTurn();
+        },
       });
       turn.session.sendAudio(pcm16);
       this.emit({ type: 'level', level });

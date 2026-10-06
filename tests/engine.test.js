@@ -116,3 +116,35 @@ test('mic sink is detached after the turn so nothing is streamed while idle', as
   await speak('A');
   assert.equal(hasSink(), false);
 });
+
+test('auto-stop: Deepgram UtteranceEnd ends the turn without a second tap', async () => {
+  const { engine, calls, chunk } = setup();
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onUtteranceEnd();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(calls.translate, [['bonjour', 'fr', 'en']]);
+  assert.deepEqual(calls.play, [PAN.B]);
+});
+
+test('auto-stop disabled: UtteranceEnd is ignored, the turn stays open', async () => {
+  const { engine, calls, chunk } = setup();
+  engine.autoStop = false;
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onUtteranceEnd();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(calls.translate.length, 0);
+  assert.equal(engine.state, STATE.LISTENING);
+});
+
+test('a stale UtteranceEnd from a cancelled turn does nothing', async () => {
+  const { engine, calls, chunk } = setup();
+  await engine.toggle('A');
+  chunk();
+  const stale = calls.sessions[0].onUtteranceEnd;
+  engine.cancel();
+  stale();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(calls.translate.length, 0);
+});

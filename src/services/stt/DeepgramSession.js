@@ -1,6 +1,8 @@
 import { env } from '../../config/env';
 
 const FINALIZE_TIMEOUT_MS = 4000;
+// Silence after the last recognised word before Deepgram sends `UtteranceEnd` (min 1000).
+const UTTERANCE_END_MS = 1500;
 
 /**
  * One push-to-talk utterance = one Deepgram streaming session (Nova-2).
@@ -9,10 +11,12 @@ const FINALIZE_TIMEOUT_MS = 4000;
  */
 export default class DeepgramSession {
   /**
-   * @param {{language: string, sampleRate: number, onInterim?: (text: string) => void}} opts
+   * @param {{language: string, sampleRate: number, onInterim?: (text: string) => void,
+   *          onUtteranceEnd?: () => void}} opts
    */
-  constructor({ language, sampleRate, onInterim }) {
+  constructor({ language, sampleRate, onInterim, onUtteranceEnd }) {
     this.onInterim = onInterim;
+    this.onUtteranceEnd = onUtteranceEnd;
     this.finals = [];
     this.lastInterim = '';
     this.pending = []; // audio captured while the socket is still handshaking
@@ -28,6 +32,7 @@ export default class DeepgramSession {
       interim_results: 'true',
       punctuate: 'true',
       smart_format: 'true',
+      utterance_end_ms: String(UTTERANCE_END_MS), // requires interim_results
     });
 
     // RN's WebSocket can't set an Authorization header portably; Deepgram accepts the
@@ -60,6 +65,7 @@ export default class DeepgramSession {
     } catch {
       return;
     }
+    if (msg.type === 'UtteranceEnd') return this.onUtteranceEnd?.();
     if (msg.type !== 'Results') return;
     const text = msg.channel?.alternatives?.[0]?.transcript?.trim();
     if (!text) return;

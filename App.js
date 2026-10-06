@@ -45,6 +45,7 @@ function Translator({ onOpenSettings }) {
   const [state, setState] = useState(STATE.IDLE);
   const [activeSide, setActiveSide] = useState(null);
   const [level, setLevel] = useState(0);
+  const [autoStop, setAutoStop] = useState(true);
   const [texts, setTexts] = useState({ [SIDE.A]: '', [SIDE.B]: '' });
 
   useEffect(() => {
@@ -92,11 +93,25 @@ function Translator({ onOpenSettings }) {
         activeSide={activeSide}
         texts={texts}
         level={level}
+        autoStop={autoStop}
         onPress={(side) => engine.toggle(side)}
       />
-      <Pressable style={styles.gear} onPress={onOpenSettings} hitSlop={16} accessibilityLabel="Réglages">
-        <Text style={styles.gearText}>⚙︎</Text>
-      </Pressable>
+      <View style={styles.controls} pointerEvents="box-none">
+        <Pressable
+          style={[styles.chip, autoStop && styles.chipOn]}
+          onPress={() => {
+            engine.autoStop = !autoStop;
+            setAutoStop(!autoStop);
+          }}
+          hitSlop={12}
+          accessibilityLabel="Envoi automatique après une pause"
+        >
+          <Text style={styles.chipText}>{autoStop ? 'Auto ✓' : 'Auto'}</Text>
+        </Pressable>
+        <Pressable style={styles.gear} onPress={onOpenSettings} hitSlop={16} accessibilityLabel="Réglages">
+          <Text style={styles.gearText}>⚙︎</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -104,11 +119,19 @@ function Translator({ onOpenSettings }) {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   missing: { flex: 1, backgroundColor: '#0B0F1A' },
-  gear: {
+  controls: {
     position: 'absolute',
     alignSelf: 'center',
     top: '50%',
     marginTop: -20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  chip: { height: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#000C', justifyContent: 'center' },
+  chipOn: { backgroundColor: '#1F8F4E' },
+  chipText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  gear: {
     width: 40,
     height: 40,
     borderRadius: 20,
