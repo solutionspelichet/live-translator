@@ -92,6 +92,6 @@ détection du micro intégré (`AudioManager.getDevicesInfo` renvoie des catégo
 
 ## Pistes suivantes
 
+- ~~Traduire les résultats `is_final` au fil de l'eau~~ → fait : chaque phrase validée est traduite et lue pendant que la personne parle encore (`TranslationEngine.enqueue`).
 - TTS en streaming (WebSocket ElevenLabs `stream-input`) pour démarrer la lecture avant la fin de la synthèse.
 - Sélecteur de paire de langues, historique, voix par langue.
-- Traduire les résultats `is_final` au fil de l'eau (phrases longues).

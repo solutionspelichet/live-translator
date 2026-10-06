@@ -12,16 +12,18 @@ const UTTERANCE_END_MS = 1500;
 export default class DeepgramSession {
   /**
    * @param {{language: string, sampleRate: number, onInterim?: (text: string) => void,
-   *          onUtteranceEnd?: () => void}} opts
+   *          onFinal?: (text: string) => void, onUtteranceEnd?: () => void}} opts
    */
-  constructor({ language, sampleRate, onInterim, onUtteranceEnd }) {
+  constructor({ language, sampleRate, onInterim, onFinal, onUtteranceEnd }) {
     this.onInterim = onInterim;
+    this.onFinal = onFinal;
     this.onUtteranceEnd = onUtteranceEnd;
     this.finals = [];
     this.lastInterim = '';
     this.pending = []; // audio captured while the socket is still handshaking
     this.isOpen = false;
     this.closed = false;
+    this.settled = false;
 
     const params = new URLSearchParams({
       model: 'nova-2',
@@ -33,6 +35,7 @@ export default class DeepgramSession {
       punctuate: 'true',
       smart_format: 'true',
       utterance_end_ms: String(UTTERANCE_END_MS), // requires interim_results
+      endpointing: '400', // validate a segment after 400 ms of silence (fewer, longer finals)
     });
 
     // RN's WebSocket can't set an Authorization header portably; Deepgram accepts the
@@ -72,6 +75,7 @@ export default class DeepgramSession {
     if (msg.is_final) {
       this.finals.push(text);
       this.lastInterim = '';
+      this.onFinal?.(text); // lets the caller translate while the user is still talking
     } else {
       this.lastInterim = text;
     }
@@ -102,6 +106,8 @@ export default class DeepgramSession {
 
   abort() {
     this.closed = true;
+    this.settled = true;
+    this.onFinal = null;
     clearTimeout(this.timer);
     try {
       this.ws.close();
@@ -110,10 +116,16 @@ export default class DeepgramSession {
   }
 
   settle() {
+    if (this.settled) return;
+    this.settled = true;
     clearTimeout(this.timer);
     // If the last words never got an is_final before close, keep the best interim guess.
-    const parts = this.lastInterim ? [...this.finals, this.lastInterim] : this.finals;
-    this.resolveDone(parts.join(' ').trim());
+    if (this.lastInterim) {
+      this.finals.push(this.lastInterim);
+      this.onFinal?.(this.lastInterim);
+      this.lastInterim = '';
+    }
+    this.resolveDone(this.finals.join(' ').trim());
     try {
       this.ws.close();
     } catch {}

@@ -4,8 +4,8 @@ import test from 'node:test';
 import { PAN } from '../src/config/languages.js';
 import TranslationEngine, { STATE } from '../src/services/TranslationEngine.js';
 
-function setup({ transcript = 'bonjour', sttDelay = 0 } = {}) {
-  const calls = { translate: [], tts: [], play: [], sessions: [], stopAll: 0 };
+function setup({ transcript = 'bonjour', segments = transcript ? [transcript] : [], sttDelay = 0, translateDelay = () => 0 } = {}) {
+  const calls = { translate: [], tts: [], play: [], played: [], sessions: [], stopAll: 0 };
   let sink = null;
   const engine = new TranslationEngine({
     tailMs: 0,
@@ -22,13 +22,28 @@ function setup({ transcript = 'bonjour', sttDelay = 0 } = {}) {
         return {
           sendAudio() {},
           abort() {},
-          finish: () => new Promise((r) => setTimeout(() => r(transcript), sttDelay)),
+          finish: () =>
+            new Promise((r) =>
+              setTimeout(() => {
+                segments.forEach((seg) => opts.onFinal?.(seg)); // last results arrive at flush
+                r(segments.join(' '));
+              }, sttDelay),
+            ),
         };
       },
     },
-    translator: { translate: async (t, from, to) => (calls.translate.push([t, from, to]), `[${to}] ${t}`) },
-    tts: { synthesize: async (t, o) => (calls.tts.push([t, o]), { data: new ArrayBuffer(4), sampleRate: 24000 }) },
-    audio: { playPanned: async (src, pan) => { calls.play.push(pan); }, stopAll: () => { calls.stopAll++; } },
+    translator: {
+      translate: async (t, from, to) => {
+        calls.translate.push([t, from, to]);
+        await new Promise((r) => setTimeout(r, translateDelay(t)));
+        return `[${to}] ${t}`;
+      },
+    },
+    tts: { synthesize: async (t, o) => (calls.tts.push([t, o]), { text: t, data: new ArrayBuffer(4), sampleRate: 24000 }) },
+    audio: {
+      playPanned: async (src, pan) => { calls.play.push(pan); calls.played.push(src.text); },
+      stopAll: () => { calls.stopAll++; },
+    },
   });
   const events = [];
   engine.subscribe((e) => events.push(e));
@@ -147,4 +162,56 @@ test('a stale UtteranceEnd from a cancelled turn does nothing', async () => {
   stale();
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(calls.translate.length, 0);
+});
+
+test('incremental: a validated sentence is translated and PLAYED while the user is still speaking', async () => {
+  const { engine, calls, chunk } = setup({ segments: [] });
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onFinal('Bonjour tout le monde.'); // Deepgram validates a sentence mid-turn
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(engine.state, STATE.LISTENING, 'still recording');
+  assert.deepEqual(calls.translate, [['Bonjour tout le monde.', 'fr', 'en']]);
+  assert.deepEqual(calls.play, [PAN.B], 'the other person already hears sentence 1');
+});
+
+test('sentences are played in speaking order even if a later one is translated faster', async () => {
+  const { engine, calls, chunk } = setup({
+    segments: [],
+    translateDelay: (t) => (t.startsWith('Première') ? 40 : 0),
+  });
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onFinal('Première phrase.');
+  calls.sessions[0].onFinal('Deuxième phrase.');
+  await new Promise((r) => setTimeout(r, 80));
+  assert.deepEqual(calls.played, ['[en] Première phrase.', '[en] Deuxième phrase.']);
+});
+
+test('fragments are regrouped into one sentence before translation', async () => {
+  const { engine, calls, chunk } = setup({ segments: [] });
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onFinal('Je voudrais');
+  calls.sessions[0].onFinal('un café, s\'il vous plaît.');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(calls.translate, [['Je voudrais un café, s\'il vous plaît.', 'fr', 'en']]);
+});
+
+test('unfinished sentence is flushed when the turn ends', async () => {
+  const { engine, calls, chunk } = setup({ segments: ['et puis'] });
+  await engine.toggle('A');
+  chunk();
+  await engine.toggle('A');
+  assert.deepEqual(calls.translate, [['et puis', 'fr', 'en']]);
+});
+
+test('cancel mid-turn stops later sentences from playing', async () => {
+  const { engine, calls, chunk } = setup({ segments: [], translateDelay: () => 30 });
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onFinal('Une phrase.');
+  engine.cancel();
+  await new Promise((r) => setTimeout(r, 60));
+  assert.deepEqual(calls.play, []);
 });

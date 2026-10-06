@@ -1,4 +1,5 @@
 import { PAN, SIDE } from '../config/languages.js';
+import SegmentBuffer from '../utils/segments.js';
 
 export const STATE = Object.freeze({
   IDLE: 'idle',
@@ -12,6 +13,10 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
 
 /**
  * Orchestrates one turn:   mic ─▶ STT ─▶ NMT ─▶ TTS ─▶ panned playback
+ *
+ * The pipeline is *incremental*: every sentence Deepgram validates is translated and
+ * voiced right away, in order, while the speaker is still talking. Preparing sentence N+1
+ * (DeepL + ElevenLabs) overlaps with the playback of sentence N.
  *
  *   tap zone X (idle)        → startTurn(X): stream mic to Deepgram in X's language
  *   tap again (any zone)     → endTurn():    final transcript → DeepL (X → other) → ElevenLabs
@@ -80,7 +85,20 @@ export default class TranslationEngine {
     this.cancel();
     const id = ++this.turnId;
     const language = this.languages[side];
-    const turn = { id, side, language, session: null, live: false, startup: null };
+    const turn = {
+      id,
+      side,
+      language,
+      session: null,
+      live: false,
+      startup: null,
+      ended: false, // user finished speaking
+      playing: false,
+      buffer: new SegmentBuffer(),
+      segments: 0,
+      translated: [], // translated text per segment index
+      chain: Promise.resolve(), // keeps playback in speaking order
+    };
     this.turn = turn;
     this.setState(STATE.STARTING);
 
@@ -95,6 +113,10 @@ export default class TranslationEngine {
         language,
         sampleRate,
         onInterim: (text) => this.turnId === id && this.emit({ type: 'interim', side, text }),
+        onFinal: (text) => {
+          if (this.turnId !== id) return;
+          turn.buffer.push(text).forEach((segment) => this.enqueue(turn, segment));
+        },
         onUtteranceEnd: () => {
           // A pause after speech ends the turn, same as a second tap. Ignored if the user
           // turned auto-stop off, or if the turn already moved on.
@@ -118,16 +140,19 @@ export default class TranslationEngine {
     const turn = this.turn;
     if (!turn || turn.id !== this.turnId) return;
     if (this.state !== STATE.STARTING && this.state !== STATE.LISTENING) return;
-    const { id, side, language } = turn;
+    const { id, side } = turn;
 
     try {
       await turn.startup;
       if (this.turnId !== id) return; // startup failed or a newer turn took over
-      this.setState(STATE.PROCESSING); // immediate feedback; capture continues for the tail
+      turn.ended = true;
+      this.syncState(turn); // immediate feedback; capture continues for the tail
       if (this.tailMs > 0) await new Promise((r) => setTimeout(r, this.tailMs));
       this.mic.setSink(null);
       if (this.turnId !== id) return;
 
+      // Sentences validated during the turn were already sent to translation by onFinal;
+      // finish() delivers the last ones, then we release any unfinished sentence.
       const transcript = turn.session ? await turn.session.finish() : '';
       if (this.turnId !== id) return;
       if (!transcript) {
@@ -135,25 +160,51 @@ export default class TranslationEngine {
         return this.setState(STATE.IDLE);
       }
       this.emit({ type: 'transcript', side, text: transcript });
+      turn.buffer.flush().forEach((segment) => this.enqueue(turn, segment));
 
-      const targetSide = other(side);
-      const targetLanguage = this.languages[targetSide];
-      const translated = await this.translator.translate(transcript, language, targetLanguage);
-      if (this.turnId !== id) return;
-      this.emit({ type: 'translation', side: targetSide, text: translated });
-
-      const source = await this.tts.synthesize(translated, {
-        voiceId: this.voices[targetSide],
-        language: targetLanguage,
-      });
-      if (this.turnId !== id) return;
-
-      this.setState(STATE.SPEAKING);
-      await this.audio.playPanned(source, PAN[targetSide]);
+      await turn.chain; // wait for the last sentence to finish playing
       if (this.turnId === id) this.setState(STATE.IDLE);
     } catch (error) {
       this.fail(id, error);
     }
+  }
+
+  /**
+   * Translate + synthesize one sentence immediately (in parallel with the previous
+   * sentences), then play it as soon as every earlier sentence has been played.
+   */
+  enqueue(turn, text) {
+    const { id, side, language } = turn;
+    const index = turn.segments++;
+    const targetSide = other(side);
+    const targetLanguage = this.languages[targetSide];
+
+    const prepared = this.translator.translate(text, language, targetLanguage).then(async (translated) => {
+      if (this.turnId !== id) return null;
+      turn.translated[index] = translated;
+      this.emit({ type: 'translation', side: targetSide, text: turn.translated.filter(Boolean).join(' ') });
+      return this.tts.synthesize(translated, { voiceId: this.voices[targetSide], language: targetLanguage });
+    });
+    prepared.catch(() => {}); // reported through the chain below
+
+    turn.chain = turn.chain
+      .then(async () => {
+        const source = await prepared;
+        if (this.turnId !== id || !source) return;
+        turn.playing = true;
+        this.syncState(turn);
+        await this.audio.playPanned(source, PAN[targetSide]);
+        turn.playing = false;
+        this.syncState(turn);
+      })
+      .catch((error) => this.fail(id, error));
+  }
+
+  /** After the user stopped talking, mirror what is happening: speaking vs still working. */
+  syncState(turn) {
+    if (!turn.ended || this.turnId !== turn.id) return;
+    const next = turn.playing ? STATE.SPEAKING : STATE.PROCESSING;
+    if (this.state !== next) this.setState(next);
   }
 
   /** Abort everything in flight (also called automatically by startTurn). */
