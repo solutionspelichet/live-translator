@@ -39,6 +39,7 @@ export default class MicGain {
     this.noise = 0.002; // running estimate of the noise floor (RMS)
     // Start boosted: the first words of a quiet speaker are the ones that would be lost.
     this.current = mode === 'auto' ? initialGain : mode;
+    this.ref = initialGain; // gain the speaker needs, independent of transients
   }
 
   setMode(mode) {
@@ -64,16 +65,20 @@ export default class MicGain {
     }
     const rms = Math.sqrt(sum / (samples.length || 1));
 
-    // Noise floor: drops immediately to any quieter chunk, creeps up slowly otherwise.
-    this.noise = rms < this.noise ? rms : this.noise + (rms - this.noise) * 0.002;
+    // Noise floor: drops immediately to any quieter chunk, creeps up very slowly otherwise
+    // (a long monologue must not raise it until the voice itself counts as noise).
+    this.noise = rms < this.noise ? rms : this.noise + (rms - this.noise) * 0.0005;
 
-    const isSpeech = rms > Math.max(this.minSpeechRms, this.noise * 2.2);
-    if (!isSpeech) return this.current; // silence/noise: hold, don't pump the hiss up
+    // `ref` is the gain the SPEAKER needs. It is only ever changed by speech, never by silence,
+    // and falls slowly: a pause, a tap on the phone or a cough must not make us forget it.
+    if (rms > Math.max(this.minSpeechRms, this.noise * 2.2)) {
+      const wanted = Math.max(0.5, Math.min(this.target / rms, this.maxGain));
+      this.ref += (wanted - this.ref) * (wanted < this.ref ? 0.08 : 0.3);
+    }
 
-    const wanted = Math.min(this.target / rms, 0.95 / Math.max(peak, 1e-6), this.maxGain);
-    const clamped = Math.max(0.5, wanted);
-    // Fast when the signal got louder (avoid clipping), moderate when it got quieter.
-    const rate = clamped < this.current ? 0.6 : 0.25;
-    return this.current + (clamped - this.current) * rate;
+    // Clipping guard: a loud transient cuts the gain right now, but only for that chunk —
+    // the next one goes straight back to `ref`.
+    const clipGain = Math.max(0.5, 0.95 / Math.max(peak, 1e-6));
+    return Math.min(this.ref, clipGain);
   }
 }

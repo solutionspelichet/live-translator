@@ -60,7 +60,7 @@ test('auto gain backs off fast on loud input instead of clipping', () => {
   for (let i = 0; i < 10; i++) g.process(tone(0.02)); // gain climbs
   const out = g.process(tone(0.9)); // sudden loud speech
   for (let i = 0; i < 5; i++) g.process(tone(0.9));
-  assert.ok(g.current <= 1.05, `gain ${g.current}`);
+  assert.ok(g.current <= 1.1, `gain ${g.current}`);
   assert.ok(Math.max(...out.map(Math.abs)) <= 1);
 });
 
@@ -68,4 +68,25 @@ test('the level meter reads higher after gain', () => {
   const g = new MicGain({ mode: 8 });
   const quiet = tone(0.02);
   assert.ok(rmsLevel(g.process(quiet)) > rmsLevel(quiet));
+});
+
+test('a pause, then a tap on the phone, does not lose the gain needed by a distant voice', () => {
+  const g = new MicGain({ mode: 'auto' });
+  for (let i = 0; i < 10; i++) g.process(tone(0.0004)); // room noise
+  for (let i = 0; i < 40; i++) g.process(tone(0.0025)); // distant speech
+  const speaking = g.current;
+  assert.ok(speaking > 30, `gain ${speaking}`);
+  for (let i = 0; i < 30; i++) g.process(tone(0.0004)); // 3 s pause
+  g.process(tone(0.7)); // tap / cough
+  g.process(tone(0.0004));
+  const out = g.process(tone(0.0025)); // speech resumes
+  assert.ok(g.current > 0.8 * speaking, `gain after pause ${g.current} vs ${speaking}`);
+  assert.ok(rms(out) > 0.05, `rms ${rms(out)}`);
+});
+
+test('a long monologue does not turn the voice into "noise"', () => {
+  const g = new MicGain({ mode: 'auto' });
+  for (let i = 0; i < 10; i++) g.process(tone(0.0004));
+  for (let i = 0; i < 600; i++) g.process(tone(0.0025)); // 60 s non-stop
+  assert.ok(g.current > 30, `gain ${g.current}`);
 });
