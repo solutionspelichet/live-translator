@@ -4,7 +4,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 import { currentValues, saveKeys, SETUP_FIELDS } from '../config/env';
 import { LANGUAGES } from '../config/languages';
 import { saveSettings } from '../config/settings';
-import { MIC_GAIN_CHOICES, pickLanguage } from '../config/settingsModel';
+import { MIC_GAIN_CHOICES, pickLanguage, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
 import Power from '../../modules/dualcast-power';
 
 /**
@@ -18,6 +18,7 @@ export default function SetupScreen({ settings, onDone }) {
   const [languages, setLanguages] = useState(settings.languages);
   const [background, setBackground] = useState(settings.background);
   const [micGain, setMicGain] = useState(settings.micGain);
+  const [voiceVolume, setVoiceVolume] = useState(settings.voiceVolume);
   const [saving, setSaving] = useState(false);
   const complete = SETUP_FIELDS.every((f) => values[f.name]?.trim());
 
@@ -39,6 +40,24 @@ export default function SetupScreen({ settings, onDone }) {
           selected={languages.B}
           onSelect={(code) => setLanguages((l) => pickLanguage(l, 'B', code))}
         />
+
+        <Text style={styles.section}>Volume de la voix traduite</Text>
+        <View style={styles.chips}>
+          {VOICE_VOLUME_CHOICES.map((v) => (
+            <Pressable
+              key={String(v)}
+              style={[styles.chip, voiceVolume === v && styles.chipOn]}
+              onPress={() => setVoiceVolume(v)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: voiceVolume === v }}
+            >
+              <Text style={styles.chipText}>{v === 1 ? 'Normal' : `×${v}`}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          Amplifie la voix dans les écouteurs sans la déformer. Pensez aussi à monter le volume « média » du téléphone et des écouteurs.
+        </Text>
 
         <Text style={styles.section}>Sensibilité du micro</Text>
         <View style={styles.chips}>
@@ -110,7 +129,7 @@ export default function SetupScreen({ settings, onDone }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, languages, background, micGain });
+            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume });
             setSaving(false);
             onDone(saved);
           }}

@@ -117,6 +117,12 @@ Android n'expose pas de réglage de sensibilité aux apps ; l'app amplifie donc 
 appris en continu, sans saturer ni amplifier le bruit) ou un gain fixe ×1 à ×32. La barre de volume pendant l'enregistrement et le
 « gain micro » du panneau de diagnostic montrent ce qui est réellement envoyé.
 
+## Volume de la voix traduite
+
+La voix ElevenLabs est ramenée à un niveau sonore confortable (RMS, pas seulement le pic) puis les pics sont écrêtés en douceur
+(`boostLoudness`). Réglage dans ⚙︎ : Normal, ×1,5, ×2 (défaut), ×2,5. Le volume « média » du téléphone et des écouteurs
+Bluetooth reste le réglage maître : le mettre au maximum.
+
 ## Points matériels à connaître
 
 - **Le micro ne doit pas passer par le Bluetooth.** Si le micro BT (profil HFP) est utilisé, la sortie bascule en mono basse qualité

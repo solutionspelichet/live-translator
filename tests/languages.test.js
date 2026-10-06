@@ -28,7 +28,7 @@ test('sanitizeSettings: defaults for missing / corrupt data', () => {
 
 test('sanitizeSettings keeps valid values', () => {
   const s = sanitizeSettings({ languages: { A: 'de', B: 'es' }, autoStop: false });
-  assert.deepEqual(s, { languages: { A: 'de', B: 'es' }, autoStop: false, background: true, micGain: 'auto' });
+  assert.deepEqual(s, { languages: { A: 'de', B: 'es' }, autoStop: false, background: true, voiceVolume: 2, micGain: 'auto' });
 });
 
 test('sanitizeSettings never returns the same language on both ears', () => {
@@ -83,4 +83,10 @@ test('micGain defaults to auto and rejects unknown values', () => {
   assert.equal(sanitizeSettings({ micGain: 4 }).micGain, 4);
   assert.equal(sanitizeSettings({ micGain: 99 }).micGain, 'auto');
   assert.equal(sanitizeSettings({ micGain: 32 }).micGain, 32);
+});
+
+test('voiceVolume defaults to 2 and rejects unknown values', () => {
+  assert.equal(sanitizeSettings({}).voiceVolume, 2);
+  assert.equal(sanitizeSettings({ voiceVolume: 1.5 }).voiceVolume, 1.5);
+  assert.equal(sanitizeSettings({ voiceVolume: 10 }).voiceVolume, 2);
 });

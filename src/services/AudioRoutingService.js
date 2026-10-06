@@ -1,6 +1,6 @@
 import { AudioContext, AudioManager } from 'react-native-audio-api';
 
-import { clampPan, pcm16ToFloat, resampleLinear } from '../utils/pcm';
+import { boostLoudness, clampPan, pcm16ToFloat, resampleLinear } from '../utils/pcm';
 
 export const CHANNEL = Object.freeze({ LEFT: -1.0, RIGHT: 1.0 });
 
@@ -26,6 +26,11 @@ class AudioRoutingService {
     this.ctx = null;
     this.active = new Set(); // sources currently playing, so stopAll() can cut them
     this.sessionReady = false;
+    this.voiceVolume = 2; // loudness of the translated voice (1 = normal speech level)
+  }
+
+  setVoiceVolume(volume) {
+    this.voiceVolume = volume;
   }
 
   /**
@@ -81,7 +86,9 @@ class AudioRoutingService {
       // Resample to the context's native rate ourselves: handing the engine a 24 kHz buffer
       // on a 48 kHz context played back at double speed on device.
       const rate = this.ctx.sampleRate;
-      const samples = resampleLinear(pcm16ToFloat(source.data), source.sampleRate, rate);
+      // ElevenLabs speech is fairly quiet: bring it to a comfortable loudness first.
+      const loud = boostLoudness(pcm16ToFloat(source.data), this.voiceVolume);
+      const samples = resampleLinear(loud, source.sampleRate, rate);
       const buffer = this.ctx.createBuffer(1, samples.length, rate);
       buffer.getChannelData(0).set(samples);
       return buffer;

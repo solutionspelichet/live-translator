@@ -47,3 +47,23 @@ export function rmsLevel(float32) {
   for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
   return Math.min(1, Math.sqrt(sum / float32.length) * 6);
 }
+
+/**
+ * Make synthesized speech louder without clipping: bring it to a target RMS (loudness, not peak),
+ * then fold the peaks above the knee with a soft limiter. `volume` 1 ≈ normal speech level (RMS 0.12),
+ * 2 ≈ twice as loud.
+ */
+export function boostLoudness(samples, volume = 1, { baseRms = 0.12, maxGain = 8, knee = 0.8 } = {}) {
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+  const rms = Math.sqrt(sum / (samples.length || 1));
+  if (rms < 1e-5) return samples; // silence
+  const gain = Math.min((baseRms * volume) / rms, maxGain);
+  const out = new Float32Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const v = samples[i] * gain;
+    const a = Math.abs(v);
+    out[i] = a <= knee ? v : Math.sign(v) * (knee + (1 - knee) * Math.tanh((a - knee) / (1 - knee)));
+  }
+  return out;
+}

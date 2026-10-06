@@ -45,3 +45,28 @@ test('rmsLevel: silence is 0, loud signal is clamped to 1', () => {
   assert.equal(rmsLevel(new Float32Array(100).fill(0.9)), 1);
   assert.equal(rmsLevel(new Float32Array(0)), 0);
 });
+
+import { boostLoudness } from '../src/utils/pcm.js';
+
+const sine = (amp, n = 4800) => Float32Array.from({ length: n }, (_, i) => amp * Math.sin(i / 9));
+const rmsOf = (a) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / a.length);
+
+test('boostLoudness raises quiet speech to the target level', () => {
+  const out = boostLoudness(sine(0.05), 1);
+  assert.ok(Math.abs(rmsOf(out) - 0.12) < 0.01, `rms ${rmsOf(out)}`);
+});
+
+test('boostLoudness: volume 2 is clearly louder than volume 1', () => {
+  assert.ok(rmsOf(boostLoudness(sine(0.05), 2)) > 1.6 * rmsOf(boostLoudness(sine(0.05), 1)));
+});
+
+test('boostLoudness never exceeds ±1, even at high volume with peaky input', () => {
+  const peaky = sine(0.9);
+  const out = boostLoudness(peaky, 2.5);
+  assert.ok(Math.max(...out.map(Math.abs)) <= 1);
+});
+
+test('boostLoudness leaves silence untouched', () => {
+  const silent = new Float32Array(100);
+  assert.equal(boostLoudness(silent, 2), silent);
+});

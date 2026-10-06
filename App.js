@@ -59,6 +59,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
     const e = createEngine(languages);
     e.autoStop = settings.autoStop;
     e.mic.setGain(settings.micGain);
+    audio.setVoiceVolume(settings.voiceVolume);
     return e;
   }, [languages.A, languages.B]); // eslint-disable-line react-hooks/exhaustive-deps
   const [state, setState] = useState(STATE.IDLE);
