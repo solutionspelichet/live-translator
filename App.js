@@ -59,6 +59,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
     const e = createEngine(languages);
     e.autoStop = settings.autoStop;
     e.mic.setGain(settings.micGain);
+    e.mic.configure({ source: settings.micSource, input: settings.input, agc: settings.micAgc });
     audio.setVoiceVolume(settings.voiceVolume);
     return e;
   }, [languages.A, languages.B]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -132,11 +133,13 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
       firstRun.current = false; // the initial selection is done in the startup chain
       return;
     }
+    // New microphone / audio source / gain control: restart the capture with the new settings.
+    const changed = engine.mic.configure({ source: settings.micSource, input: settings.input, agc: settings.micAgc });
     audio
       .selectInput(settings.input)
-      .then(() => engine.mic.restart())
+      .then(() => changed && engine.mic.restart())
       .catch(() => {});
-  }, [engine, inputKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [engine, inputKey, settings.micSource, settings.micAgc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Diagnostics panel (long-press ⚙︎): lets a tester see whether the mic and STT really work.
   useEffect(() => {
@@ -187,6 +190,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
             {diag.msSinceChunk != null ? ` · dernier il y a ${diag.msSinceChunk} ms` : ' · aucun paquet reçu'}
             {`\nfréquence: ${diag.sampleRate} Hz · état: ${diag.state} · Deepgram: ${diag.stt ?? '—'}`}
             {`\narrière-plan: ${settings.background ? BackgroundService.status : 'désactivé'}`}
+            {`\ncapture: ${diag.backend}`}
             {`\nmicro choisi: ${settings.input?.name ?? 'téléphone (auto)'}`}
             {`\nveille: verrou ${BackgroundService.lockHeld ? 'oui' : 'NON'} · batterie sans limite: ${Power.isIgnoringBatteryOptimizations() ? 'oui' : 'NON'} · gain micro: ×${Number(diag.gain).toFixed(1)}`}
             {diag.micError ? `\nerreur micro: ${diag.micError}` : ''}

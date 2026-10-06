@@ -4,11 +4,25 @@ import { LANGUAGES } from './languages.js';
 export const MIC_GAIN_CHOICES = Object.freeze(['auto', 1, 2, 4, 8, 16, 32]);
 export const VOICE_VOLUME_CHOICES = Object.freeze([1, 1.5, 2, 2.5]);
 
+/**
+ * Android audio source = which microphone path / processing the phone uses. They can differ a lot in
+ * level on a given phone, hence the choice (the volume bar shows which one picks the voice up best).
+ */
+export const MIC_SOURCES = Object.freeze({
+  voice_recognition: { label: 'Reconnaissance vocale', hint: 'réglée pour la parole, recommandée' },
+  mic: { label: 'Standard', hint: 'micro par défaut du téléphone' },
+  camcorder: { label: 'Caméscope', hint: 'micro tourné vers l\'avant, souvent plus sensible de loin' },
+  unprocessed: { label: 'Brut', hint: 'sans aucun traitement du téléphone' },
+  voice_communication: { label: 'Appel', hint: 'traitement d\'appel (annulation d\'écho, bruit)' },
+});
+
 export const DEFAULT_SETTINGS = Object.freeze({
   languages: Object.freeze({ A: 'fr', B: 'en' }),
   autoStop: true,
   background: true, // keep working with the screen off (Android foreground service)
   micGain: 'auto', // 'auto' (automatic gain control) or a fixed gain: 1…32
+  micSource: 'voice_recognition', // see MIC_SOURCES (Android capture)
+  micAgc: true, // use the phone's own automatic gain control when it has one
   voiceVolume: 2, // loudness of the translated voice: 1 (normal) … 2.5 (loud)
   input: null, // chosen microphone { id, name }, or null = the phone's built-in mic
 });
@@ -35,6 +49,8 @@ export function sanitizeSettings(raw) {
     background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,
     micGain: MIC_GAIN_CHOICES.includes(gain) ? gain : DEFAULT_SETTINGS.micGain,
     voiceVolume: VOICE_VOLUME_CHOICES.includes(volume) ? volume : DEFAULT_SETTINGS.voiceVolume,
+    micSource: MIC_SOURCES[input.micSource] ? input.micSource : DEFAULT_SETTINGS.micSource,
+    micAgc: typeof input.micAgc === 'boolean' ? input.micAgc : DEFAULT_SETTINGS.micAgc,
     input: sanitizeInput(input.input ?? old.input),
   };
 }

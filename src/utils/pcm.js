@@ -67,3 +67,15 @@ export function boostLoudness(samples, volume = 1, { baseRms = 0.12, maxGain = 8
   }
   return out;
 }
+
+/** Base64 of little-endian 16-bit PCM → Float32 [-1,1] (used for the native Android capture). */
+export function pcm16Base64ToFloat(base64) {
+  const binary = atob(base64);
+  const even = binary.length - (binary.length % 2);
+  const bytes = new Uint8Array(even);
+  for (let i = 0; i < even; i++) bytes[i] = binary.charCodeAt(i);
+  const int16 = new Int16Array(bytes.buffer, 0, even / 2);
+  const out = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) out[i] = int16[i] / 32768;
+  return out;
+}

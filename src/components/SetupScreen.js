@@ -4,7 +4,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 import { currentValues, saveKeys, SETUP_FIELDS } from '../config/env';
 import { LANGUAGES } from '../config/languages';
 import { saveSettings } from '../config/settings';
-import { MIC_GAIN_CHOICES, pickLanguage, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
+import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 
@@ -21,6 +21,8 @@ export default function SetupScreen({ settings, onDone }) {
   const [micGain, setMicGain] = useState(settings.micGain);
   const [voiceVolume, setVoiceVolume] = useState(settings.voiceVolume);
   const [input, setInput] = useState(settings.input);
+  const [micSource, setMicSource] = useState(settings.micSource);
+  const [micAgc, setMicAgc] = useState(settings.micAgc);
   const [inputs, setInputs] = useState([]);
 
   useEffect(() => {
@@ -49,6 +51,26 @@ export default function SetupScreen({ settings, onDone }) {
         />
 
         <Text style={styles.section}>Micro et voix</Text>
+        <Text style={styles.label}>Source du micro</Text>
+        <View style={styles.chips}>
+          {Object.entries(MIC_SOURCES).map(([key, src]) => (
+            <Chip key={key} label={src.label} on={micSource === key} onPress={() => setMicSource(key)} />
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          {MIC_SOURCES[micSource].hint}. Sur Android, chaque source passe par un chemin audio différent : le niveau peut varier
+          beaucoup d'un téléphone à l'autre. Essayez-les et regardez la barre de volume pendant l'enregistrement : gardez celle
+          qui monte le plus.
+        </Text>
+        <Chip
+          label={micAgc ? '✓ Gain automatique du téléphone' : 'Gain automatique du téléphone : non'}
+          on={micAgc}
+          onPress={() => setMicAgc((v) => !v)}
+        />
+        <Text style={styles.hint}>
+          Utilise l'amplification intégrée du téléphone quand il en a une. Si le son est irrégulier ou « pompe », désactivez-la.
+        </Text>
+
         <Text style={styles.label}>Micro utilisé</Text>
         <View style={styles.chips}>
           <Chip label="Automatique (micro du téléphone)" on={input == null} onPress={() => setInput(null)} />
@@ -77,7 +99,7 @@ export default function SetupScreen({ settings, onDone }) {
           ))}
         </View>
         <Text style={styles.hint}>
-          Auto amplifie fortement la voix faible ou lointaine (jusqu'à ×40) sans amplifier le bruit. Encore trop faible ? Essayez ×16 ou ×32.
+          Auto amplifie fortement la voix faible ou lointaine (jusqu'à ×60) sans amplifier le bruit. Évitez les gains fixes élevés (×16, ×32) : ils font saturer la voix dès qu'elle monte, ce qui fait rater des mots.
           La barre de volume s'affiche pendant l'enregistrement.
         </Text>
 
@@ -142,7 +164,7 @@ export default function SetupScreen({ settings, onDone }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume, input });
+            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume, input, micSource, micAgc });
             setSaving(false);
             onDone(saved);
           }}

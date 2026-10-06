@@ -119,6 +119,15 @@ appris en continu, sans saturer ni amplifier le bruit) ou un gain fixe ×1 à ×
 que le téléphone expose (micro intégré, casque filaire, Bluetooth…) ; un micro Bluetooth fait passer les écouteurs en mono
 (profil HFP) : la séparation gauche/droite est alors perdue. Android ne laisse pas choisir entre les micros internes du téléphone.
 
+### Source du micro (Android)
+
+`react-native-audio-api` ouvre toujours le micro avec la source par défaut, qui sur certains téléphones donne un signal très faible
+(mesuré : ≈ −64 dBFS en parlant, soit 12 % de la barre de volume même avec un gain ×32). L'app capture donc le micro elle-même
+(`modules/dualcast-power`, `AudioRecord`) avec le choix de la **source audio** — c'est ce que « un micro différent » veut dire sur
+Android : Reconnaissance vocale (défaut), Standard, Caméscope, Brut, Appel — et peut activer le **gain automatique intégré au
+téléphone** quand il existe. Si la capture native échoue, l'ancienne capture est utilisée (panneau de diagnostic : « capture »).
+Le gain logiciel passe par un limiteur doux (plus de saturation brutale) ; éviter les gains fixes élevés.
+
 ## Volume de la voix traduite
 
 La voix ElevenLabs est ramenée à un niveau sonore confortable (RMS, pas seulement le pic) puis les pics sont écrêtés en douceur

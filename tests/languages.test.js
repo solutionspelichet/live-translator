@@ -33,6 +33,8 @@ test('sanitizeSettings keeps valid values', () => {
     background: false,
     micGain: 16,
     voiceVolume: 1.5,
+    micSource: 'camcorder',
+    micAgc: false,
     input: { id: '7', name: 'Headset mic' },
   });
   assert.deepEqual(s, {
@@ -41,6 +43,8 @@ test('sanitizeSettings keeps valid values', () => {
     background: false,
     micGain: 16,
     voiceVolume: 1.5,
+    micSource: 'camcorder',
+    micAgc: false,
     input: { id: '7', name: 'Headset mic' },
   });
 });
@@ -113,3 +117,12 @@ test('32 languages, no duplicate service codes for the speech models', () => {
   assert.equal(new Set(entries.map((l) => l.label)).size, entries.length);
 });
 
+
+test('mic source defaults to voice recognition with the phone gain control on, and validates', () => {
+  const d = sanitizeSettings({});
+  assert.equal(d.micSource, 'voice_recognition');
+  assert.equal(d.micAgc, true);
+  assert.equal(sanitizeSettings({ micSource: 'camcorder' }).micSource, 'camcorder');
+  assert.equal(sanitizeSettings({ micSource: 'nope' }).micSource, 'voice_recognition');
+  assert.equal(sanitizeSettings({ micAgc: false }).micAgc, false);
+});

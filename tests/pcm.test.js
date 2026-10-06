@@ -70,3 +70,17 @@ test('boostLoudness leaves silence untouched', () => {
   const silent = new Float32Array(100);
   assert.equal(boostLoudness(silent, 2), silent);
 });
+
+import { pcm16Base64ToFloat } from '../src/utils/pcm.js';
+
+test('pcm16Base64ToFloat decodes little-endian 16-bit PCM from base64', () => {
+  const bytes = new Uint8Array(new Int16Array([0, 16384, -16384, 32767, -32768]).buffer);
+  const b64 = Buffer.from(bytes).toString('base64');
+  const out = pcm16Base64ToFloat(b64);
+  assert.equal(out.length, 5);
+  assert.deepEqual([...out].map((v) => +v.toFixed(3)), [0, 0.5, -0.5, 1, -1]);
+});
+
+test('pcm16Base64ToFloat ignores a stray trailing byte', () => {
+  assert.equal(pcm16Base64ToFloat(Buffer.from([0, 0, 0, 0, 9]).toString('base64')).length, 2);
+});

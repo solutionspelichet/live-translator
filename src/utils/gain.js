@@ -2,14 +2,20 @@
 // speech up quietly, and Android does not expose a mic-sensitivity control to apps, so we
 // amplify the PCM ourselves before it goes to speech recognition.
 
-/** Multiply by `gain` (ramped from `from` over the chunk to avoid clicks); hard-limits at ±1. */
+/** Soft limiter: linear up to the knee, then a smooth fold towards ±1 (no harsh clipping distortion). */
+export function softLimit(v, knee = 0.85) {
+  const a = Math.abs(v);
+  if (a <= knee) return v;
+  return Math.sign(v) * (knee + (1 - knee) * Math.tanh((a - knee) / (1 - knee)));
+}
+
+/** Multiply by `gain` (ramped from `from` over the chunk to avoid clicks), soft-limited to ±1. */
 export function applyGain(samples, from, to) {
   const out = new Float32Array(samples.length);
   const n = samples.length;
   for (let i = 0; i < n; i++) {
     const g = n > 1 ? from + ((to - from) * i) / (n - 1) : to;
-    const v = samples[i] * g;
-    out[i] = v > 1 ? 1 : v < -1 ? -1 : v;
+    out[i] = softLimit(samples[i] * g);
   }
   return out;
 }
@@ -19,13 +25,13 @@ export const MANUAL_GAINS = Object.freeze([1, 2, 4, 8, 16, 32]);
 /**
  * Gain stage with two modes:
  *  - 'auto': automatic gain control — quiet or distant speech is lifted towards a comfortable
- *    level (up to ×40), never so far that it clips, and background noise is NOT boosted. "Speech"
+ *    level (up to ×60), never so far that it clips, and background noise is NOT boosted. "Speech"
  *    is detected relative to a noise floor learned from the quietest recent audio, so even a very
  *    faint voice (a phone lying on a table) counts as speech instead of being mistaken for noise;
  *  - a number (1…32): fixed gain.
  */
 export default class MicGain {
-  constructor({ mode = 'auto', target = 0.12, maxGain = 40, minSpeechRms = 0.0007, initialGain = 4 } = {}) {
+  constructor({ mode = 'auto', target = 0.12, maxGain = 60, minSpeechRms = 0.0007, initialGain = 4 } = {}) {
     this.mode = mode;
     this.target = target; // RMS we aim for (≈ −18 dBFS: clear speech with headroom)
     this.maxGain = maxGain;

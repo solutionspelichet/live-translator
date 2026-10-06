@@ -204,6 +204,7 @@ export default class TranslationEngine {
       msSinceChunk: mic.lastChunkAt ? Date.now() - mic.lastChunkAt : null,
       sampleRate: mic.sampleRate ?? 0,
       gain: mic.gain ?? 1,
+      backend: mic.backend ?? '—',
       micError: mic.lastError ?? null,
       stt: this.turn?.session?.status ?? null,
     };

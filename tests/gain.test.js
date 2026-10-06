@@ -1,15 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import MicGain, { applyGain } from '../src/utils/gain.js';
+import MicGain, { applyGain, softLimit } from '../src/utils/gain.js';
 import { rmsLevel } from '../src/utils/pcm.js';
 
 const tone = (amp, n = 1600) => Float32Array.from({ length: n }, (_, i) => amp * Math.sin(i / 7));
 const rms = (a) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / a.length);
 
-test('applyGain multiplies and never exceeds ±1', () => {
+test('applyGain multiplies below the knee and never exceeds ±1', () => {
   const out = applyGain(new Float32Array([0.1, -0.1, 0.6, -0.6]), 4, 4);
-  assert.deepEqual([...out].map((v) => +v.toFixed(2)), [0.4, -0.4, 1, -1]);
+  assert.deepEqual([...out].slice(0, 2).map((v) => +v.toFixed(2)), [0.4, -0.4]);
+  assert.ok(Math.abs(out[2]) <= 1 && Math.abs(out[2]) > 0.85, 'loud peaks are folded smoothly, not hard-clipped');
+});
+
+test('softLimit is linear below the knee, monotonic above it and bounded by 1', () => {
+  assert.equal(softLimit(0.5), 0.5);
+  let prev = 0;
+  for (let v = 0.86; v < 20; v += 0.5) {
+    const out = softLimit(v);
+    assert.ok(out >= prev && out <= 1, `v=${v} out=${out}`);
+    prev = out;
+  }
+  assert.equal(softLimit(-0.5), -0.5);
 });
 
 test('fixed gain mode applies exactly that gain', () => {
@@ -40,7 +52,7 @@ test('auto gain lifts a VERY faint voice (phone on a table) after quiet backgrou
   for (let i = 0; i < 30; i++) out = g.process(tone(0.004)); // faint speech
   assert.ok(rms(out) > 0.05, `rms after gain ${rms(out)}`);
   assert.ok(g.current > 15, `gain ${g.current}`);
-  assert.ok(g.current <= 40);
+  assert.ok(g.current <= 60);
 });
 
 test('auto gain backs off fast on loud input instead of clipping', () => {
