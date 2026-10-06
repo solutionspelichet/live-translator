@@ -56,6 +56,18 @@ npx expo start --dev-client # ensuite, juste Metro
 npm test
 ```
 
+## Tester sur son téléphone (sans Mac ni Android Studio)
+
+Expo Go ne marche pas (module audio natif) : il faut installer **une fois** un build de développement fabriqué par EAS.
+
+```bash
+npx eas-cli login
+npx eas-cli build --profile development --platform android   # lien/QR vers l'APK → l'installer sur le téléphone
+npx expo start --dev-client --tunnel                          # puis ouvrir l'app installée et scanner le QR
+```
+Les clés du `.env` sont lues par Metro au démarrage (`npx expo start -c` si elles changent).
+iOS : même commande avec `--platform ios`, mais exige un compte Apple Developer payant et l'enregistrement de l'appareil.
+
 ## Gestion des clés (`.env`)
 
 - `.env` est dans `.gitignore` ; seul `.env.example` (sans valeurs) est versionné.
