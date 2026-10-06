@@ -39,7 +39,7 @@ export default class MicrophoneStreamer {
     if (status !== 'Granted') throw new Error('Microphone permission denied');
   }
 
-  /** 'auto' (automatic gain control) or a fixed gain: 1, 2, 4, 8. */
+  /** 'auto' (automatic gain control) or a fixed gain: 1…32. */
   setGain(mode) {
     this.gain.setMode(mode);
   }

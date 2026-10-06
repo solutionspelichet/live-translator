@@ -82,4 +82,5 @@ test('micGain defaults to auto and rejects unknown values', () => {
   assert.equal(sanitizeSettings({}).micGain, 'auto');
   assert.equal(sanitizeSettings({ micGain: 4 }).micGain, 4);
   assert.equal(sanitizeSettings({ micGain: 99 }).micGain, 'auto');
+  assert.equal(sanitizeSettings({ micGain: 32 }).micGain, 32);
 });

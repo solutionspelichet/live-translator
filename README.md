@@ -113,8 +113,8 @@ Le module n'a pas pu être compilé ni testé en local : seul le build GitHub le
 ## Sensibilité du micro
 
 Android n'expose pas de réglage de sensibilité aux apps ; l'app amplifie donc elle-même le son avant la reconnaissance
-(`src/utils/gain.js`). Réglage dans ⚙︎ : **Auto** (contrôle automatique du gain : relève la voix faible ou lointaine, sans
-saturer ni amplifier le bruit de fond) ou un gain fixe ×1 / ×2 / ×4 / ×8. La barre de volume pendant l'enregistrement et le
+(`src/utils/gain.js`). Réglage dans ⚙︎ : **Auto** (contrôle automatique du gain, jusqu'à ×40 : relève la voix faible ou lointaine, détectée par rapport au bruit de fond
+appris en continu, sans saturer ni amplifier le bruit) ou un gain fixe ×1 à ×32. La barre de volume pendant l'enregistrement et le
 « gain micro » du panneau de diagnostic montrent ce qui est réellement envoyé.
 
 ## Points matériels à connaître

@@ -5,10 +5,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
   languages: Object.freeze({ A: 'fr', B: 'en' }),
   autoStop: true,
   background: true, // keep working with the screen off (Android foreground service)
-  micGain: 'auto', // 'auto' (automatic gain control) or a fixed gain: 1, 2, 4, 8
+  micGain: 'auto', // 'auto' (automatic gain control) or a fixed gain: 1…32
 });
 
-export const MIC_GAIN_CHOICES = Object.freeze(['auto', 1, 2, 4, 8]);
+export const MIC_GAIN_CHOICES = Object.freeze(['auto', 1, 2, 4, 8, 16, 32]);
 
 /** Turn whatever was stored (possibly old/corrupt) into a valid settings object. */
 export function sanitizeSettings(raw) {

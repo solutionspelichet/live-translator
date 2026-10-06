@@ -55,7 +55,7 @@ export default function SetupScreen({ settings, onDone }) {
           ))}
         </View>
         <Text style={styles.hint}>
-          Auto amplifie la voix lointaine ou faible sans amplifier le bruit. Si la voix est mal captée, essayez ×4 ou ×8.
+          Auto amplifie fortement la voix faible ou lointaine (jusqu'à ×40) sans amplifier le bruit. Si la voix est encore mal captée, essayez ×16 ou ×32.
           La barre de volume s'affiche pendant l'enregistrement.
         </Text>
 

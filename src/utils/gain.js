@@ -14,32 +14,36 @@ export function applyGain(samples, from, to) {
   return out;
 }
 
-export const MANUAL_GAINS = Object.freeze([1, 2, 4, 8]);
+export const MANUAL_GAINS = Object.freeze([1, 2, 4, 8, 16, 32]);
 
 /**
  * Gain stage with two modes:
- *  - 'auto': automatic gain control — quiet speech is lifted towards a comfortable level,
- *    never so far that it clips, and pure background noise is NOT boosted;
- *  - a number (1, 2, 4, 8): fixed gain.
+ *  - 'auto': automatic gain control — quiet or distant speech is lifted towards a comfortable
+ *    level (up to ×40), never so far that it clips, and background noise is NOT boosted. "Speech"
+ *    is detected relative to a noise floor learned from the quietest recent audio, so even a very
+ *    faint voice (a phone lying on a table) counts as speech instead of being mistaken for noise;
+ *  - a number (1…32): fixed gain.
  */
 export default class MicGain {
-  constructor({ mode = 'auto', target = 0.1, maxGain = 16, noiseFloor = 0.004 } = {}) {
+  constructor({ mode = 'auto', target = 0.12, maxGain = 40, minSpeechRms = 0.0007, initialGain = 4 } = {}) {
     this.mode = mode;
-    this.target = target; // RMS we aim for (≈ −20 dBFS: clear speech, plenty of headroom)
+    this.target = target; // RMS we aim for (≈ −18 dBFS: clear speech with headroom)
     this.maxGain = maxGain;
-    this.noiseFloor = noiseFloor;
-    this.current = mode === 'auto' ? 2 : mode;
+    this.minSpeechRms = minSpeechRms; // absolute floor: below this it is electrical hiss
+    this.noise = 0.002; // running estimate of the noise floor (RMS)
+    // Start boosted: the first words of a quiet speaker are the ones that would be lost.
+    this.current = mode === 'auto' ? initialGain : mode;
   }
 
   setMode(mode) {
     this.mode = mode;
-    this.current = mode === 'auto' ? Math.max(this.current, 1) : mode;
+    if (mode !== 'auto') this.current = mode;
   }
 
   /** @param {Float32Array} samples @returns {Float32Array} amplified copy */
   process(samples) {
     const from = this.current;
-    let to = this.mode === 'auto' ? this.nextAutoGain(samples) : this.mode;
+    const to = this.mode === 'auto' ? this.nextAutoGain(samples) : this.mode;
     this.current = to;
     return applyGain(samples, from, to);
   }
@@ -53,12 +57,17 @@ export default class MicGain {
       if (a > peak) peak = a;
     }
     const rms = Math.sqrt(sum / (samples.length || 1));
-    if (rms < this.noiseFloor) return this.current; // silence/noise: hold, don't pump the hiss up
+
+    // Noise floor: drops immediately to any quieter chunk, creeps up slowly otherwise.
+    this.noise = rms < this.noise ? rms : this.noise + (rms - this.noise) * 0.002;
+
+    const isSpeech = rms > Math.max(this.minSpeechRms, this.noise * 2.2);
+    if (!isSpeech) return this.current; // silence/noise: hold, don't pump the hiss up
 
     const wanted = Math.min(this.target / rms, 0.95 / Math.max(peak, 1e-6), this.maxGain);
     const clamped = Math.max(0.5, wanted);
-    // Fast when the signal got louder (avoid clipping), slow when it got quieter (no pumping).
-    const rate = clamped < this.current ? 0.6 : 0.15;
+    // Fast when the signal got louder (avoid clipping), moderate when it got quieter.
+    const rate = clamped < this.current ? 0.6 : 0.25;
     return this.current + (clamped - this.current) * rate;
   }
 }

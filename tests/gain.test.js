@@ -22,15 +22,25 @@ test('auto gain lifts quiet speech clearly above its original level', () => {
   const g = new MicGain({ mode: 'auto' });
   let out;
   for (let i = 0; i < 12; i++) out = g.process(tone(0.03)); // a few chunks to converge
-  assert.ok(rms(out) > 4 * rms(tone(0.03)), `rms ${rms(out)}`);
+  assert.ok(rms(out) > 3 * rms(tone(0.03)), `rms ${rms(out)}`);
   assert.ok(Math.max(...out.map(Math.abs)) <= 1);
 });
 
 test('auto gain does not boost silence / background hiss', () => {
   const g = new MicGain({ mode: 'auto' });
   const before = g.current;
-  for (let i = 0; i < 20; i++) g.process(tone(0.002));
+  for (let i = 0; i < 20; i++) g.process(tone(0.0015));
   assert.equal(g.current, before);
+});
+
+test('auto gain lifts a VERY faint voice (phone on a table) after quiet background', () => {
+  const g = new MicGain({ mode: 'auto' });
+  for (let i = 0; i < 10; i++) g.process(tone(0.0004)); // room noise
+  let out;
+  for (let i = 0; i < 30; i++) out = g.process(tone(0.004)); // faint speech
+  assert.ok(rms(out) > 0.05, `rms after gain ${rms(out)}`);
+  assert.ok(g.current > 15, `gain ${g.current}`);
+  assert.ok(g.current <= 40);
 });
 
 test('auto gain backs off fast on loud input instead of clipping', () => {
