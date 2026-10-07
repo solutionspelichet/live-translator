@@ -421,3 +421,22 @@ test('hands-free: words still pending when the user taps to stop are translated'
   await engine.toggle('auto');
   assert.deepEqual(calls.translate, [['et puis', 'fr', 'en']]);
 });
+
+test('hands-free: the microphone re-hearing our own translation is NOT translated again (no AI-to-AI dialogue)', async () => {
+  const { engine, calls, a, b } = await handsFree();
+  a.onFinal('Je pense que ça ira très bien demain matin.', 0.95); // user speaks French → English voice played
+  await pause();
+  assert.equal(calls.translate.length, 1);
+  // The earbud voice "[en] Je pense que ça ira très bien demain matin." leaks into the mic:
+  b.onFinal('en Je pense que ça ira très bien demain matin', 0.9);
+  await pause();
+  assert.equal(calls.translate.length, 1, 'echo must be ignored');
+  assert.ok(engine.recentOutputs.length >= 1);
+});
+
+test('hands-free: a lone low/medium-confidence transcript (hallucination on silence) is ignored', async () => {
+  const { calls, a } = await handsFree();
+  a.onFinal('OK je pense que ça ira ici', 0.6);
+  await pause();
+  assert.equal(calls.translate.length, 0);
+});

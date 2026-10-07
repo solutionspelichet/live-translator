@@ -1,4 +1,5 @@
 import { PAN, SIDE } from '../config/languages.js';
+import { isEcho } from '../utils/echo.js';
 import SegmentBuffer from '../utils/segments.js';
 
 export const STATE = Object.freeze({
@@ -47,9 +48,10 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {number} [deps.detectWindowMs]  hands-free: how long to wait for the other language's transcript before choosing
  */
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.35 }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000 }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs });
     this.lastWarm = 0;
+    this.recentOutputs = []; // translations just played: { side, text, at } (hands-free echo filter)
     this.state = STATE.IDLE;
     this.listeners = new Set();
     this.turnId = 0; // invalidates in-flight work when a new turn / cancel happens
@@ -272,15 +274,30 @@ export default class TranslationEngine {
     else turn.decideTimer = setTimeout(() => this.decide(turn), this.detectWindowMs);
   }
 
+  /** Is this transcript just the microphone hearing the voice we played a moment ago? */
+  heardOurself(side, text) {
+    const since = Date.now() - this.echoWindowMs;
+    this.recentOutputs = this.recentOutputs.filter((o) => o.at >= since);
+    const echo = isEcho(text, this.recentOutputs.filter((o) => o.side === side).map((o) => o.text));
+    if (echo) this.emit({ type: 'note', text: `écho ignoré (${side}) : ${text.slice(0, 40)}` });
+    return echo;
+  }
+
   /** Compare the candidates of the two languages and keep the more confident one. */
   decide(turn) {
     clearTimeout(turn.decideTimer);
-    const { A, B } = turn.cands;
+    let { A, B } = turn.cands;
     turn.cands = {};
+    // Drop what is just our own translation coming back through the microphone.
+    if (A && this.heardOurself(SIDE.A, A.text)) A = undefined;
+    if (B && this.heardOurself(SIDE.B, B.text)) B = undefined;
     const side = A && B ? (B.conf > A.conf ? SIDE.B : SIDE.A) : A ? SIDE.A : B ? SIDE.B : null;
     if (!side) return;
     const chosen = side === SIDE.A ? A : B;
-    if (chosen.conf < this.minConfidence) return; // noise / a word from the wrong language
+    // Noise, a hallucination on silence or a word from the wrong language: be stricter when the
+    // other language's recognizer produced nothing to compare with.
+    if (chosen.conf < (A && B ? this.minConfidence : this.loneConfidence)) return;
+    if (chosen.text.replace(/\s+/g, '').length < 3) return;
     turn.decided.push(chosen.text);
     // The language changed: release what the previous one was still holding, to keep the order.
     if (turn.lastSide && turn.lastSide !== side) {
@@ -376,6 +393,8 @@ export default class TranslationEngine {
       turn.shown[targetSide][index] = translated;
       this.emit({ type: 'translation', side: targetSide, text: turn.shown[targetSide].filter(Boolean).join(' ') });
       this.emit({ type: 'segment', from: side, to: targetSide, source: text, translated, at: Date.now() });
+      this.recentOutputs.push({ side: targetSide, text: translated, at: Date.now() });
+      if (this.recentOutputs.length > 12) this.recentOutputs.shift();
       if (this.streamTts && this.tts.stream) {
         const stream = this.tts.stream(translated, voice);
         turn.streams.add(stream);
