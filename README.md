@@ -158,6 +158,8 @@ Bluetooth reste le réglage maître : le mettre au maximum.
   Le même son est envoyé à deux sessions Deepgram (une par langue) ; la transcription la plus fiable (confiance) indique la langue
   parlée, et la phrase est traduite vers l'autre oreille. Deux fois plus de transcription facturée ; moins fiable que le choix manuel
   sur les phrases très courtes (« ok », « oui ») ou deux langues proches. Non vérifié sur appareil.
+  Arrêt automatique : sans aucune parole reconnue pendant 5 minutes, le mode mains libres s'arrête (vibration + message) pour ne pas facturer deux transcriptions
+  ni vider la batterie ; un appui relance l'écoute.
   Garde-fous contre les « phrases inventées » : le micro peut réentendre la voix traduite (fuite des écouteurs) et la retranscrire, ce qui
   créerait une boucle entre les deux voix. Une transcription qui reprend mot pour mot (langues alphabétiques : paires de mots ; chinois, japonais, coréen : paires de caractères) une traduction jouée dans les 40 dernières secondes est donc
   ignorée (`src/utils/echo.js`, note « écho ignoré » dans le journal), ainsi que les transcriptions peu fiables (confiance < 0,5, ou < 0,7

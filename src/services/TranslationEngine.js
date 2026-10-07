@@ -45,11 +45,12 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {number} [deps.noAudioMs]  give up waiting for the first audio chunk after this long (restart mic, then fail)
  * @param {number} [deps.tailMs]  keep capturing this long after the stop tap (don't clip the last word)
  * @param {boolean} [deps.streamTts]  play each sentence while ElevenLabs is still generating it (tts.stream + audio.playStream)
+ * @param {number} [deps.idleStopMs]  hands-free: stop listening after this long without any recognized speech (billing + battery)
  * @param {number} [deps.detectWindowMs]  hands-free: how long to wait for the other language's transcript before choosing
  */
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000 }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000 }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs });
     this.lastWarm = 0;
     this.recentOutputs = []; // translations just played: { side, text, at } (hands-free echo filter)
     this.state = STATE.IDLE;
@@ -138,6 +139,7 @@ export default class TranslationEngine {
       if (!turn.live) {
         turn.live = true;
         this.setState(STATE.LISTENING); // first audio really flowing → tell the user to speak
+        if (auto) this.armIdleStop(turn);
       }
       // Open Deepgram lazily on the first chunk: that's when the true sample rate is known.
       turn.session ??= auto ? this.createAutoSession(turn, sampleRate) : this.stt.createSession({
@@ -299,6 +301,7 @@ export default class TranslationEngine {
     if (chosen.conf < (A && B ? this.minConfidence : this.loneConfidence)) return;
     if (chosen.text.replace(/\s+/g, '').length < 3) return;
     turn.decided.push(chosen.text);
+    this.armIdleStop(turn); // speech heard: the silence countdown starts over
     // The language changed: release what the previous one was still holding, to keep the order.
     if (turn.lastSide && turn.lastSide !== side) {
       turn.buffers[turn.lastSide].flush().forEach((segment) => this.enqueue(turn, segment, turn.lastSide));
@@ -308,6 +311,18 @@ export default class TranslationEngine {
     turn.buffers[side].push(chosen.text).forEach((segment) => this.enqueue(turn, segment, side));
     clearTimeout(turn.flushTimer);
     if (turn.buffers[side].hasPending()) turn.flushTimer = setTimeout(() => this.flushAuto(turn), this.flushAfterMs);
+  }
+
+  /** Hands-free keeps two paid transcriptions and the mic running: stop after a long silence. */
+  armIdleStop(turn) {
+    clearTimeout(turn.idleStopTimer);
+    if (!this.idleStopMs) return;
+    turn.idleStopTimer = setTimeout(() => {
+      if (this.turnId !== turn.id || this.state !== STATE.LISTENING) return;
+      this.emit({ type: 'idle-stop', minutes: Math.round(this.idleStopMs / 60000) });
+      this.endTurn();
+    }, this.idleStopMs);
+    turn.idleStopTimer.unref?.(); // Node (tests) must not wait for it; a no-op in React Native
   }
 
   flushAuto(turn) {
@@ -452,6 +467,7 @@ export default class TranslationEngine {
   cancel() {
     this.turnId++; // any pending await of the previous turn becomes a no-op
     clearTimeout(this.turn?.watchdog);
+    this.clearTimers(this.turn);
     this.turn?.session?.abort();
     this.turn?.streams.forEach((stream) => stream.abort());
     this.mic.setSink(null); // the mic itself stays warm
@@ -466,6 +482,7 @@ export default class TranslationEngine {
     clearTimeout(turn.flushTimer);
     clearTimeout(turn.idleTimer);
     clearTimeout(turn.decideTimer);
+    clearTimeout(turn.idleStopTimer);
   }
 
   fail(id, error) {

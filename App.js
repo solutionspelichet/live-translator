@@ -118,6 +118,10 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
         EventLog.add(
           `délai: DeepL ${ev.translateMs} ms · voix ${ev.ttsMs ?? '?'} ms · prêt en ${ev.readyMs ?? '?'} ms${ev.streamed ? ' (flux)' : ''}`,
         );
+      } else if (ev.type === 'idle-stop') {
+        EventLog.add(`mains libres arrêté : aucun mot depuis ${ev.minutes} min`);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+        Alert.alert('Mains libres arrêté', `Aucune parole détectée depuis ${ev.minutes} minutes : l'écoute s'est arrêtée pour économiser la batterie et la transcription. Touchez l'écran pour reprendre.`);
       } else if (ev.type === 'note') {
         EventLog.add(ev.text);
       } else if (ev.type === 'error') {

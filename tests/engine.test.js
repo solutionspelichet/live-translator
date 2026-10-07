@@ -440,3 +440,33 @@ test('hands-free: a lone low/medium-confidence transcript (hallucination on sile
   await pause();
   assert.equal(calls.translate.length, 0);
 });
+
+test('hands-free stops by itself after a long silence, and tells the user', async () => {
+  const { engine, events } = await handsFree();
+  engine.idleStopMs = 40;
+  engine.armIdleStop(engine.turn);
+  await pause(120);
+  assert.equal(engine.state, STATE.IDLE);
+  assert.deepEqual(events.find((e) => e.type === 'idle-stop'), { type: 'idle-stop', minutes: 0 });
+});
+
+test('hands-free: recognized speech restarts the silence countdown', async () => {
+  const { engine, a } = await handsFree();
+  engine.idleStopMs = 80;
+  engine.armIdleStop(engine.turn);
+  await pause(50);
+  a.onFinal('Bonjour tout le monde, comment allez-vous.', 0.95); // speech → countdown restarts
+  await pause(50);
+  assert.equal(engine.state, STATE.LISTENING, 'still listening 100 ms after start (80 ms limit)');
+  await pause(100);
+  assert.equal(engine.state, STATE.IDLE);
+});
+
+test('manual turns have no idle stop', async () => {
+  const { engine, chunk } = setup();
+  engine.idleStopMs = 20;
+  await engine.toggle('A');
+  chunk();
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(engine.state, STATE.LISTENING);
+});
