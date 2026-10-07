@@ -9,6 +9,8 @@ export const STATE = Object.freeze({
   SPEAKING: 'speaking',
 });
 
+export const AUTO = 'auto'; // hands-free turn: the spoken language is detected, not chosen by the tapped zone
+
 const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
 
 /**
@@ -41,10 +43,13 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {number} [deps.autoEndMs]  with autoStop: silence after Deepgram's UtteranceEnd before the turn ends
  * @param {number} [deps.noAudioMs]  give up waiting for the first audio chunk after this long (restart mic, then fail)
  * @param {number} [deps.tailMs]  keep capturing this long after the stop tap (don't clip the last word)
+ * @param {boolean} [deps.streamTts]  play each sentence while ElevenLabs is still generating it (tts.stream + audio.playStream)
+ * @param {number} [deps.detectWindowMs]  hands-free: how long to wait for the other language's transcript before choosing
  */
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500 }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.35 }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence });
+    this.lastWarm = 0;
     this.state = STATE.IDLE;
     this.listeners = new Set();
     this.turnId = 0; // invalidates in-flight work when a new turn / cancel happens
@@ -68,7 +73,19 @@ export default class TranslationEngine {
 
   /** Open the microphone ahead of time so the first tap is instant. */
   warmUp() {
+    this.warmConnections();
     return this.mic.open().catch((error) => this.emit({ type: 'error', error }));
+  }
+
+  /** Open the HTTPS connections to DeepL / ElevenLabs ahead of the first sentence (at most every 25 s). */
+  warmConnections() {
+    if (Date.now() - this.lastWarm < 25000) return;
+    this.lastWarm = Date.now();
+    for (const service of [this.translator, this.tts]) {
+      try {
+        Promise.resolve(service.warm?.()).catch(() => {});
+      } catch {}
+    }
   }
 
   /** Release the microphone (app in background). */
@@ -86,8 +103,10 @@ export default class TranslationEngine {
   async startTurn(side) {
     // Barge-in: a tap interrupts anything still playing or processing.
     this.cancel();
+    this.warmConnections();
     const id = ++this.turnId;
-    const language = this.languages[side];
+    const auto = side === AUTO;
+    const language = auto ? null : this.languages[side];
     const turn = {
       id,
       side,
@@ -99,8 +118,15 @@ export default class TranslationEngine {
       playing: false,
       buffer: new SegmentBuffer(),
       segments: 0,
-      translated: [], // translated text per segment index
+      shown: { A: [], B: [] }, // translated text per target side, by segment index
+      decided: [], // hands-free: transcripts kept after language detection
       chain: Promise.resolve(), // keeps playback in speaking order
+      streams: new Set(), // sentences being synthesized as a stream (aborted on cancel)
+      auto, // hands-free: language detected per sentence instead of chosen by the tapped zone
+      sessions: {}, // hands-free: one Deepgram session per language
+      cands: {}, // hands-free: latest transcript of each language, waiting to be compared
+      buffers: auto ? { A: new SegmentBuffer(), B: new SegmentBuffer() } : null,
+      lastSide: null,
     };
     this.turn = turn;
     this.setState(STATE.STARTING);
@@ -112,7 +138,7 @@ export default class TranslationEngine {
         this.setState(STATE.LISTENING); // first audio really flowing → tell the user to speak
       }
       // Open Deepgram lazily on the first chunk: that's when the true sample rate is known.
-      turn.session ??= this.stt.createSession({
+      turn.session ??= auto ? this.createAutoSession(turn, sampleRate) : this.stt.createSession({
         language,
         sampleRate,
         onInterim: (text) => {
@@ -191,7 +217,88 @@ export default class TranslationEngine {
   flushPending(turn) {
     clearTimeout(turn.flushTimer);
     if (this.turnId !== turn.id) return;
+    if (turn.auto) return this.flushAuto(turn);
     turn.buffer.flush().forEach((segment) => this.enqueue(turn, segment));
+  }
+
+  /**
+   * Hands-free: the same audio goes to two Deepgram sessions, one per language. Each one tries to
+   * read the speech in ITS language; the transcript with the higher confidence tells which
+   * language was actually spoken, and the sentence is translated towards the other side.
+   */
+  createAutoSession(turn, sampleRate) {
+    const id = turn.id;
+    const make = (side) =>
+      this.stt.createSession({
+        language: this.languages[side],
+        sampleRate,
+        onInterim: () => {}, // text is shown once the language is decided
+        onError: (error) => this.fail(id, error),
+        onFinal: (text, confidence) => this.onAutoFinal(turn, side, text, confidence),
+        onUtteranceEnd: () => {
+          if (this.turnId !== id || this.state !== STATE.LISTENING) return;
+          this.decide(turn);
+          this.flushAuto(turn);
+        },
+      });
+    const a = make(SIDE.A);
+    const b = make(SIDE.B);
+    turn.sessions = { A: a, B: b };
+    return {
+      get status() {
+        return `A ${a.status} · B ${b.status}`;
+      },
+      sendAudio: (pcm) => {
+        a.sendAudio(pcm);
+        b.sendAudio(pcm);
+      },
+      finish: async () => {
+        await Promise.all([a.finish(), b.finish()]);
+        if (this.turnId === id) this.decide(turn);
+        return turn.decided.join(' ');
+      },
+      abort: () => {
+        a.abort();
+        b.abort();
+      },
+    };
+  }
+
+  onAutoFinal(turn, side, text, confidence) {
+    if (this.turnId !== turn.id) return;
+    turn.cands[side] = { text, conf: confidence ?? 0.5 };
+    clearTimeout(turn.decideTimer);
+    if (turn.cands.A && turn.cands.B) this.decide(turn);
+    else turn.decideTimer = setTimeout(() => this.decide(turn), this.detectWindowMs);
+  }
+
+  /** Compare the candidates of the two languages and keep the more confident one. */
+  decide(turn) {
+    clearTimeout(turn.decideTimer);
+    const { A, B } = turn.cands;
+    turn.cands = {};
+    const side = A && B ? (B.conf > A.conf ? SIDE.B : SIDE.A) : A ? SIDE.A : B ? SIDE.B : null;
+    if (!side) return;
+    const chosen = side === SIDE.A ? A : B;
+    if (chosen.conf < this.minConfidence) return; // noise / a word from the wrong language
+    turn.decided.push(chosen.text);
+    // The language changed: release what the previous one was still holding, to keep the order.
+    if (turn.lastSide && turn.lastSide !== side) {
+      turn.buffers[turn.lastSide].flush().forEach((segment) => this.enqueue(turn, segment, turn.lastSide));
+    }
+    turn.lastSide = side;
+    this.emit({ type: 'interim', side, text: chosen.text });
+    turn.buffers[side].push(chosen.text).forEach((segment) => this.enqueue(turn, segment, side));
+    clearTimeout(turn.flushTimer);
+    if (turn.buffers[side].hasPending()) turn.flushTimer = setTimeout(() => this.flushAuto(turn), this.flushAfterMs);
+  }
+
+  flushAuto(turn) {
+    clearTimeout(turn.flushTimer);
+    if (this.turnId !== turn.id) return;
+    for (const side of [SIDE.A, SIDE.B]) {
+      turn.buffers[side].flush().forEach((segment) => this.enqueue(turn, segment, side));
+    }
   }
 
   /** Snapshot for the on-screen diagnostics panel. */
@@ -221,6 +328,7 @@ export default class TranslationEngine {
       if (this.turnId !== id) return; // startup failed or a newer turn took over
       turn.ended = true;
       this.clearTimers(turn);
+      if (turn.auto) this.decide(turn);
       this.syncState(turn); // immediate feedback; capture continues for the tail
       if (this.tailMs > 0) await new Promise((r) => setTimeout(r, this.tailMs));
       this.mic.setSink(null);
@@ -234,8 +342,11 @@ export default class TranslationEngine {
         this.emit({ type: 'empty', side });
         return this.setState(STATE.IDLE);
       }
-      this.emit({ type: 'transcript', side, text: transcript });
-      turn.buffer.flush().forEach((segment) => this.enqueue(turn, segment));
+      if (turn.auto) this.flushAuto(turn);
+      else {
+        this.emit({ type: 'transcript', side, text: transcript });
+        turn.buffer.flush().forEach((segment) => this.enqueue(turn, segment));
+      }
 
       await turn.chain; // wait for the last sentence to finish playing
       if (this.turnId === id) this.setState(STATE.IDLE);
@@ -247,18 +358,32 @@ export default class TranslationEngine {
   /**
    * Translate + synthesize one sentence immediately (in parallel with the previous
    * sentences), then play it as soon as every earlier sentence has been played.
+   * `side` is the language the sentence was spoken in (hands-free: detected per sentence).
    */
-  enqueue(turn, text) {
-    const { id, side, language } = turn;
+  enqueue(turn, text, side = turn.side) {
+    const { id } = turn;
+    const language = this.languages[side];
     const index = turn.segments++;
     const targetSide = other(side);
     const targetLanguage = this.languages[targetSide];
+    const voice = { voiceId: this.voices[targetSide], language: targetLanguage };
+    const t0 = Date.now();
+    const timing = { translateMs: 0, readyAt: 0 };
 
     const prepared = this.translator.translate(text, language, targetLanguage).then(async (translated) => {
       if (this.turnId !== id) return null;
-      turn.translated[index] = translated;
-      this.emit({ type: 'translation', side: targetSide, text: turn.translated.filter(Boolean).join(' ') });
-      return this.tts.synthesize(translated, { voiceId: this.voices[targetSide], language: targetLanguage });
+      timing.translateMs = Date.now() - t0;
+      turn.shown[targetSide][index] = translated;
+      this.emit({ type: 'translation', side: targetSide, text: turn.shown[targetSide].filter(Boolean).join(' ') });
+      this.emit({ type: 'segment', from: side, to: targetSide, source: text, translated, at: Date.now() });
+      if (this.streamTts && this.tts.stream) {
+        const stream = this.tts.stream(translated, voice);
+        turn.streams.add(stream);
+        return { stream, translated };
+      }
+      const source = await this.tts.synthesize(translated, voice);
+      timing.readyAt = Date.now();
+      return source;
     });
     prepared.catch(() => {}); // reported through the chain below
 
@@ -268,11 +393,33 @@ export default class TranslationEngine {
         if (this.turnId !== id || !source) return;
         turn.playing = true;
         this.syncState(turn);
-        await this.audio.playPanned(source, PAN[targetSide]);
+        if (source.stream) await this.playStreamed(turn, source, targetSide, voice);
+        else await this.audio.playPanned(source, PAN[targetSide]);
+        const ready = source.stream?.firstAudioAt ?? timing.readyAt;
+        this.emit({
+          type: 'timing',
+          translateMs: timing.translateMs,
+          ttsMs: ready ? Math.max(0, ready - t0 - timing.translateMs) : null,
+          readyMs: ready ? ready - t0 : null,
+          streamed: Boolean(source.stream),
+        });
         turn.playing = false;
         this.syncState(turn);
       })
       .catch((error) => this.fail(id, error));
+  }
+
+  /** Play a sentence while it is still being generated; fall back to the classic request if the stream is unusable. */
+  async playStreamed(turn, { stream, translated }, targetSide, voice) {
+    try {
+      await this.audio.playStream(stream, PAN[targetSide]);
+    } catch (error) {
+      if (stream.gotAudio || this.turnId !== turn.id) throw error;
+      this.streamTts = false; // don't pay that detour again this session
+      this.emit({ type: 'note', text: `voix en flux indisponible (${error?.message ?? error}) → mode classique` });
+      const source = await this.tts.synthesize(translated, voice);
+      if (this.turnId === turn.id) await this.audio.playPanned(source, PAN[targetSide]);
+    }
   }
 
   /** After the user stopped talking, mirror what is happening: speaking vs still working. */
@@ -287,6 +434,7 @@ export default class TranslationEngine {
     this.turnId++; // any pending await of the previous turn becomes a no-op
     clearTimeout(this.turn?.watchdog);
     this.turn?.session?.abort();
+    this.turn?.streams.forEach((stream) => stream.abort());
     this.mic.setSink(null); // the mic itself stays warm
     this.audio.stopAll();
     this.turn = null;
@@ -298,6 +446,7 @@ export default class TranslationEngine {
     clearTimeout(turn.watchdog);
     clearTimeout(turn.flushTimer);
     clearTimeout(turn.idleTimer);
+    clearTimeout(turn.decideTimer);
   }
 
   fail(id, error) {
@@ -305,6 +454,7 @@ export default class TranslationEngine {
     this.turnId++;
     this.clearTimers(this.turn);
     this.turn?.session?.abort();
+    this.turn?.streams.forEach((stream) => stream.abort());
     this.mic.setSink(null);
     this.emit({ type: 'error', error });
     this.setState(STATE.IDLE);

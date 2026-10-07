@@ -95,7 +95,7 @@ Hindi, malais et vietnamien sont des ajouts récents chez DeepL : non testés ic
 Un service de premier plan de type *microphone* (notification permanente « DualCast Translate — Traduction active »)
 garde le micro et le réseau vivants quand l'app passe en arrière-plan ou que l'écran s'éteint ; une traduction en cours
 n'est plus interrompue. Il démarre au lancement (Android l'interdit depuis l'arrière-plan). Un tour de parole se démarre
-toujours par un appui sur l'écran : il n'y a pas (encore) de mode mains libres.
+par un appui sur l'écran (ou en mode « Mains libres », voir plus bas).
 
 ## Réglages mémorisés
 
@@ -134,6 +134,31 @@ La voix ElevenLabs est ramenée à un niveau sonore confortable (RMS, pas seulem
 (`boostLoudness`). Réglage dans ⚙︎ : Normal, ×1,5, ×2 (défaut), ×2,5. Le volume « média » du téléphone et des écouteurs
 Bluetooth reste le réglage maître : le mettre au maximum.
 
+## Délai de traduction
+
+- `Voix en flux` (⚙︎, expérimental, désactivé par défaut) : ElevenLabs renvoie l'audio par WebSocket (`stream-input`) et la lecture démarre
+  après ~0,3 s d'audio, sans attendre la phrase entière (`ElevenLabsClient.stream`, `AudioRoutingService.playStream`). Si le flux échoue
+  avant le moindre son, l'app retombe seule sur la requête classique pour le reste de la session.
+- Les connexions HTTPS vers DeepL et ElevenLabs sont ouvertes à l'avance (`warm`), ce qui évite la poignée de main TLS à la première phrase.
+- Le journal du panneau de diagnostic (appui long sur ⚙︎) affiche pour chaque phrase : `délai: DeepL x ms · voix y ms · prêt en z ms`.
+
+## Fiabilité
+
+- Appels DeepL / ElevenLabs : jusqu'à 2 nouvelles tentatives sur coupure réseau, 429 ou erreur serveur (`src/utils/http.js`).
+- Deepgram : si la connexion tombe en cours de parole, reconnexion automatique (3 essais), l'audio est conservé pendant la coupure.
+- Messages d'erreur en français : clé refusée, quota épuisé, pas de connexion, voix introuvable…
+- ⚙︎ → « ✔︎ Tester mes clés » : vérifie les 3 clés et les 2 voix sans dépenser de crédit, puis contrôle en direct que Deepgram accepte
+  les deux langues choisies et que DeepL les propose avec votre clé.
+
+## Confort
+
+- **Voix par langue** : ⚙︎ → « Charger mes voix ElevenLabs » liste les voix du compte ; une pour la langue A, une pour la langue B.
+- **Historique** : bouton 🕘 sur l'écran principal (phrase originale + traduction, 200 dernières, effacé à la fermeture de l'app).
+- **Mains libres** : bouton « Mains libres ». Un appui démarre l'écoute continue, un second l'arrête ; plus besoin de choisir la zone.
+  Le même son est envoyé à deux sessions Deepgram (une par langue) ; la transcription la plus fiable (confiance) indique la langue
+  parlée, et la phrase est traduite vers l'autre oreille. Deux fois plus de transcription facturée ; moins fiable que le choix manuel
+  sur les phrases très courtes (« ok », « oui ») ou deux langues proches. Non vérifié sur appareil.
+
 ## Points matériels à connaître
 
 - **Le micro ne doit pas passer par le Bluetooth.** Si le micro BT (profil HFP) est utilisé, la sortie bascule en mono basse qualité
@@ -150,5 +175,5 @@ détection du micro intégré (`AudioManager.getDevicesInfo` renvoie des catégo
 ## Pistes suivantes
 
 - ~~Traduire les résultats `is_final` au fil de l'eau~~ → fait : chaque phrase validée est traduite et lue pendant que la personne parle encore (`TranslationEngine.enqueue`).
-- TTS en streaming (WebSocket ElevenLabs `stream-input`) pour démarrer la lecture avant la fin de la synthèse.
-- Sélecteur de paire de langues, historique, voix par langue.
+- ~~TTS en streaming, historique, voix par langue, mains libres~~ → fait (voir plus haut), à valider sur appareil.
+- Historique persistant (nécessite un stockage fichier), détection de langue plus robuste en mains libres.

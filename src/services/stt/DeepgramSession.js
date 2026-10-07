@@ -7,6 +7,7 @@ const UTTERANCE_END_MS = 1500;
 // Deepgram only validates text after a real pause. In a monologue without one, force a final
 // this often so translation can start instead of waiting for the speaker to breathe.
 const FORCE_FINAL_EVERY_MS = 4000;
+const MAX_RECONNECTS = 3;
 
 /**
  * One push-to-talk utterance = one Deepgram streaming session (Nova-2).
@@ -16,7 +17,7 @@ const FORCE_FINAL_EVERY_MS = 4000;
 export default class DeepgramSession {
   /**
    * @param {{language: string, sampleRate: number, onInterim?: (text: string) => void,
-   *          onFinal?: (text: string) => void, onUtteranceEnd?: () => void,
+   *          onFinal?: (text: string, confidence?: number) => void, onUtteranceEnd?: () => void,
    *          onError?: (error: Error) => void}} opts
    */
   constructor({ language, sampleRate, onInterim, onFinal, onUtteranceEnd, onError }) {
@@ -34,6 +35,7 @@ export default class DeepgramSession {
     this.lastFinalAt = 0;
     this.firstInterimAt = 0;
     this.forceFinalTimer = null;
+    this.retryTimer = null;
 
     // `language` is our key ('pt', 'ar-MA'…): map it to the code and the model Deepgram wants.
     const lang = getLanguage(language);
@@ -50,32 +52,67 @@ export default class DeepgramSession {
       endpointing: '400', // validate a segment after 400 ms of silence (fewer, longer finals)
     });
 
-    // RN's WebSocket can't set an Authorization header portably; Deepgram accepts the
-    // key as a ["token", <key>] subprotocol pair, which works on iOS and Android alike.
-    this.ws = new WebSocket(`${env.deepgramWsUrl}?${params}`, ['token', env.deepgramKey]);
-    this.ws.binaryType = 'arraybuffer';
-
+    this.url = `${env.deepgramWsUrl}?${params}`;
+    this.everOpen = false;
+    this.retries = 0;
+    this.reconnecting = false;
     this.done = new Promise((resolve, reject) => {
       this.resolveDone = resolve;
       this.rejectDone = reject;
     });
     this.done.catch(() => {}); // surfaced through finish(); avoid unhandled-rejection noise
+    this.connect();
+  }
 
-    this.ws.onopen = () => {
+  connect() {
+    // RN's WebSocket can't set an Authorization header portably; Deepgram accepts the
+    // key as a ["token", <key>] subprotocol pair, which works on iOS and Android alike.
+    const ws = new WebSocket(this.url, ['token', env.deepgramKey]);
+    this.ws = ws;
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      if (this.ws !== ws) return;
       this.status = 'open';
       this.isOpen = true;
-      this.startForceFinalTimer();
-      this.pending.forEach((chunk) => this.ws.send(chunk));
+      this.everOpen = true;
+      this.reconnecting = false;
+      if (!this.forceFinalTimer) this.startForceFinalTimer();
+      this.pending.forEach((chunk) => ws.send(chunk));
       this.pending = [];
       if (this.closed) this.flush(); // user already released before the handshake ended
     };
-    this.ws.onmessage = (e) => this.handleMessage(e.data);
-    this.ws.onerror = (e) =>
-      this.fail(new Error(`Deepgram : connexion impossible (${e?.message || 'clé invalide ou réseau ?'})`));
-    this.ws.onclose = (e) => {
-      if (this.status !== 'error') this.status = `closed ${e?.code ?? ''} ${e?.reason ?? ''}`.trim();
-      this.settle();
+    ws.onmessage = (e) => this.ws === ws && this.handleMessage(e.data);
+    ws.onerror = (e) => this.ws === ws && this.lost(e?.message);
+    ws.onclose = (e) => {
+      if (this.ws !== ws) return;
+      if (this.closed || this.settled) {
+        if (this.status !== 'error') this.status = `closed ${e?.code ?? ''} ${e?.reason ?? ''}`.trim();
+        return this.settle();
+      }
+      this.lost(e?.reason || `code ${e?.code ?? '?'}`);
     };
+  }
+
+  /**
+   * The socket dropped while the user is still talking (network switch, server hiccup): reconnect
+   * (audio keeps being queued meanwhile) instead of silently losing the rest of the turn.
+   */
+  lost(reason) {
+    if (this.settled || this.reconnecting) return;
+    if (this.closed && this.everOpen) return this.settle();
+    if (!this.closed && this.everOpen && this.retries < MAX_RECONNECTS) {
+      this.retries++;
+      this.reconnecting = true;
+      this.isOpen = false;
+      this.status = `reconnexion ${this.retries}/${MAX_RECONNECTS}`;
+      try {
+        this.ws.close();
+      } catch {}
+      this.retryTimer = setTimeout(() => !this.settled && this.connect(), 400 * this.retries);
+      return;
+    }
+    this.fail(new Error(`Deepgram : connexion impossible ou interrompue (${reason || 'clé invalide ou réseau ?'})`));
   }
 
   handleMessage(raw) {
@@ -88,13 +125,14 @@ export default class DeepgramSession {
     }
     if (msg.type === 'UtteranceEnd') return this.onUtteranceEnd?.();
     if (msg.type !== 'Results') return;
-    const text = msg.channel?.alternatives?.[0]?.transcript?.trim();
+    const alt = msg.channel?.alternatives?.[0];
+    const text = alt?.transcript?.trim();
     if (!text) return;
     if (msg.is_final) {
       this.finals.push(text);
       this.lastInterim = '';
       this.lastFinalAt = Date.now();
-      this.onFinal?.(text); // lets the caller translate while the user is still talking
+      this.onFinal?.(text, alt?.confidence); // lets the caller translate while the user is still talking
     } else {
       if (!this.lastInterim) this.firstInterimAt = Date.now();
       this.lastInterim = text;
@@ -143,6 +181,7 @@ export default class DeepgramSession {
     this.onFinal = null;
     clearInterval(this.forceFinalTimer);
     clearTimeout(this.timer);
+    clearTimeout(this.retryTimer);
     try {
       this.ws.close();
     } catch {}
@@ -153,6 +192,7 @@ export default class DeepgramSession {
     if (this.settled) return;
     this.settled = true;
     clearTimeout(this.timer);
+    clearTimeout(this.retryTimer);
     clearInterval(this.forceFinalTimer);
     // If the last words never got an is_final before close, keep the best interim guess.
     if (this.lastInterim) {
@@ -168,6 +208,7 @@ export default class DeepgramSession {
 
   fail(err) {
     clearTimeout(this.timer);
+    clearTimeout(this.retryTimer);
     clearInterval(this.forceFinalTimer);
     this.status = 'error';
     this.rejectDone(err);

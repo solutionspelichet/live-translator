@@ -45,6 +45,8 @@ test('sanitizeSettings keeps valid values', () => {
     voiceVolume: 1.5,
     micSource: 'camcorder',
     micAgc: false,
+    streamVoice: false,
+    handsFree: false,
     input: { id: '7', name: 'Headset mic' },
   });
 });
@@ -125,4 +127,16 @@ test('mic source defaults to voice recognition with the phone gain control on, a
   assert.equal(sanitizeSettings({ micSource: 'camcorder' }).micSource, 'camcorder');
   assert.equal(sanitizeSettings({ micSource: 'nope' }).micSource, 'voice_recognition');
   assert.equal(sanitizeSettings({ micAgc: false }).micAgc, false);
+});
+
+import { DEFAULT_SETTINGS as DEFAULTS, sanitizeSettings as sanitize } from '../src/config/settingsModel.js';
+
+test('new settings (voice streaming, hands-free) default to off and survive sanitizing', () => {
+  assert.equal(DEFAULTS.streamVoice, false);
+  assert.equal(DEFAULTS.handsFree, false);
+  const s = sanitize({ streamVoice: true, handsFree: true });
+  assert.equal(s.streamVoice, true);
+  assert.equal(s.handsFree, true);
+  assert.equal(sanitize({ streamVoice: 'yes' }).streamVoice, false);
+  assert.equal(sanitize(null).handsFree, false);
 });

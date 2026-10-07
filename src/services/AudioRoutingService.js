@@ -1,6 +1,6 @@
 import { AudioContext, AudioManager } from 'react-native-audio-api';
 
-import { boostLoudness, clampPan, pcm16ToFloat, resampleLinear } from '../utils/pcm';
+import { applyLoudness, boostLoudness, clampPan, loudnessGain, pcm16ToFloat, resampleLinear } from '../utils/pcm';
 
 export const CHANNEL = Object.freeze({ LEFT: -1.0, RIGHT: 1.0 });
 
@@ -25,6 +25,7 @@ class AudioRoutingService {
   constructor() {
     this.ctx = null;
     this.active = new Set(); // sources currently playing, so stopAll() can cut them
+    this.streams = new Set(); // TtsStream being played (stopAll aborts them)
     this.sessionReady = false;
     this.voiceVolume = 2; // loudness of the translated voice (1 = normal speech level)
   }
@@ -182,7 +183,100 @@ class AudioRoutingService {
     });
   }
 
+  /**
+   * Play a sentence that is still being synthesized (TtsStream): audio pieces are scheduled
+   * back to back on the Web Audio clock as they arrive, so speech starts after ~0.3 s instead of
+   * after the whole sentence is ready. Rejects only when nothing at all could be played.
+   */
+  async playStream(stream, pan, { volume = 1.0 } = {}) {
+    await this.init();
+    const ctx = this.ctx;
+    const rate = ctx.sampleRate;
+    const inRate = stream.sampleRate ?? 24000;
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = clampPan(pan);
+    const out = ctx.createGain();
+    out.gain.value = volume;
+    panner.connect(out);
+    out.connect(ctx.destination);
+
+    this.streams.add(stream);
+    return new Promise((resolve, reject) => {
+      let pending = [];
+      let pendingLen = 0;
+      let nextTime = 0;
+      let running = 0;
+      let finished = false;
+      let failure = null;
+      let voiceGain = null; // one gain for the whole sentence, so loudness doesn't jump between pieces
+      let first = true;
+
+      const settle = () => {
+        if (!finished || running > 0) return;
+        off();
+        this.streams.delete(stream);
+        panner.disconnect();
+        out.disconnect();
+        if (failure && !stream.gotAudio) reject(failure);
+        else resolve();
+      };
+
+      const flush = (force) => {
+        // Wait for ~0.3 s before the first sound (jitter buffer), then ~0.12 s pieces.
+        const need = (first ? 0.3 : 0.12) * inRate;
+        if (!pendingLen || (!force && pendingLen < need)) return;
+        const joined = new Float32Array(pendingLen);
+        let o = 0;
+        for (const part of pending) {
+          joined.set(part, o);
+          o += part.length;
+        }
+        pending = [];
+        pendingLen = 0;
+        if (voiceGain == null) voiceGain = loudnessGain(joined, this.voiceVolume) ?? 1;
+        const samples = resampleLinear(applyLoudness(joined, voiceGain), inRate, rate);
+        const buffer = ctx.createBuffer(1, samples.length, rate);
+        buffer.getChannelData(0).set(samples);
+        const node = ctx.createBufferSource();
+        node.buffer = buffer;
+        node.connect(panner);
+        const startAt = Math.max(nextTime, ctx.currentTime + 0.03);
+        nextTime = startAt + buffer.duration;
+        first = false;
+        running++;
+        this.active.add(node);
+        node.onEnded = () => {
+          this.active.delete(node);
+          node.disconnect();
+          running--;
+          settle();
+        };
+        node.start(startAt);
+      };
+
+      const off = stream.onChunk((samples) => {
+        pending.push(samples);
+        pendingLen += samples.length;
+        flush(false);
+      });
+      stream.done.then(
+        () => {
+          if (!stream.aborted) flush(true); // an aborted sentence must not play its leftovers
+          finished = true;
+          settle();
+        },
+        (err) => {
+          if (!stream.aborted) flush(true);
+          failure = err;
+          finished = true;
+          settle();
+        },
+      );
+    });
+  }
+
   stopAll() {
+    for (const stream of [...this.streams]) stream.abort();
     for (const node of [...this.active]) {
       try {
         node.stop(); // fires onEnded → cleanup + promise resolution

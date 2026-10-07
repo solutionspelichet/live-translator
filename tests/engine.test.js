@@ -284,3 +284,140 @@ test('monologue: words without punctuation are translated after a short wait, no
   assert.deepEqual(calls.translate, [['et puis ensuite nous avons', 'fr', 'en']]);
   assert.equal(engine.state, STATE.LISTENING);
 });
+
+// ---- streaming voice, timing, connection warm-up -----------------------------------------
+
+import TtsStream from '../src/utils/ttsStream.js';
+
+test('streamed voice: the sentence is handed to playStream (right ear) instead of a full download', async () => {
+  const { engine, calls, speak } = setup();
+  const played = [];
+  engine.streamTts = true;
+  engine.tts.stream = (text, opts) => {
+    const s = new TtsStream();
+    s.push(new Float32Array(10));
+    s.finish();
+    s.text = text;
+    s.opts = opts;
+    return s;
+  };
+  engine.audio.playStream = async (stream, pan) => played.push([stream.text, pan, stream.opts.voiceId]);
+  await speak('A');
+  assert.deepEqual(played, [['[en] bonjour', PAN.B, 'voice-en']]);
+  assert.equal(calls.tts.length, 0, 'no classic request when streaming works');
+});
+
+test('streamed voice that fails before any audio falls back to the classic request, once', async () => {
+  const { engine, calls, speak, events } = setup();
+  engine.streamTts = true;
+  engine.tts.stream = () => {
+    const s = new TtsStream();
+    s.fail(new Error('socket closed'));
+    return s;
+  };
+  engine.audio.playStream = async (stream) => {
+    await stream.done; // rejects like the real player
+  };
+  await speak('A');
+  assert.deepEqual(calls.play, [PAN.B]);
+  assert.equal(calls.tts.length, 1);
+  assert.equal(engine.streamTts, false, 'streaming disabled after a failure');
+  assert.ok(events.some((e) => e.type === 'note'));
+});
+
+test('timing events report the translation and voice delays', async () => {
+  const { speak, events } = setup({ translateDelay: () => 15 });
+  await speak('A');
+  const t = events.find((e) => e.type === 'timing');
+  assert.ok(t.translateMs >= 10, `translateMs ${t.translateMs}`);
+  assert.ok(t.readyMs >= t.translateMs);
+  assert.equal(t.streamed, false);
+});
+
+test('connections to DeepL / ElevenLabs are warmed up once, not on every turn', async () => {
+  const { engine, speak } = setup();
+  let warms = 0;
+  engine.translator.warm = async () => warms++;
+  engine.tts.warm = async () => warms++;
+  engine.warmUp();
+  await speak('A');
+  await speak('A');
+  assert.equal(warms, 2);
+});
+
+test('segment events feed the history (who said what, in which direction)', async () => {
+  const { speak, events } = setup();
+  await speak('A');
+  const seg = events.find((e) => e.type === 'segment');
+  assert.deepEqual({ from: seg.from, to: seg.to, source: seg.source, translated: seg.translated }, { from: 'A', to: 'B', source: 'bonjour', translated: '[en] bonjour' });
+});
+
+// ---- hands-free: language detected per sentence -------------------------------------------
+
+async function handsFree(opts) {
+  const ctx = setup({ segments: [], ...opts });
+  ctx.engine.detectWindowMs = 25;
+  await ctx.engine.toggle('auto');
+  ctx.chunk();
+  const [a, b] = ctx.calls.sessions;
+  return { ...ctx, a, b };
+}
+const pause = (ms = 60) => new Promise((r) => setTimeout(r, ms));
+
+test('hands-free opens one session per language and feeds both the same audio', async () => {
+  const { calls, a, b } = await handsFree();
+  assert.equal(calls.sessions.length, 2);
+  assert.deepEqual([a.language, b.language], ['fr', 'en']);
+});
+
+test('hands-free: the more confident language wins → French heard, translated to English on the RIGHT ear', async () => {
+  const { calls, a, b } = await handsFree();
+  b.onFinal('bone jour', 0.31); // the English session mis-hears French
+  a.onFinal('Bonjour à tous.', 0.97);
+  await pause();
+  assert.deepEqual(calls.translate, [['Bonjour à tous.', 'fr', 'en']]);
+  assert.deepEqual(calls.play, [PAN.B]);
+});
+
+test('hands-free: the next sentence in English goes to the LEFT ear (language switched on the fly)', async () => {
+  const { calls, a, b } = await handsFree();
+  a.onFinal('Bonjour.', 0.95);
+  b.onFinal('Bonjour.', 0.2);
+  await pause();
+  a.onFinal('ouais sûr', 0.2);
+  b.onFinal('Nice to meet you.', 0.96);
+  await pause();
+  assert.deepEqual(calls.translate, [['Bonjour.', 'fr', 'en'], ['Nice to meet you.', 'en', 'fr']]);
+  assert.deepEqual(calls.play, [PAN.B, PAN.A]);
+});
+
+test('hands-free: a lone low-confidence transcript is treated as noise', async () => {
+  const { calls, b } = await handsFree();
+  b.onFinal('hmm', 0.2);
+  await pause();
+  assert.equal(calls.translate.length, 0);
+});
+
+test('hands-free: a lone confident transcript is accepted after the detection window', async () => {
+  const { calls, a } = await handsFree();
+  a.onFinal('Où est la gare ?', 0.9);
+  await pause();
+  assert.deepEqual(calls.translate, [['Où est la gare ?', 'fr', 'en']]);
+});
+
+test('hands-free: a pause (UtteranceEnd) does NOT end the turn — only a tap does', async () => {
+  const { engine, a } = await handsFree();
+  a.onUtteranceEnd();
+  await pause(80);
+  assert.equal(engine.state, STATE.LISTENING);
+  await engine.toggle('auto');
+  assert.equal(engine.state, STATE.IDLE);
+});
+
+test('hands-free: words still pending when the user taps to stop are translated', async () => {
+  const { engine, calls, a } = await handsFree();
+  a.onFinal('et puis', 0.9);
+  await pause(50);
+  await engine.toggle('auto');
+  assert.deepEqual(calls.translate, [['et puis', 'fr', 'en']]);
+});

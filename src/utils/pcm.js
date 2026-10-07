@@ -53,12 +53,22 @@ export function rmsLevel(float32) {
  * then fold the peaks above the knee with a soft limiter. `volume` 1 ≈ normal speech level (RMS 0.12),
  * 2 ≈ twice as loud.
  */
-export function boostLoudness(samples, volume = 1, { baseRms = 0.12, maxGain = 8, knee = 0.8 } = {}) {
+export function boostLoudness(samples, volume = 1, opts = {}) {
+  const gain = loudnessGain(samples, volume, opts);
+  return gain == null ? samples : applyLoudness(samples, gain, opts.knee);
+}
+
+/** Gain that brings `samples` to the target loudness, or null for silence. */
+export function loudnessGain(samples, volume = 1, { baseRms = 0.12, maxGain = 8 } = {}) {
   let sum = 0;
   for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
   const rms = Math.sqrt(sum / (samples.length || 1));
-  if (rms < 1e-5) return samples; // silence
-  const gain = Math.min((baseRms * volume) / rms, maxGain);
+  if (rms < 1e-5) return null; // silence
+  return Math.min((baseRms * volume) / rms, maxGain);
+}
+
+/** Multiply by `gain`, folding peaks above the knee with a soft limiter. */
+export function applyLoudness(samples, gain, knee = 0.8) {
   const out = new Float32Array(samples.length);
   for (let i = 0; i < samples.length; i++) {
     const v = samples[i] * gain;

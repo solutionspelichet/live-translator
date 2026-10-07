@@ -1,12 +1,14 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { currentValues, saveKeys, SETUP_FIELDS } from '../config/env';
-import { LANGUAGES } from '../config/languages';
+import { currentValues, env, saveKeys, SETUP_FIELDS } from '../config/env';
+import { getLanguage, LANGUAGES } from '../config/languages';
 import { saveSettings } from '../config/settings';
 import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
+import { describeError } from '../utils/http';
+import { listVoices, testKeys, testLanguages } from '../utils/keyTest';
 
 /**
  * First-launch / settings form. API keys and preferences (languages, auto-send) are stored in
@@ -24,6 +26,11 @@ export default function SetupScreen({ settings, onDone }) {
   const [micSource, setMicSource] = useState(settings.micSource);
   const [micAgc, setMicAgc] = useState(settings.micAgc);
   const [inputs, setInputs] = useState([]);
+  const [streamVoice, setStreamVoice] = useState(settings.streamVoice);
+  const [report, setReport] = useState(null); // result of « Tester mes clés »
+  const [testing, setTesting] = useState(false);
+  const [voices, setVoices] = useState(null); // voices of the ElevenLabs account
+  const [voiceError, setVoiceError] = useState('');
 
   useEffect(() => {
     audio.listInputs().then(setInputs);
@@ -113,6 +120,18 @@ export default function SetupScreen({ settings, onDone }) {
           Amplifie la voix dans les écouteurs sans la déformer. Pensez aussi à monter le volume « média » du téléphone et des écouteurs.
         </Text>
 
+        <Text style={styles.label}>Voix en flux (expérimental)</Text>
+        <Chip
+          label={streamVoice ? '✓ Commencer à parler avant la fin de la synthèse' : 'Voix en flux : non'}
+          on={streamVoice}
+          onPress={() => setStreamVoice((v) => !v)}
+        />
+        <Text style={styles.hint}>
+          La traduction démarre dans les écouteurs dès les premiers mots synthétisés au lieu d'attendre la phrase entière : le délai
+          baisse, surtout sur les longues phrases. Si la voix saute ou se coupe, désactivez-la (le mode classique reprend aussi tout seul
+          si le flux ne marche pas).
+        </Text>
+
         <Text style={styles.section}>Arrière-plan</Text>
         <Pressable
           style={[styles.chip, background && styles.chipOn, { alignSelf: 'flex-start', marginTop: 8 }]}
@@ -158,13 +177,103 @@ export default function SetupScreen({ settings, onDone }) {
             />
           </Fragment>
         ))}
+        <Text style={styles.label}>Choisir les voix</Text>
+        <Pressable
+          style={[styles.chip, { alignSelf: 'flex-start' }]}
+          onPress={async () => {
+            setVoiceError('');
+            try {
+              setVoices(await listVoices(values.EXPO_PUBLIC_ELEVENLABS_API_KEY?.trim(), { elevenLabsBase: env.elevenLabsBaseUrl }));
+            } catch (e) {
+              setVoices(null);
+              setVoiceError(describeError(e));
+            }
+          }}
+          accessibilityRole="button"
+        >
+          <Text style={styles.chipText}>🎙 Charger mes voix ElevenLabs</Text>
+        </Pressable>
+        {!!voiceError && <Text style={styles.bad}>{voiceError}</Text>}
+        {voices && (
+          <>
+            {[
+              ['EXPO_PUBLIC_ELEVENLABS_VOICE_A', 'Voix pour la langue A (écouteur gauche)'],
+              ['EXPO_PUBLIC_ELEVENLABS_VOICE_B', 'Voix pour la langue B (écouteur droit)'],
+            ].map(([field, title]) => (
+              <Fragment key={field}>
+                <Text style={styles.label}>{title}</Text>
+                <View style={styles.chips}>
+                  {voices.slice(0, 40).map((v) => (
+                    <Chip
+                      key={v.id}
+                      label={v.hint ? `${v.name} · ${v.hint}` : v.name}
+                      on={values[field]?.trim() === v.id}
+                      onPress={() => setValues((cur) => ({ ...cur, [field]: v.id }))}
+                    />
+                  ))}
+                </View>
+              </Fragment>
+            ))}
+            <Text style={styles.hint}>
+              Une voix différente pour chaque langue permet de savoir tout de suite qui « parle » dans les écouteurs.
+            </Text>
+          </>
+        )}
+
+        <Pressable
+          style={[styles.chip, { alignSelf: 'flex-start', marginTop: 20 }, testing && styles.disabled]}
+          disabled={testing}
+          onPress={async () => {
+            setTesting(true);
+            setReport(null);
+            const v = (name) => values[name]?.trim();
+            const chosen = [languages.A, languages.B].map((code) => ({ label: getLanguage(code).label, ...getLanguage(code) }));
+            const [keysReport, languagesReport] = await Promise.all([
+              testKeys(
+                {
+                  deepgram: v('EXPO_PUBLIC_DEEPGRAM_API_KEY'),
+                  deepl: v('EXPO_PUBLIC_DEEPL_API_KEY'),
+                  elevenlabs: v('EXPO_PUBLIC_ELEVENLABS_API_KEY'),
+                  voices: [v('EXPO_PUBLIC_ELEVENLABS_VOICE_A'), v('EXPO_PUBLIC_ELEVENLABS_VOICE_B')],
+                },
+                { elevenLabsBase: env.elevenLabsBaseUrl },
+              ),
+              testLanguages({ deepgramKey: v('EXPO_PUBLIC_DEEPGRAM_API_KEY'), deeplKey: v('EXPO_PUBLIC_DEEPL_API_KEY'), languages: chosen }),
+            ]);
+            setReport({ ...keysReport, languages: languagesReport });
+            setTesting(false);
+          }}
+          accessibilityRole="button"
+        >
+          <Text style={styles.chipText}>{testing ? 'Test en cours…' : '✔︎ Tester mes clés'}</Text>
+        </Pressable>
+        {report &&
+          [
+            ['Deepgram', report.deepgram],
+            ['DeepL', report.deepl],
+            ['ElevenLabs', report.elevenlabs],
+            ['Voix A', report.voices[0]],
+            ['Voix B', report.voices[1]],
+          ]
+            .filter(([, r]) => r)
+            .map(([name, r]) => (
+              <Text key={name} style={r.ok ? styles.good : styles.bad}>
+                {`${r.ok ? '✓' : '✗'} ${name} : ${r.message}`}
+              </Text>
+            ))}
+        {report?.languages?.map((l) => (
+          <Text key={l.label} style={l.deepgram.ok && l.deepl.ok ? styles.good : styles.bad}>
+            {`${l.deepgram.ok && l.deepl.ok ? '✓' : '✗'} ${l.label} — Deepgram : ${l.deepgram.message} · DeepL : ${l.deepl.message}`}
+          </Text>
+        ))}
+
         <Pressable
           style={[styles.button, !complete && styles.disabled]}
           disabled={!complete || saving}
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume, input, micSource, micAgc });
+            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice });
             setSaving(false);
             onDone(saved);
           }}
@@ -224,5 +333,7 @@ const styles = StyleSheet.create({
   input: { backgroundColor: '#16233B', color: '#fff', borderRadius: 10, padding: 14, fontSize: 16 },
   button: { backgroundColor: '#2F6FED', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 28 },
   disabled: { opacity: 0.4 },
+  good: { color: '#7CE0A3', fontSize: 15, marginTop: 8 },
+  bad: { color: '#FF8A80', fontSize: 15, marginTop: 8 },
   buttonText: { color: '#fff', fontSize: 17, fontWeight: '700' },
 });

@@ -24,10 +24,11 @@ const COLORS = {
  * @param {{A: string, B: string}} props.texts       latest text shown in each zone
  * @param {number} props.level                       live microphone level 0..1
  * @param {boolean} props.autoStop                   a pause in speech sends automatically
+ * @param {boolean} props.handsFree                  language detected automatically; a tap anywhere starts/stops
  * @param {(side) => void} props.onPress
  */
-export default function SplitScreen({ languages, state, activeSide, texts, level, autoStop, onPress }) {
-  const shared = { languages, state, activeSide, texts, level, autoStop, onPress };
+export default function SplitScreen({ languages, state, activeSide, texts, level, autoStop, handsFree, onPress }) {
+  const shared = { languages, state, activeSide, texts, level, autoStop, handsFree, onPress };
   return (
     <View style={styles.root}>
       <Zone side={SIDE.A} flipped {...shared} />
@@ -37,16 +38,17 @@ export default function SplitScreen({ languages, state, activeSide, texts, level
   );
 }
 
-function Zone({ side, flipped, languages, state, activeSide, texts, level, autoStop, onPress }) {
+function Zone({ side, flipped, languages, state, activeSide, texts, level, autoStop, handsFree, onPress }) {
   const lang = getLanguage(languages[side]);
-  const mine = activeSide === side;
+  const mine = activeSide === side || activeSide === 'auto'; // hands-free: both halves are "live"
   const recording = state === STATE.STARTING || state === STATE.LISTENING;
   const live = mine && state === STATE.LISTENING;
   const starting = mine && state === STATE.STARTING;
 
-  let status = 'Touchez pour parler';
+  let status = handsFree ? 'Touchez pour démarrer' : 'Touchez pour parler';
   if (recording && !mine) status = 'Touchez pour terminer';
   else if (starting) status = 'Préparation…';
+  else if (live && handsFree) status = 'Mains libres — parlez, la langue est détectée. Touchez pour arrêter';
   else if (live) status = autoStop ? 'Parlez — une pause envoie la traduction' : 'Parlez maintenant — touchez pour terminer';
   else if (mine && state === STATE.PROCESSING) status = 'Traduction…';
   else if (mine && state === STATE.SPEAKING) status = 'Lecture…';

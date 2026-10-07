@@ -24,6 +24,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   micSource: 'voice_recognition', // see MIC_SOURCES (Android capture)
   micAgc: true, // use the phone's own automatic gain control when it has one
   voiceVolume: 2, // loudness of the translated voice: 1 (normal) … 2.5 (loud)
+  streamVoice: false, // play the translation while ElevenLabs is still generating it (lower delay)
+  handsFree: false, // no zone to pick: the spoken language is detected, the turn lasts until a tap
   input: null, // chosen microphone { id, name }, or null = the phone's built-in mic
 });
 
@@ -49,6 +51,8 @@ export function sanitizeSettings(raw) {
     background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,
     micGain: MIC_GAIN_CHOICES.includes(gain) ? gain : DEFAULT_SETTINGS.micGain,
     voiceVolume: VOICE_VOLUME_CHOICES.includes(volume) ? volume : DEFAULT_SETTINGS.voiceVolume,
+    streamVoice: typeof input.streamVoice === 'boolean' ? input.streamVoice : DEFAULT_SETTINGS.streamVoice,
+    handsFree: typeof input.handsFree === 'boolean' ? input.handsFree : DEFAULT_SETTINGS.handsFree,
     micSource: MIC_SOURCES[input.micSource] ? input.micSource : DEFAULT_SETTINGS.micSource,
     micAgc: typeof input.micAgc === 'boolean' ? input.micAgc : DEFAULT_SETTINGS.micAgc,
     input: sanitizeInput(input.input ?? old.input),
