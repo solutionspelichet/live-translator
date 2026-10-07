@@ -24,6 +24,25 @@ test('French echo of a played French sentence is caught, punctuation and case ig
   assert.equal(isEcho('ou bien c\'est lui qui vient chez moi ce qui se passe', [ref]), true);
 });
 
+// Real false positives seen on the phone: the user's OWN French was dropped as "echo" because the
+// last translations played in French were long and share common letter pairs with any French.
+const playedFrench = [
+  "Ce sont tous des élèves à qui vous avez enseigné le chinois et qui m'ont donné envie de l'apprendre.",
+  'Comment intégrer le chinois dans un système où les conditions de rémunération sont unifiées ?',
+  "Ou bien c'est lui qui vient chez moi, ce qui se passe alors, je m'adapte à la situation et je réutilise cette phrase",
+];
+
+test('the user speaking French after French translations were played is NOT an echo', () => {
+  assert.equal(isEcho('Bon maintenant je parle en français et o', playedFrench), false);
+  assert.equal(isEcho('Je ne sais pas si ça marche, est-ce que', playedFrench), false);
+  assert.equal(isEcho("Et je j'attends de voir la prochaine chose si ça se passe bien", playedFrench), false);
+});
+
+test('a French sentence the voice really just said IS an echo (even slightly misheard)', () => {
+  assert.equal(isEcho("comment intégrer le chinois dans un système où les conditions de rémunération sont unifiées", playedFrench), true);
+  assert.equal(isEcho("ce sont tous des élèves à qui vous avez enseigné le chinois", playedFrench), true);
+});
+
 test('very short utterances are never treated as echo by overlap', () => {
   assert.equal(isEcho('oui', ['oui bien sûr, je viens']), false);
 });
