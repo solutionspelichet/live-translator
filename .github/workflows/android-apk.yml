@@ -49,8 +49,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/release/app-release.apk DualCast-Translate.apk
+          # The same APK inside a zip: some phones' browsers get stuck "finalising" a downloaded .apk (security scan);
+          # a zip is saved as is, then unzipped with the Files app.
+          zip DualCast-Translate.zip DualCast-Translate.apk
           gh release delete latest-apk --yes --cleanup-tag || true
-          gh release create latest-apk DualCast-Translate.apk \
+          gh release create latest-apk DualCast-Translate.apk DualCast-Translate.zip \
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "DualCast Translate — dernier APK" \
