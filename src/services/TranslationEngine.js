@@ -53,7 +53,12 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {number} [deps.idleStopMs]  hands-free: stop listening after this long without any recognized speech (billing + battery)
  * @param {number} [deps.detectWindowMs]  hands-free: how long to wait for the other language's transcript before choosing
  */
-const MAX_OPEN_STREAMS = 2;
+const MAX_OPEN_STREAMS = 4;
+
+/** Playback speed when sentences pile up behind the one being spoken (continuous speech): catch up instead of lagging further. */
+export function catchUpRate(waiting) {
+  return waiting >= 3 ? 1.25 : waiting === 2 ? 1.12 : 1;
+}
 
 export default class TranslationEngine {
   constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000, timers = defaultTimers }) {
@@ -507,7 +512,9 @@ export default class TranslationEngine {
       turn.streams.add(prep);
       turn.openStreams = (turn.openStreams ?? 0) + 1;
     }
+    turn.queued = (turn.queued ?? 0) + 1;
     const release = () => {
+      turn.queued--;
       if (prep) turn.openStreams--;
     };
 
@@ -568,7 +575,7 @@ export default class TranslationEngine {
   /** Play a sentence while it is still being generated; fall back to the classic request if the stream is unusable. */
   async playStreamed(turn, { stream, translated }, targetSide, voice) {
     try {
-      await this.audio.playStream(stream, PAN[targetSide]);
+      await this.audio.playStream(stream, PAN[targetSide], { rate: catchUpRate((turn.queued ?? 1) - 1) });
     } catch (error) {
       if (stream.gotAudio || this.turnId !== turn.id) throw error;
       this.streamTts = false; // don't pay that detour again this session
