@@ -296,7 +296,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
             {`\nmicro choisi: ${settings.input?.name ?? 'téléphone (auto)'}`}
             {`\nveille: verrou ${BackgroundService.lockHeld ? 'oui' : 'NON'} · batterie sans limite: ${Power.isIgnoringBatteryOptimizations() ? 'oui' : 'NON'} · gain micro: ×${Number(diag.gain).toFixed(1)}`}
             {diag.micError ? `\nerreur micro: ${diag.micError}` : ''}
-            {`\n— journal —\n${EventLog.last(7).join('\n') || '(vide)'}`}
+            {`\n— journal —\n${EventLog.last(10).join('\n') || '(vide)'}`}
           </Text>
         </View>
       )}

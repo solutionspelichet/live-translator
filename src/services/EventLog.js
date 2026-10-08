@@ -1,6 +1,6 @@
 // Tiny in-memory journal shown in the diagnostics panel: lets a tester see, after waking the
 // screen, what happened meanwhile (app went to background, mic stalled, an error occurred…).
-const MAX = 40;
+const MAX = 80;
 const lines = [];
 
 export default {

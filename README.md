@@ -110,6 +110,13 @@ Un service de premier plan ne suffit pas : Android endort le processeur et le Wi
 diagnostic (appui long sur ⚙︎) affiche un journal des derniers événements pour comprendre ce qui s'est passé écran éteint.
 Le module n'a pas pu être compilé ni testé en local : seul le build GitHub le valide.
 
+Écran éteint, deux choses pouvaient interrompre la traduction « au hasard » : Android qui coupe le micro d'une app en arrière-plan, et la
+connexion Deepgram qui tombe (Wi-Fi en veille). Réponses : (1) pendant un tour, si aucun son n'arrive depuis 3 s, la capture est relancée
+et rattachée au tour (`armStallMonitor`) ; (2) Deepgram reçoit un `KeepAlive` quand le micro est muet ; (3) la reconnexion ne s'épuise plus :
+le compteur d'échecs repart à zéro après chaque reconnexion réussie (30 échecs *consécutifs* max, délai plafonné à 5 s), l'audio est gardé
+jusqu'à 30 s pendant la coupure, et une connexion « ouverte mais muette » depuis 15 s est refaite. Tout ce qui se passe est inscrit dans le
+journal du panneau de diagnostic (appui long sur ⚙︎) : « micro silencieux… → redémarrage », « Deepgram : reconnexion 2/30 »…
+
 ## Sensibilité du micro et choix du micro
 
 Android n'expose pas de réglage de sensibilité aux apps ; l'app amplifie donc elle-même le son avant la reconnaissance

@@ -52,8 +52,8 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {number} [deps.detectWindowMs]  hands-free: how long to wait for the other language's transcript before choosing
  */
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000 }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker, stallMs });
     this.pendingUsage = null; // billing units not yet reported (see recordUsage)
     this.usageTimer = null;
     this.lastWarm = 0;
@@ -177,6 +177,7 @@ export default class TranslationEngine {
         turn.live = true;
         this.setState(STATE.LISTENING); // first audio really flowing → tell the user to speak
         if (auto) this.armIdleStop(turn);
+        this.armStallMonitor(turn, onChunk);
       }
       // Open Deepgram lazily on the first chunk: that's when the true sample rate is known.
       turn.session ??= auto ? this.createAutoSession(turn, sampleRate) : this.stt.createSession({
@@ -184,6 +185,7 @@ export default class TranslationEngine {
         sampleRate,
         endpointingMs: this.endpointingMs,
         utteranceEndMs: this.utteranceEndMs,
+        onStatus: (status) => this.noteConnection('', status),
         onInterim: (text) => {
           if (this.turnId !== id) return;
           clearTimeout(turn.idleTimer); // new words: the speaker is still going
@@ -287,6 +289,7 @@ export default class TranslationEngine {
         sampleRate,
         endpointingMs: this.endpointingMs,
         utteranceEndMs: this.utteranceEndMs,
+        onStatus: (status) => this.noteConnection(` ${side}`, status),
         onInterim: () => {}, // text is shown once the language is decided
         onError: (error) => this.fail(id, error),
         onFinal: (text, confidence) => this.onAutoFinal(turn, side, text, confidence),
@@ -362,6 +365,37 @@ export default class TranslationEngine {
     turn.buffers[side].push(chosen.text).forEach((segment) => this.enqueue(turn, segment, side));
     clearTimeout(turn.flushTimer);
     if (turn.buffers[side].hasPending()) turn.flushTimer = setTimeout(() => this.flushAuto(turn), this.flushAfterMs);
+  }
+
+  /** Connection changes of the speech recognizer, for the journal (what happened while the screen was off). */
+  noteConnection(label, status) {
+    if (status === 'connecting') return;
+    this.emit({ type: 'note', text: `Deepgram${label} : ${status}` });
+  }
+
+  /**
+   * While a turn is live, the microphone must keep delivering audio. Android can silence a background app's
+   * microphone (screen off, power saving): when no chunk has arrived for `stallMs`, restart the capture and
+   * re-attach to the turn instead of listening to nothing until the next tap.
+   */
+  armStallMonitor(turn, onChunk) {
+    clearInterval(turn.stallTimer);
+    turn.stallTimer = setInterval(async () => {
+      if (this.turnId !== turn.id || turn.ended || turn.restarting) return;
+      const last = this.mic.stats?.lastChunkAt;
+      if (!last || Date.now() - last < this.stallMs) return;
+      turn.restarting = true;
+      this.emit({ type: 'note', text: `micro silencieux depuis ${Math.round((Date.now() - last) / 1000)} s → redémarrage` });
+      try {
+        await this.mic.restart();
+        if (this.turnId === turn.id && !turn.ended) this.mic.setSink(onChunk);
+        this.emit({ type: 'note', text: 'micro redémarré' });
+      } catch (error) {
+        this.emit({ type: 'note', text: `redémarrage du micro impossible : ${error?.message ?? error}` });
+      }
+      turn.restarting = false;
+    }, Math.max(100, Math.min(1000, this.stallMs)));
+    turn.stallTimer.unref?.();
   }
 
   /** Hands-free keeps two paid transcriptions and the mic running: stop after a long silence. */
@@ -544,6 +578,7 @@ export default class TranslationEngine {
     clearTimeout(turn.idleTimer);
     clearTimeout(turn.decideTimer);
     clearTimeout(turn.idleStopTimer);
+    clearInterval(turn.stallTimer);
   }
 
   fail(id, error) {

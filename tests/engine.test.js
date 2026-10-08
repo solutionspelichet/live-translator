@@ -599,3 +599,43 @@ test('voice by speaker: A speaks → A\'s own voice reads the translation (still
   assert.equal(calls.tts[0][1].language, 'en', 'the translation is still spoken in the listener\'s language');
   assert.deepEqual(calls.play, [PAN.B]);
 });
+
+// ---- microphone stall (screen off) --------------------------------------------------------
+
+test('a live turn whose microphone goes silent restarts the capture and re-attaches to the turn', async () => {
+  const { engine, calls, events, chunk, hasSink } = setup({ segments: [] });
+  engine.stallMs = 40;
+  engine.mic.stats = { lastChunkAt: Date.now() };
+  await engine.toggle('A');
+  chunk(); // live
+  engine.mic.stats.lastChunkAt = Date.now() - 10000; // the OS silenced the microphone
+  await new Promise((r) => setTimeout(r, 160));
+  assert.ok(calls.restarts >= 1, 'capture restarted');
+  assert.equal(hasSink(), true, 'turn re-attached to the new capture');
+  assert.ok(events.some((e) => e.type === 'note' && /micro silencieux/.test(e.text)));
+  await engine.toggle('A');
+});
+
+test('a healthy microphone is never restarted', async () => {
+  const { engine, calls, chunk } = setup({ segments: [] });
+  engine.stallMs = 40;
+  engine.mic.stats = { lastChunkAt: Date.now() };
+  await engine.toggle('A');
+  chunk();
+  for (let i = 0; i < 4; i++) {
+    engine.mic.stats.lastChunkAt = Date.now();
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  assert.equal(calls.restarts, 0);
+  await engine.toggle('A');
+});
+
+test('connection changes of the recognizer reach the journal, but not the initial "connecting"', async () => {
+  const { engine, calls, events, chunk } = setup({ segments: [] });
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onStatus('connecting');
+  calls.sessions[0].onStatus('reconnexion 1/30');
+  const notes = events.filter((e) => e.type === 'note').map((e) => e.text);
+  assert.deepEqual(notes, ['Deepgram : reconnexion 1/30']);
+});

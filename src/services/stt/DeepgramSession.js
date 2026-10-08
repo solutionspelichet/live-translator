@@ -7,7 +7,13 @@ const UTTERANCE_END_MS = 1500;
 // Deepgram only validates text after a real pause. In a monologue without one, force a final
 // this often so translation can start instead of waiting for the speaker to breathe.
 const FORCE_FINAL_EVERY_MS = 4000;
-const MAX_RECONNECTS = 3;
+// Reconnection: consecutive failures before giving up (the counter restarts after every successful reopen, so a long
+// session — screen off, flaky Wi-Fi — keeps recovering), capped back-off, bounded audio buffer while offline.
+const MAX_RECONNECTS = 30;
+const MAX_BACKOFF_MS = 5000;
+const MAX_PENDING_CHUNKS = 300; // ≈ 30 s of audio at 100 ms per chunk
+const KEEPALIVE_AFTER_MS = 3000; // Deepgram closes a socket that gets neither audio nor KeepAlive for ~10 s
+const ZOMBIE_AFTER_MS = 15000; // open socket that answers nothing while audio is sent: it is dead (Doze, Wi-Fi sleep)
 
 /**
  * One push-to-talk utterance = one Deepgram streaming session (Nova-2).
@@ -20,9 +26,12 @@ export default class DeepgramSession {
    *          onFinal?: (text: string, confidence?: number, words?: object[]) => void, onUtteranceEnd?: () => void,
    *          onError?: (error: Error) => void}} opts
    */
-  constructor({ language, sampleRate, endpointingMs = 400, utteranceEndMs = UTTERANCE_END_MS, model, languageCode, diarize = false, onInterim, onFinal, onUtteranceEnd, onError }) {
+  constructor({ language, sampleRate, endpointingMs = 400, utteranceEndMs = UTTERANCE_END_MS, model, languageCode, diarize = false, onInterim, onFinal, onUtteranceEnd, onError, onStatus }) {
     this.onError = onError;
-    this.status = 'connecting'; // shown in the diagnostics panel
+    this.onStatus = onStatus; // told about every connection change (journal)
+    this.lastAudioAt = 0;
+    this.lastMessageAt = 0;
+    this._status = 'connecting'; // shown in the diagnostics panel
     this.onInterim = onInterim;
     this.onFinal = onFinal;
     this.onUtteranceEnd = onUtteranceEnd;
@@ -66,6 +75,18 @@ export default class DeepgramSession {
     this.connect();
   }
 
+  get status() {
+    return this._status;
+  }
+
+  set status(value) {
+    if (value === this._status) return;
+    this._status = value;
+    try {
+      this.onStatus?.(value);
+    } catch {}
+  }
+
   connect() {
     // RN's WebSocket can't set an Authorization header portably; Deepgram accepts the
     // key as a ["token", <key>] subprotocol pair, which works on iOS and Android alike.
@@ -79,12 +100,19 @@ export default class DeepgramSession {
       this.isOpen = true;
       this.everOpen = true;
       this.reconnecting = false;
+      this.retries = 0; // a successful (re)connection restarts the count of consecutive failures
+      this.lastMessageAt = Date.now();
       if (!this.forceFinalTimer) this.startForceFinalTimer();
-      this.pending.forEach((chunk) => ws.send(chunk));
+      const queued = this.pending;
       this.pending = [];
+      queued.forEach((chunk) => this.sendNow(chunk));
       if (this.closed) this.flush(); // user already released before the handshake ended
     };
-    ws.onmessage = (e) => this.ws === ws && this.handleMessage(e.data);
+    ws.onmessage = (e) => {
+      if (this.ws !== ws) return;
+      this.lastMessageAt = Date.now();
+      this.handleMessage(e.data);
+    };
     ws.onerror = (e) => this.ws === ws && this.lost(e?.message);
     ws.onclose = (e) => {
       if (this.ws !== ws) return;
@@ -111,7 +139,7 @@ export default class DeepgramSession {
       try {
         this.ws.close();
       } catch {}
-      this.retryTimer = setTimeout(() => !this.settled && this.connect(), 400 * this.retries);
+      this.retryTimer = setTimeout(() => !this.settled && this.connect(), Math.min(400 * this.retries, MAX_BACKOFF_MS));
       return;
     }
     this.fail(new Error(`Deepgram : connexion impossible ou interrompue (${reason || 'clé invalide ou réseau ?'})`));
@@ -145,6 +173,21 @@ export default class DeepgramSession {
   /** Ask Deepgram to validate what it has so far when a run of speech has gone on too long. */
   startForceFinalTimer() {
     this.forceFinalTimer = setInterval(() => {
+      if (this.isOpen && !this.settled) {
+        const now = Date.now();
+        // No audio for a moment (microphone stall, muted playback…): keep the connection alive.
+        if (now - this.lastAudioAt > KEEPALIVE_AFTER_MS) {
+          try {
+            this.ws.send(JSON.stringify({ type: 'KeepAlive' }));
+          } catch {}
+        }
+        // Audio goes out but nothing ever comes back: the socket is dead without having said so.
+        if (this.lastAudioAt && now - this.lastMessageAt > ZOMBIE_AFTER_MS) {
+          this.isOpen = false;
+          this.lost('connexion muette');
+          return;
+        }
+      }
       if (!this.isOpen || this.closed || !this.lastInterim) return;
       const since = Date.now() - Math.max(this.lastFinalAt, this.firstInterimAt);
       if (since < FORCE_FINAL_EVERY_MS) return;
@@ -157,14 +200,33 @@ export default class DeepgramSession {
 
   sendAudio(pcm16) {
     if (this.closed) return;
-    if (this.isOpen) this.ws.send(pcm16);
-    else this.pending.push(pcm16);
+    if (this.isOpen) this.sendNow(pcm16);
+    else {
+      this.pending.push(pcm16);
+      if (this.pending.length > MAX_PENDING_CHUNKS) this.pending.shift(); // offline for long: keep the most recent audio
+    }
+  }
+
+  /** Send on the socket; a socket that refuses (closing, dead) is a lost connection, and the audio is kept. */
+  sendNow(chunk) {
+    try {
+      this.ws.send(chunk);
+      this.lastAudioAt = Date.now();
+    } catch (error) {
+      this.pending.push(chunk);
+      this.isOpen = false;
+      this.lost(error?.message || 'envoi impossible');
+    }
   }
 
   flush() {
     // Finalize forces pending audio to be transcribed; CloseStream then ends the session.
-    this.ws.send(JSON.stringify({ type: 'Finalize' }));
-    this.ws.send(JSON.stringify({ type: 'CloseStream' }));
+    try {
+      this.ws.send(JSON.stringify({ type: 'Finalize' }));
+      this.ws.send(JSON.stringify({ type: 'CloseStream' }));
+    } catch {
+      this.settle(); // the socket died before the end: keep what was recognized so far
+    }
   }
 
   /** Flush remaining audio and resolve with the full transcript of the utterance. */
