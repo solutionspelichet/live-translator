@@ -750,3 +750,14 @@ test('hands-free: two quick sentences of the same language (dialogue) are both t
   await pause(300);
   assert.equal(calls.translate.length, 2);
 });
+
+test('hands-free: a short phrase with a modest score is translated, a long one at the same score is not', async () => {
+  const { engine, calls, a } = await handsFree();
+  engine.flushAfterMs = 100;
+  a.onFinal("D'accord", 0.55);
+  await pause(600);
+  assert.equal(calls.translate.length, 1);
+  a.onFinal('OK je pense que ça ira ici demain', 0.55);
+  await pause(600);
+  assert.equal(calls.translate.length, 1);
+});

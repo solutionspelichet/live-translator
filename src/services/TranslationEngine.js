@@ -53,9 +53,11 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {number} [deps.idleStopMs]  hands-free: stop listening after this long without any recognized speech (billing + battery)
  * @param {number} [deps.detectWindowMs]  hands-free: how long to wait for the other language's transcript before choosing
  */
+const CJK_CHARS = /[぀-ヿ㐀-鿿가-힯]/u;
+
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000, timers = defaultTimers }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker, stallMs, timers });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, shortConfidence = 0.5, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000, timers = defaultTimers }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, shortConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker, stallMs, timers });
     this.pendingUsage = null; // billing units not yet reported (see recordUsage)
     this.usageTimer = null;
     this.lastWarm = 0;
@@ -361,8 +363,15 @@ export default class TranslationEngine {
     const chosen = side === SIDE.A ? A : B;
     // Noise, a hallucination on silence or a word from the wrong language: be stricter when the
     // other language's recognizer produced nothing to compare with.
-    if (chosen.conf < (A && B ? this.minConfidence : this.loneConfidence)) return;
-    if (chosen.text.replace(/\s+/g, '').length < 3) return;
+    // A short answer ("oui", "d'accord", "non merci") gets a low score from the recognizer even when it is real:
+    // let it through at a lower bar than a long sentence, which is where hallucinations on silence show up.
+    const short = chosen.text.trim().split(/\s+/).length <= 3;
+    const bar = A && B ? this.minConfidence : short ? this.shortConfidence : this.loneConfidence;
+    const letters = chosen.text.replace(/\s+/g, '').length;
+    if (chosen.conf < bar || letters < (CJK_CHARS.test(chosen.text) ? 1 : 2)) {
+      this.emit({ type: 'note', text: `ignoré (${side}, confiance ${chosen.conf.toFixed(2)} < ${bar}) : ${chosen.text.slice(0, 40)}` });
+      return;
+    }
     turn.decided.push(chosen.text);
     this.armIdleStop(turn); // speech heard: the silence countdown starts over
     // The language changed: release what the previous one was still holding, to keep the order.
