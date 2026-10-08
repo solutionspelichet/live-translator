@@ -10,6 +10,7 @@ const FIELDS = [
   'EXPO_PUBLIC_ELEVENLABS_VOICE_A',
   'EXPO_PUBLIC_ELEVENLABS_VOICE_B',
   'EXPO_PUBLIC_OPENROUTER_API_KEY',
+  'EXPO_PUBLIC_OPENAI_API_KEY',
 ];
 
 const fromBuild = {
@@ -19,6 +20,7 @@ const fromBuild = {
   EXPO_PUBLIC_ELEVENLABS_VOICE_A: process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_A,
   EXPO_PUBLIC_ELEVENLABS_VOICE_B: process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_B,
   EXPO_PUBLIC_OPENROUTER_API_KEY: process.env.EXPO_PUBLIC_OPENROUTER_API_KEY,
+  EXPO_PUBLIC_OPENAI_API_KEY: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
 };
 
 const urls = {
@@ -26,6 +28,8 @@ const urls = {
   deepgramWsUrl: process.env.EXPO_PUBLIC_DEEPGRAM_WS_URL || 'wss://api.deepgram.com/v1/listen',
   elevenLabsBaseUrl: process.env.EXPO_PUBLIC_ELEVENLABS_BASE_URL || 'https://api.elevenlabs.io',
   openRouterBaseUrl: process.env.EXPO_PUBLIC_OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+  openaiLiveWsUrl: process.env.EXPO_PUBLIC_OPENAI_LIVE_WS_URL || 'wss://api.openai.com/v1/realtime/translations',
+  openaiBaseUrl: process.env.EXPO_PUBLIC_OPENAI_BASE_URL || 'https://api.openai.com/v1',
   deepgramHttpUrl: process.env.EXPO_PUBLIC_DEEPGRAM_HTTP_URL || 'https://api.deepgram.com/v1/listen',
 };
 
@@ -39,6 +43,7 @@ function apply(values) {
   env.voiceA = values.EXPO_PUBLIC_ELEVENLABS_VOICE_A;
   env.voiceB = values.EXPO_PUBLIC_ELEVENLABS_VOICE_B;
   env.openRouterKey = values.EXPO_PUBLIC_OPENROUTER_API_KEY;
+  env.openaiKey = values.EXPO_PUBLIC_OPENAI_API_KEY;
   // DeepL Free keys end in ":fx" and only work on api-free.deepl.com; Pro keys on api.deepl.com.
   if (!process.env.EXPO_PUBLIC_DEEPL_BASE_URL && env.deeplKey) {
     env.deeplBaseUrl = env.deeplKey.endsWith(':fx') ? 'https://api-free.deepl.com' : 'https://api.deepl.com';
@@ -58,6 +63,12 @@ export const SETUP_FIELDS = [
     secret: true,
     optional: true,
   },
+  {
+    name: 'EXPO_PUBLIC_OPENAI_API_KEY',
+    label: 'Clé OpenAI (stratégie « OpenAI live » seulement)',
+    secret: true,
+    optional: true,
+  },
 ];
 
 /** Current values by field name (for pre-filling the setup form). */
@@ -69,6 +80,7 @@ export function currentValues() {
     EXPO_PUBLIC_ELEVENLABS_VOICE_A: env.voiceA,
     EXPO_PUBLIC_ELEVENLABS_VOICE_B: env.voiceB,
     EXPO_PUBLIC_OPENROUTER_API_KEY: env.openRouterKey,
+    EXPO_PUBLIC_OPENAI_API_KEY: env.openaiKey,
   };
 }
 
@@ -95,10 +107,14 @@ export async function saveKeys(values) {
   apply({ ...fromBuild, ...Object.fromEntries(Object.entries(merged).filter(([, v]) => v)) });
 }
 
+/** Names of the settings the chosen strategy cannot work without. */
+export function requiredFields(strategy = 'classic') {
+  if (strategy === 'openai') return ['EXPO_PUBLIC_OPENAI_API_KEY'];
+  return SETUP_FIELDS.filter((f) => !f.optional).map((f) => f.name);
+}
+
 /** Names of required settings that are still empty. */
-export function missingEnv() {
-  const optional = new Set(SETUP_FIELDS.filter((f) => f.optional).map((f) => f.name));
-  return Object.entries(currentValues())
-    .filter(([name, v]) => !v && !optional.has(name))
-    .map(([name]) => name);
+export function missingEnv(strategy = 'classic') {
+  const values = currentValues();
+  return requiredFields(strategy).filter((name) => !values[name]);
 }

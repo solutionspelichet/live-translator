@@ -51,3 +51,14 @@ export function getLanguage(code) {
 /** Side of the room (and of the stereo field) a language is bound to. */
 export const SIDE = Object.freeze({ A: 'A', B: 'B' });
 export const PAN = Object.freeze({ [SIDE.A]: -1.0, [SIDE.B]: 1.0 });
+
+/**
+ * Languages the live-translation service can SPEAK (it understands more than 70 as input, but answers in 13).
+ * Source: OpenAI's announcement of gpt-realtime-translate; the list may grow, check before relying on it.
+ */
+export const LIVE_OUTPUT_LANGUAGES = Object.freeze(['en', 'fr', 'es', 'pt', 'de', 'it', 'ja', 'ko', 'zh', 'ru', 'hi', 'id', 'vi']);
+
+/** The code to ask the live service for, or null when it cannot speak this language. */
+export function liveOutputCode(code) {
+  return LIVE_OUTPUT_LANGUAGES.includes(code) ? code : null;
+}
