@@ -56,7 +56,7 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
 const CJK_CHARS = /[぀-ヿ㐀-鿿가-힯]/u;
 
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, shortConfidence = 0.5, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000, timers = defaultTimers }) {
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.55, shortConfidence = 0.5, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000, timers = defaultTimers }) {
     Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, shortConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker, stallMs, timers });
     this.pendingUsage = null; // billing units not yet reported (see recordUsage)
     this.usageTimer = null;
@@ -423,7 +423,7 @@ export default class TranslationEngine {
     turn.idleStopTimer = this.timers.setTimeout(() => {
       if (this.turnId !== turn.id || this.state !== STATE.LISTENING) return;
       this.emit({ type: 'idle-stop', minutes: Math.round(this.idleStopMs / 60000) });
-      this.endTurn();
+      this.cancel(); // nothing was said: no last-second translation to speak
     }, this.idleStopMs);
     turn.idleStopTimer.unref?.(); // Node (tests) must not wait for it; a no-op in React Native
   }
