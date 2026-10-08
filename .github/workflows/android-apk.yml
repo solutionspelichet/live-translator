@@ -1,0 +1,60 @@
+name: Build Android APK
+
+# Lancer à la main : onglet Actions → "Build Android APK" → Run workflow.
+# Aucun secret n'est injecté : les clés API se saisissent dans l'app au premier lancement.
+# Le dernier APK est aussi publié comme « version » GitHub (lien direct, sans zip à décompresser) :
+#   https://github.com/<propriétaire>/<dépôt>/releases/tag/latest-apk
+# L'APK ne contient aucune clé API (elles se saisissent dans l'app) : le dépôt peut rester public.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # nécessaire pour publier la version « latest-apk »
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - run: npm ci
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build release APK (JS bundled, signed with the debug key — fine for sideloading)
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dualcast-translate-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 7
+
+      - name: Publish the APK as the "latest-apk" GitHub release (direct download link)
+        continue-on-error: true # the zip artifact above stays available if the release cannot be written
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk DualCast-Translate.apk
+          # The same APK inside a zip: some phones' browsers get stuck "finalising" a downloaded .apk (security scan);
+          # a zip is saved as is, then unzipped with the Files app.
+          zip DualCast-Translate.zip DualCast-Translate.apk
+          gh release delete latest-apk --yes --cleanup-tag || true
+          gh release create latest-apk DualCast-Translate.apk DualCast-Translate.zip \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "DualCast Translate — dernier APK" \
+            --notes "Build #${{ github.run_number }} — commit ${GITHUB_SHA::7} (branche ${{ github.ref_name }}). Téléchargez DualCast-Translate.apk puis installez-le par-dessus l'ancienne version : clés et réglages sont conservés."
