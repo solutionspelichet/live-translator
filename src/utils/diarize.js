@@ -65,8 +65,13 @@ export function parsePrerecorded(response) {
 }
 
 /** Plain text, one block per speaker turn: "[00:12] Marie : …". */
-export function formatTranscript(segments, names = {}, { timestamps = true } = {}) {
-  return segments.map((s) => `${timestamps ? `[${formatClock(s.start)}] ` : ''}${speakerName(names, s.speaker)} : ${s.text}`).join('\n');
+export function formatTranscript(segments, names = {}, { timestamps = true, withTranslation = false } = {}) {
+  return segments
+    .map((s) => {
+      const line = `${timestamps ? `[${formatClock(s.start)}] ` : ''}${speakerName(names, s.speaker)} : ${s.text}`;
+      return withTranslation && s.translated ? `${line}\n    → ${s.translated}` : line;
+    })
+    .join('\n');
 }
 
 /** Distinct speakers in order of appearance. */

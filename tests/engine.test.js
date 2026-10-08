@@ -454,13 +454,13 @@ test('hands-free stops by itself after a long silence, and tells the user', asyn
 
 test('hands-free: recognized speech restarts the silence countdown', async () => {
   const { engine, a } = await handsFree();
-  engine.idleStopMs = 80;
+  engine.idleStopMs = 300;
   engine.armIdleStop(engine.turn);
-  await pause(50);
+  await pause(180);
   a.onFinal('Bonjour tout le monde, comment allez-vous.', 0.95); // speech → countdown restarts
-  await pause(50);
-  assert.equal(engine.state, STATE.LISTENING, 'still listening 100 ms after start (80 ms limit)');
-  await pause(100);
+  await pause(180);
+  assert.equal(engine.state, STATE.LISTENING, 'still listening 360 ms after start (300 ms limit)');
+  await pause(450);
   assert.equal(engine.state, STATE.IDLE);
 });
 

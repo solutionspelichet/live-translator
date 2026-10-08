@@ -22,7 +22,14 @@ function parseSegments(list) {
   if (!Array.isArray(list)) return [];
   return list
     .filter((s) => s && typeof s.text === 'string' && s.text.trim())
-    .map((s) => ({ speaker: Math.max(0, Math.floor(num(s.speaker))), start: num(s.start), end: num(s.end), text: s.text }));
+    .map((s) => ({
+      speaker: Math.max(0, Math.floor(num(s.speaker))),
+      start: num(s.start),
+      end: num(s.end),
+      text: s.text,
+      ...(typeof s.translated === 'string' && s.translated.trim() ? { translated: s.translated } : {}), // meetings made while translating
+      ...(typeof s.lang === 'string' ? { lang: s.lang } : {}),
+    }));
 }
 
 function parseNames(raw) {
@@ -60,7 +67,7 @@ export function parseMeeting(raw) {
       language: validLanguage(m.language) ? m.language : MULTI,
       audioUri: typeof m.audioUri === 'string' ? m.audioUri : null,
       audioBytes: Math.max(0, num(m.audioBytes)),
-      source: m.source === 'precise' ? 'precise' : 'live',
+      source: ['precise', 'translator'].includes(m.source) ? m.source : 'live', // live | precise (2nd pass) | translator (made while translating)
       liveError: typeof m.liveError === 'string' ? m.liveError : null,
       segments: parseSegments(m.segments),
       speakers: parseNames(m.speakers),
@@ -71,6 +78,11 @@ export function parseMeeting(raw) {
   }
 }
 
+export function translatorTitle(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `Conversation traduite du ${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} à ${pad(date.getHours())}h${pad(date.getMinutes())}`;
+}
+
 /** Index entry shown in the list. */
 export const meetingSummary = (m) => ({
   id: m.id,
@@ -78,6 +90,7 @@ export const meetingSummary = (m) => ({
   createdAt: m.createdAt,
   durationSec: m.durationSec,
   language: m.language,
+  source: m.source,
   hasMinutes: m.minutes.length > 0,
   words: m.segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0),
 });

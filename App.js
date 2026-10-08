@@ -18,9 +18,11 @@ import audio from './src/services/AudioRoutingService';
 import BackgroundService from './src/services/BackgroundService';
 import EventLog from './src/services/EventLog';
 import HistoryStore from './src/services/HistoryStore';
+import TranslationMeetingService from './src/services/TranslationMeetingService';
 import UsageTracker from './src/services/UsageTracker';
 import createEngine from './src/services/createEngine';
 import { AUTO, STATE } from './src/services/TranslationEngine';
+import { formatClock } from './src/utils/diarize';
 import { nextHistoryId, parseHistory } from './src/utils/history';
 import { describeError } from './src/utils/http';
 import { deepgramSeconds } from './src/utils/usage';
@@ -93,6 +95,8 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
   const [showHistory, setShowHistory] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
   const [usage, setUsage] = useState(UsageTracker.snapshot());
+  const [recording, setRecording] = useState(TranslationMeetingService.snapshot()); // the conversation being recorded as a meeting
+  const [, setTick] = useState(0);
   const historyId = useRef(0);
   const historyLoaded = useRef(false);
 
@@ -133,6 +137,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       else if (ev.type === 'interim' || ev.type === 'transcript' || ev.type === 'translation') {
         setTexts((t) => ({ ...t, [ev.side]: ev.text }));
       } else if (ev.type === 'segment') {
+        TranslationMeetingService.add(ev);
         setHistory((h) =>
           [...h, { id: ++historyId.current, from: ev.from, to: ev.to, fromLang: ev.fromLang, toLang: ev.toLang, source: ev.source, translated: ev.translated, at: ev.at }].slice(-300),
         );
@@ -182,6 +187,31 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       .then(() => changed && engine.mic.restart())
       .catch(() => {});
   }, [engine, inputKey, settings.micSource, settings.micAgc]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Meeting recorded while translating: state of the chip + a clock that ticks.
+  useEffect(() => TranslationMeetingService.subscribe(setRecording), []);
+  useEffect(() => {
+    if (!recording.active) return undefined;
+    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [recording.active]);
+  const toggleMeeting = async () => {
+    if (!TranslationMeetingService.active) {
+      TranslationMeetingService.start();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      return;
+    }
+    const record = await TranslationMeetingService.stop();
+    if (!record || record.empty) {
+      Alert.alert('Réunion vide', "Aucune phrase n'a été traduite pendant l'enregistrement : rien n'a été gardé.");
+      return;
+    }
+    Alert.alert(
+      'Conversation enregistrée',
+      `${record.segments.length} passages gardés. Ouvrez 📝 Réunions pour la relire et rédiger le compte rendu.`,
+      [{ text: 'Plus tard' }, { text: 'Ouvrir 📝', onPress: onOpenMeetings }],
+    );
+  };
 
   // Billing counter: live numbers on the 📊 chip and in its screen.
   useEffect(() => UsageTracker.subscribe(setUsage), []);
@@ -247,6 +277,16 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
           accessibilityLabel="Envoi automatique après une pause"
         >
           <Text style={styles.chipText}>{autoStop ? 'Auto ✓' : 'Auto'}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.chip, recording.active && styles.chipRec]}
+          onPress={toggleMeeting}
+          hitSlop={12}
+          accessibilityLabel="Enregistrer la conversation traduite comme réunion"
+        >
+          <Text style={styles.chipText}>
+            {recording.active ? `⏺ ${formatClock(TranslationMeetingService.current?.elapsedSec ?? 0)} · ${recording.passages}` : '⏺ Réunion'}
+          </Text>
         </Pressable>
         <Pressable style={styles.chip} onPress={() => setShowUsage(true)} hitSlop={12} accessibilityLabel="Consommation facturée">
           <Text style={styles.chipText}>{`📊 ${Math.round(deepgramSeconds(usage.today) / 60)} min`}</Text>
@@ -322,6 +362,7 @@ const styles = StyleSheet.create({
   chip: { height: 38, paddingHorizontal: 12, borderRadius: 19, backgroundColor: '#000C', justifyContent: 'center' },
   chipOn: { backgroundColor: '#1F8F4E' },
   chipDim: { opacity: 0.4 },
+  chipRec: { backgroundColor: '#C0392B' },
   chipText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   gear: {
     width: 38,

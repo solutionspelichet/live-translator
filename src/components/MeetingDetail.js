@@ -45,7 +45,8 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
 
   const names = meeting.speakers;
   const shares = useMemo(() => talkShare(meeting.segments), [meeting.segments]);
-  const transcriptText = (timestamps = true) => formatTranscript(meeting.segments, names, { timestamps });
+  const translated = meeting.source === 'translator'; // made while translating: no audio, each line has its translation
+  const transcriptText = (timestamps = true, withTranslation = false) => formatTranscript(meeting.segments, names, { timestamps, withTranslation });
   const dateText = new Date(meeting.createdAt).toLocaleString('fr-FR');
 
   const refine = () => {
@@ -137,7 +138,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
           placeholderTextColor="#55607F"
         />
         <Text style={styles.meta}>
-          {`${dateText} · ${formatDuration(meeting.durationSec)} · ${languageLabel(meeting.language)} · transcription ${meeting.source === 'precise' ? 'précise ✓' : 'en direct (provisoire)'}`}
+          {`${dateText} · ${formatDuration(meeting.durationSec)} · ${languageLabel(meeting.language)} · ${translated ? 'enregistrée pendant la traduction' : `transcription ${meeting.source === 'precise' ? 'précise ✓' : 'en direct (provisoire)'}`}`}
         </Text>
         {!!meeting.liveError && <Text style={styles.warn}>{`Transcription en direct indisponible : ${meeting.liveError}. Lancez la transcription précise.`}</Text>}
 
@@ -150,8 +151,8 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
 
         <View style={styles.actions}>
           <Btn label="📝 Compte rendu" onPress={() => setShowMinutesForm((v) => !v)} disabled={!!busy} primary />
-          <Btn label="🎯 Transcription précise" onPress={refine} disabled={!!busy} />
-          <Btn label="Partager le texte" onPress={() => Share.share({ title: meeting.title, message: `${meeting.title}\n${dateText}\n\n${transcriptText(true)}` }).catch(() => {})} disabled={!meeting.segments.length} />
+          {!translated && <Btn label="🎯 Transcription précise" onPress={refine} disabled={!!busy} />}
+          <Btn label="Partager le texte" onPress={() => Share.share({ title: meeting.title, message: `${meeting.title}\n${dateText}\n\n${transcriptText(true, translated)}` }).catch(() => {})} disabled={!meeting.segments.length} />
         </View>
 
         {showMinutesForm && (
@@ -239,13 +240,18 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
         )}
 
         <Text style={styles.section}>Transcription</Text>
-        {meeting.segments.length === 0 && <Text style={styles.hint}>Aucun texte. Lancez la transcription précise pour transcrire l’enregistrement.</Text>}
+        {meeting.segments.length === 0 && <Text style={styles.hint}>{translated ? 'Aucun texte.' : 'Aucun texte. Lancez la transcription précise pour transcrire l’enregistrement.'}</Text>}
         {meeting.segments.map((s, i) => (
           <View key={i} style={styles.segment}>
             <Text style={styles.segHead}>{`${formatClock(s.start)} · ${speakerName(names, s.speaker)}`}</Text>
             <Text style={styles.segText} selectable>
               {s.text}
             </Text>
+            {!!s.translated && (
+              <Text style={styles.segTrans} selectable>
+                {`→ ${s.translated}`}
+              </Text>
+            )}
           </View>
         ))}
       </ScrollView>
@@ -303,4 +309,5 @@ const styles = StyleSheet.create({
   segment: { marginBottom: 10 },
   segHead: { color: '#6FA0FF', fontSize: 12, fontWeight: '600' },
   segText: { color: '#E8ECF8', fontSize: 15, lineHeight: 21 },
+  segTrans: { color: '#9AA6C4', fontSize: 14, lineHeight: 20, fontStyle: 'italic' },
 });

@@ -176,6 +176,15 @@ Limites assumées : la précision dépend du micro du téléphone (posé au cent
 automatique (étiquettes à renommer, erreurs possibles quand deux personnes parlent en même temps) ; pas de lecture audio dans l'app (le
 fichier WAV reste sur le téléphone). Le module n'a pas pu être essayé sur un appareil ici.
 
+### Transcrire PENDANT la traduction
+
+Bouton **⏺ Réunion** sur l'écran principal : tant qu'il est actif (chip rouge avec la durée et le nombre de passages), chaque phrase que le
+traducteur entend devient une ligne de la réunion — **qui a parlé** (identifié par sa langue : Français, 中文…), **le texte d'origine**, **sa
+traduction** et l'heure. Marche en manuel comme en mains libres, écran éteint, et continue si l'on ouvre les réglages. La réunion est
+sauvegardée toutes les 15 s et à l'arrêt (`TranslationMeetingService`) ; elle apparaît dans 📝 Réunions avec la mention « enregistrée pendant la
+traduction », où l'on peut renommer les intervenants, rédiger les comptes rendus (dans la langue voulue) et partager le texte avec les
+traductions. Pas d'audio gardé dans ce mode (donc pas de « transcription précise ») : la précision est celle de la reconnaissance en direct.
+
 ## Voix personnelle
 
 Une voix créée dans ElevenLabs (la vôtre) apparaît dans ⚙︎ → « Charger mes voix ». L'option **« Voix liée à la personne qui parle »** fait

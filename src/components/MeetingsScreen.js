@@ -92,8 +92,12 @@ export default function MeetingsScreen({ settings, onSettingsChange, onClose }) 
         </Pressable>
       </View>
       <Pressable style={styles.start} onPress={() => setView('new')} accessibilityRole="button">
-        <Text style={styles.startText}>● Nouvelle réunion</Text>
+        <Text style={styles.startText}>● Nouvelle réunion (sans traduction)</Text>
       </Pressable>
+      <Text style={styles.tip}>
+        Pour transcrire la réunion PENDANT la traduction, touchez « ⏺ Réunion » sur l'écran principal : chaque phrase traduite est gardée ici,
+        avec qui a parlé et sa traduction.
+      </Text>
       <FlatList
         data={meetings}
         keyExtractor={(m) => m.id}
@@ -107,7 +111,7 @@ export default function MeetingsScreen({ settings, onSettingsChange, onClose }) 
           <Pressable style={styles.item} onPress={() => open(item.id)} accessibilityRole="button">
             <Text style={styles.itemTitle}>{item.title}</Text>
             <Text style={styles.itemMeta}>
-              {`${new Date(item.createdAt).toLocaleString('fr-FR')} · ${formatDuration(item.durationSec)} · ${langName(item.language)}${item.hasMinutes ? ' · compte rendu ✓' : ''}`}
+              {`${new Date(item.createdAt).toLocaleString('fr-FR')} · ${formatDuration(item.durationSec)} · ${item.source === 'translator' ? 'traduction' : langName(item.language)}${item.hasMinutes ? ' · compte rendu ✓' : ''}`}
             </Text>
           </Pressable>
         )}
@@ -268,6 +272,7 @@ const styles = StyleSheet.create({
   off: { opacity: 0.4 },
   list: { padding: 16 },
   empty: { color: '#9AA6C4', fontSize: 15, margin: 16 },
+  tip: { color: '#9AA6C4', fontSize: 13, marginHorizontal: 20, marginBottom: 4 },
   item: { backgroundColor: '#16233B', borderRadius: 12, padding: 14, marginBottom: 10 },
   itemTitle: { color: '#fff', fontSize: 17, fontWeight: '600' },
   itemMeta: { color: '#9AA6C4', fontSize: 13, marginTop: 4 },
