@@ -416,12 +416,14 @@ test('hands-free: a pause (UtteranceEnd) does NOT end the turn — only a tap do
   assert.equal(engine.state, STATE.IDLE);
 });
 
-test('hands-free: words still pending when the user taps to stop are translated', async () => {
+test('hands-free: a tap to stop is a hard stop (nothing more is translated or spoken)', async () => {
   const { engine, calls, a } = await handsFree();
   a.onFinal('et puis', 0.9);
   await pause(50);
   await engine.toggle('auto');
-  assert.deepEqual(calls.translate, [['et puis', 'fr', 'en']]);
+  await pause(100);
+  assert.equal(engine.state, STATE.IDLE);
+  assert.deepEqual(calls.translate, []);
 });
 
 test('hands-free: the microphone re-hearing our own translation is NOT translated again (no AI-to-AI dialogue)', async () => {

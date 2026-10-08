@@ -137,6 +137,8 @@ export default class TranslationEngine {
   /** Single-tap behaviour: a tap while recording ends the turn, otherwise it starts one. */
   toggle(side) {
     const recording = this.state === STATE.STARTING || this.state === STATE.LISTENING;
+    // Hands-free runs for as long as it likes: a tap there means STOP (drop what is still queued), not "I finished my sentence".
+    if (recording && this.turn?.auto) return this.cancel();
     return recording ? this.endTurn() : this.startTurn(side);
   }
 
