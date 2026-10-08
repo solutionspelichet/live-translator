@@ -1,8 +1,12 @@
 import { getLanguage, liveOutputCode, LIVE_OUTPUT_LANGUAGES, PAN, SIDE } from '../config/languages.js';
 import LiveGate, { toLiveAudio } from '../utils/live.js';
+import { rmsLevel } from '../utils/pcm.js';
 import { defaultTimers } from '../utils/timers.js';
 import TtsStream from '../utils/ttsStream.js';
 import { AUTO, STATE } from './TranslationEngine.js';
+
+// The service may stream silence between phrases: below this level a piece of audio is not a voice (see onAudio).
+const SILENCE_LEVEL = 0.02;
 
 const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
 
@@ -121,7 +125,7 @@ export default class LiveTranslationEngine {
     this.setState(STATE.STARTING);
 
     for (const [from, to] of pairs) {
-      const d = { from, to, gate: auto ? new LiveGate(this.gateOptions) : null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null };
+      const d = { from, to, gate: auto ? new LiveGate(this.gateOptions) : null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 } };
       const label = `${from}→${to}`;
       d.session = this.createSession({
         target: liveOutputCode(this.languages[to]),
@@ -164,6 +168,7 @@ export default class LiveTranslationEngine {
 
   onText(turn, d, kind, delta) {
     if (this.turnId !== turn.id) return;
+    d.stats[kind === 'in' ? 'inChars' : 'outChars'] += delta.length;
     if (kind === 'in') {
       d.inText += delta;
       this.armIdleStop(turn);
@@ -177,6 +182,14 @@ export default class LiveTranslationEngine {
   onAudio(turn, d, samples, rate) {
     if (this.turnId !== turn.id) return;
     d.rate = rate;
+    d.stats.audio++;
+    if (rmsLevel(samples) < SILENCE_LEVEL) {
+      // Silence: it only keeps the cadence of a voice that is already playing. It must not open a burst, be held by the
+      // gate or keep a finished burst alive (the service may stream silence all the time).
+      if (d.stream) d.stream.push(samples);
+      return;
+    }
+    d.stats.loud++;
     const chunks = d.gate ? d.gate.audio(samples) : [samples];
     chunks.forEach((chunk) => this.play(turn, d, chunk));
     this.armBurst(turn, d);
@@ -227,6 +240,12 @@ export default class LiveTranslationEngine {
     const real = !d.gate || d.gate.playing;
     const source = d.inText.trim();
     const translated = d.outText.trim();
+    if (source || translated) {
+      this.emit({
+        type: 'note',
+        text: `passage ${d.from}→${d.to} ${real ? 'lu' : 'non lu (répétition ou rien à traduire)'} : « ${source.slice(0, 50)} » → « ${translated.slice(0, 50)} »`,
+      });
+    }
     if (real && source && translated) {
       this.emit({
         type: 'segment',
@@ -300,11 +319,22 @@ export default class LiveTranslationEngine {
       await Promise.all(turn.dirs.map((d) => d.session.close()));
       if (this.turnId !== id) return;
       turn.dirs.forEach((d) => this.endBurst(turn, d));
+      this.reportStats(turn);
       this.flushUsage();
       await this.playChain;
       if (this.turnId === id) this.setState(STATE.IDLE);
     } catch (error) {
       this.fail(id, error);
+    }
+  }
+
+  /** One line per direction in the journal: what the service really sent during the turn. */
+  reportStats(turn) {
+    for (const d of turn?.dirs ?? []) {
+      this.emit({
+        type: 'note',
+        text: `OpenAI live ${d.from}→${d.to} : ${d.stats.audio} morceaux audio reçus (${d.stats.loud} avec de la voix), ${d.stats.inChars} car. entendus, ${d.stats.outChars} car. traduits`,
+      });
     }
   }
 
@@ -317,6 +347,7 @@ export default class LiveTranslationEngine {
   cancel() {
     this.turnId++;
     const turn = this.turn;
+    if (turn?.live && !turn.ended) this.reportStats(turn);
     this.clearTimers(turn);
     turn?.dirs.forEach((d) => d.session.abort());
     turn?.streams.forEach((stream) => stream.abort());

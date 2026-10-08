@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import LiveGate, { bufferToBase64, inferOutputRate, isPassthrough, toLiveAudio } from '../src/utils/live.js';
+import LiveGate, { bufferToBase64, isPassthrough, LIVE_OUTPUT_RATE, toLiveAudio } from '../src/utils/live.js';
 
 const chunk = (n = 4) => new Float32Array(n).fill(0.1);
 
@@ -15,11 +15,9 @@ test('isPassthrough: the same sentence handed back is a repetition, a real trans
   assert.equal(isPassthrough('ok', 'ok'), false, 'one word proves nothing');
 });
 
-test('inferOutputRate: trusts a 200 ms piece of a standard rate, otherwise 24 kHz', () => {
-  assert.equal(inferOutputRate(24000 * 0.2 * 2), 24000);
-  assert.equal(inferOutputRate(16000 * 0.2 * 2), 16000);
-  assert.equal(inferOutputRate(48000 * 0.2 * 2), 48000);
-  assert.equal(inferOutputRate(12345), 24000);
+test('the translated audio is 24 kHz (19 200-byte pieces are 400 ms, not 200 ms at 48 kHz)', () => {
+  assert.equal(LIVE_OUTPUT_RATE, 24000);
+  assert.equal(19200 / 2 / LIVE_OUTPUT_RATE, 0.4);
 });
 
 test('bufferToBase64 / toLiveAudio: 16 kHz microphone audio becomes 24 kHz PCM16 base64', () => {

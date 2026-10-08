@@ -1,5 +1,5 @@
 import { ApiError } from '../../utils/http.js';
-import { inferOutputRate, LIVE_DEFAULT_OUTPUT_RATE } from '../../utils/live.js';
+import { LIVE_OUTPUT_RATE } from '../../utils/live.js';
 import { pcm16Base64ToFloat } from '../../utils/pcm.js';
 import { defaultTimers } from '../../utils/timers.js';
 
@@ -37,7 +37,8 @@ export default class OpenAiLiveSession {
     this.closing = false; // we asked for session.close
     this.dead = false;
     this.attempts = 0;
-    this.outputRate = null;
+    this.sawAudio = false;
+    this.seen = new Set(); // event types already reported in the journal
     this.setStatus('connecting');
   }
 
@@ -99,11 +100,12 @@ export default class OpenAiLiveSession {
     switch (msg.type) {
       case 'session.output_audio.delta': {
         if (!msg.delta) return;
-        if (this.outputRate == null) {
-          this.outputRate = inferOutputRate(Math.floor((msg.delta.length * 3) / 4));
-          this.onNote?.(`OpenAI live : audio traduit en ${this.outputRate} Hz (morceau de ${Math.floor((msg.delta.length * 3) / 4)} octets)`);
+        if (!this.sawAudio) {
+          this.sawAudio = true;
+          const bytes = Math.floor((msg.delta.length * 3) / 4);
+          this.onNote?.(`OpenAI live : premier morceau audio = ${bytes} octets (≈ ${Math.round((bytes / 2 / LIVE_OUTPUT_RATE) * 1000)} ms à 24 kHz)`);
         }
-        this.onAudio(pcm16Base64ToFloat(msg.delta), this.outputRate ?? LIVE_DEFAULT_OUTPUT_RATE);
+        this.onAudio(pcm16Base64ToFloat(msg.delta), LIVE_OUTPUT_RATE);
         return;
       }
       case 'session.output_transcript.delta':
@@ -120,6 +122,10 @@ export default class OpenAiLiveSession {
           const detail = msg.error?.message ?? msg.message ?? JSON.stringify(msg.error ?? msg).slice(0, 200);
           const code = msg.error?.code === 'invalid_api_key' || /api key|auth/i.test(String(detail)) ? 401 : 500;
           this.fail(new ApiError('OpenAI', code, String(detail)));
+        } else if (msg.type && !this.seen.has(msg.type)) {
+          // Events we do not use (session.created, …): the journal shows each kind once, to learn what the service really sends.
+          this.seen.add(msg.type);
+          this.onNote?.(`OpenAI live : événement « ${msg.type} » ${JSON.stringify(msg).slice(0, 160)}`);
         }
     }
   }

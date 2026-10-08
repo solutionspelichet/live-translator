@@ -4,7 +4,9 @@
 import { floatToPcm16, pcm16ToFloat, resampleLinear } from './pcm.js';
 
 export const LIVE_INPUT_RATE = 24000; // OpenAI Realtime wants 24 kHz mono PCM16 in
-export const LIVE_DEFAULT_OUTPUT_RATE = 24000; // not documented for the translation endpoint: inferred, see inferOutputRate()
+// OpenAI: "the sample rate for both input and output audio is fixed at 24 kHz" (a developer saw 9 600-sample = 400 ms pieces
+// at 24 kHz, 19 200 bytes — NOT 200 ms at 48 kHz: guessing the rate from the piece size played the voice twice too fast).
+export const LIVE_OUTPUT_RATE = 24000;
 
 /** ArrayBuffer → base64, in slices (String.fromCharCode.apply has an argument limit). */
 export function bufferToBase64(buffer) {
@@ -21,19 +23,6 @@ export function toLiveAudio(pcm16, sampleRate, { silence = false } = {}) {
   const resampled = resampleLinear(samples, sampleRate, LIVE_INPUT_RATE);
   if (silence) return bufferToBase64(new Int16Array(resampled.length).buffer);
   return bufferToBase64(floatToPcm16(resampled));
-}
-
-/**
- * The sample rate of the translated audio is not documented. A third-party guide says it arrives in 200 ms
- * pieces: so a piece of N bytes tells the rate. Only trust a size close to a standard rate; otherwise 24 kHz.
- */
-export function inferOutputRate(byteLength) {
-  const samplesPer200ms = byteLength / 2;
-  for (const rate of [16000, 24000, 44100, 48000]) {
-    const expected = rate * 0.2;
-    if (Math.abs(samplesPer200ms - expected) / expected < 0.03) return rate;
-  }
-  return LIVE_DEFAULT_OUTPUT_RATE;
 }
 
 const CJK = /[぀-ヿ㐀-鿿가-힯]/u;

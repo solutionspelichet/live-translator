@@ -62,19 +62,22 @@ test('connects with the key, sets the target language, then flushes the audio qu
   assert.equal(sockets[0].sent[2].audio, 'BBBB');
 });
 
-test('translated audio and both transcripts are delivered; the output rate is inferred from the first piece', () => {
+test('translated audio (always 24 kHz) and both transcripts are delivered; unknown events are reported once', () => {
   const { session, sockets, got } = make();
   session.connect();
   sockets[0].open();
-  sockets[0].message({ type: 'session.output_audio.delta', delta: b64(new Uint8Array(9600)) }); // 200 ms @ 24 kHz
+  sockets[0].message({ type: 'session.created', session: { id: 'x' } });
+  sockets[0].message({ type: 'session.created', session: { id: 'x' } });
+  sockets[0].message({ type: 'session.output_audio.delta', delta: b64(new Uint8Array(19200)) }); // 400 ms @ 24 kHz
   sockets[0].message({ type: 'session.output_transcript.delta', delta: 'hola' });
   sockets[0].message({ type: 'session.input_transcript.delta', delta: 'bonjour' });
   assert.equal(got.audio.length, 1);
   assert.equal(got.audio[0].rate, 24000);
-  assert.equal(got.audio[0].samples.length, 4800);
+  assert.equal(got.audio[0].samples.length, 9600);
   assert.deepEqual(got.outText, ['hola']);
   assert.deepEqual(got.inText, ['bonjour']);
-  assert.ok(got.notes.some((n) => /24000 Hz/.test(n)));
+  assert.ok(got.notes.some((n) => /19200 octets \(≈ 400 ms à 24 kHz\)/.test(n)));
+  assert.equal(got.notes.filter((n) => /session\.created/.test(n)).length, 1, 'each unknown event kind is reported once');
 });
 
 test('close() asks the service to flush and resolves on session.closed', async () => {

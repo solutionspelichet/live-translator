@@ -225,7 +225,7 @@ et les transcriptions (écran, historique, réunions). Appui sur une zone = un s
 
 À savoir : seules **13 langues** peuvent être *parlées* en sortie (en, fr, es, pt, de, it, ja, ko, zh, ru, hi, id, vi ; l'app refuse les autres avec un message) ;
 la voix est celle du service (pas d'ElevenLabs, donc ni voix choisies ni « voix liée à la personne qui parle ») ;
-le débit audio de sortie n'est pas documenté : l'app le déduit de la taille des morceaux (24 kHz sinon) et l'écrit dans le journal.
+la voix de sortie est en 24 kHz (documenté ; un premier essai qui la déduisait de la taille des morceaux, 19 200 octets = 400 ms, l'avait prise pour du 48 kHz et jouée deux fois trop vite) ; le journal note chaque passage (« passage A→B lu : … → … ») et les événements inconnus du service.
 Écrit d'après la documentation d'OpenAI et des sources tierces, **sans pouvoir l'essayer ici** : les événements ignorés ou les erreurs apparaissent dans le journal.
 
 ## Consommation facturée
