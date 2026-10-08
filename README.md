@@ -226,6 +226,11 @@ Les volumes sont exacts côté app ; les tarifs (modifiables dans l'écran) sont
 
 ## Livraison
 
+L'APK n'est construit que pour **arm64-v8a** (tous les téléphones Android récents) : environ 40 Mo au lieu de 110 Mo avec les quatre
+architectures, donc un téléchargement qui aboutit sur une connexion mobile. Un très ancien téléphone 32 bits afficherait « application non
+compatible » : retirer `buildArchs` dans `app.json` rétablit l'APK universel.
+
+
 Chaque build publie l'APK comme version GitHub **`latest-apk`** (lien direct, pas de zip) en plus de l'artefact :
 `https://github.com/solutionspelichet/live-translator/releases/tag/latest-apk`. L'APK ne contient aucune clé (elles se saisissent dans l'app).
 
