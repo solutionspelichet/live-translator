@@ -53,8 +53,6 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {number} [deps.idleStopMs]  hands-free: stop listening after this long without any recognized speech (billing + battery)
  * @param {number} [deps.detectWindowMs]  hands-free: how long to wait for the other language's transcript before choosing
  */
-const MAX_OPEN_STREAMS = 2;
-
 export default class TranslationEngine {
   constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000, timers = defaultTimers }) {
     Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker, stallMs, timers });
@@ -500,16 +498,8 @@ export default class TranslationEngine {
     this.recordUsage({ deeplChars: text.length });
 
     // Voice streaming: the connection to the voice service is opened NOW, while DeepL is still translating.
-    // At most MAX_OPEN_STREAMS sockets at a time (ElevenLabs limits concurrent connections; beyond it every
-    // sentence queues behind the others): later sentences open theirs when their turn to play comes.
-    const prep = this.streamTts && this.tts.prepareStream && (turn.openStreams ?? 0) < MAX_OPEN_STREAMS ? this.tts.prepareStream(voice) : null;
-    if (prep) {
-      turn.streams.add(prep);
-      turn.openStreams = (turn.openStreams ?? 0) + 1;
-    }
-    const release = () => {
-      if (prep) turn.openStreams--;
-    };
+    const prep = this.streamTts && this.tts.prepareStream ? this.tts.prepareStream(voice) : null;
+    if (prep) turn.streams.add(prep);
 
     const prepared = this.translator.translate(text, language, targetLanguage).then(async (translated) => {
       if (this.turnId !== id) return null;
@@ -525,7 +515,9 @@ export default class TranslationEngine {
         return { stream: prep, translated };
       }
       if (this.streamTts && this.tts.stream) {
-        return { open: () => this.tts.stream(translated, voice), translated };
+        const stream = this.tts.stream(translated, voice);
+        turn.streams.add(stream);
+        return { stream, translated };
       }
       const source = await this.tts.synthesize(translated, voice);
       timing.readyAt = Date.now();
@@ -536,11 +528,7 @@ export default class TranslationEngine {
     turn.chain = turn.chain
       .then(async () => {
         const source = await prepared;
-        if (this.turnId !== id || !source) return release();
-        if (source.open) {
-          source.stream = source.open(); // opened only now: nothing else is waiting on a socket
-          turn.streams.add(source.stream);
-        }
+        if (this.turnId !== id || !source) return;
         turn.playing = true;
         this.syncState(turn);
         if (source.stream) await this.playStreamed(turn, source, targetSide, voice);
@@ -554,15 +542,11 @@ export default class TranslationEngine {
           streamed: Boolean(source.stream),
           sttMs,
         });
-        release();
         turn.playing = false;
         turn.quietUntil = Date.now() + 600;
         this.syncState(turn);
       })
-      .catch((error) => {
-        release();
-        this.fail(id, error);
-      });
+      .catch((error) => this.fail(id, error));
   }
 
   /** Play a sentence while it is still being generated; fall back to the classic request if the stream is unusable. */
