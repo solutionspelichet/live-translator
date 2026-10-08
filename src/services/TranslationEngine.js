@@ -215,7 +215,7 @@ export default class TranslationEngine {
           }
         },
       });
-      if (level > 0.12) turn.lastVoiceAt = Date.now();
+      if (level > 0.4) turn.lastVoiceAt = Date.now(); // background noise, boosted by the gain, can reach ~0.25
       // Echo guard (hands-free): while the translated voice plays — and a moment after — the
       // recognizers get silence instead of what the microphone hears.
       const muted = this.muteWhilePlaying && auto && (turn.playing || Date.now() < turn.quietUntil);
@@ -493,6 +493,10 @@ export default class TranslationEngine {
     const timing = { translateMs: 0, readyAt: 0 };
     this.recordUsage({ deeplChars: text.length });
 
+    // Voice streaming: the connection to the voice service is opened NOW, while DeepL is still translating.
+    const prep = this.streamTts && this.tts.prepareStream ? this.tts.prepareStream(voice) : null;
+    if (prep) turn.streams.add(prep);
+
     const prepared = this.translator.translate(text, language, targetLanguage).then(async (translated) => {
       if (this.turnId !== id) return null;
       timing.translateMs = Date.now() - t0;
@@ -502,6 +506,10 @@ export default class TranslationEngine {
       this.recentOutputs.push({ side: targetSide, text: translated, at: Date.now() });
       if (this.recentOutputs.length > 12) this.recentOutputs.shift();
       this.recordUsage({ elevenChars: translated.length });
+      if (prep) {
+        prep.say(translated);
+        return { stream: prep, translated };
+      }
       if (this.streamTts && this.tts.stream) {
         const stream = this.tts.stream(translated, voice);
         turn.streams.add(stream);
@@ -511,7 +519,7 @@ export default class TranslationEngine {
       timing.readyAt = Date.now();
       return source;
     });
-    prepared.catch(() => {}); // reported through the chain below
+    prepared.catch(() => prep?.abort()); // reported through the chain below; a prepared voice connection is dropped
 
     turn.chain = turn.chain
       .then(async () => {

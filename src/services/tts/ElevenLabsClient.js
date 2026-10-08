@@ -30,11 +30,12 @@ export default class ElevenLabsClient {
   }
 
   /**
-   * Same sentence over ElevenLabs' WebSocket: audio comes back in pieces while it is still being
-   * generated, so playback can start long before the whole sentence is ready.
-   * @returns {TtsStream} fails (before any audio) if the socket cannot be used → caller falls back to synthesize()
+   * Open the ElevenLabs WebSocket NOW, before the text is known (the translation is still being computed):
+   * the connection handshake then overlaps with DeepL instead of adding to the delay. Call `.say(text)` on the
+   * returned stream once the translation is ready. Audio comes back in pieces while it is generated.
+   * @returns {TtsStream & {say(text: string): void}} fails (before any audio) if the socket cannot be used → the caller falls back to synthesize()
    */
-  stream(text, { voiceId, language }) {
+  prepareStream({ voiceId, language }) {
     const out = new TtsStream();
     const params = new URLSearchParams({
       model_id: MODEL,
@@ -50,11 +51,28 @@ export default class ElevenLabsClient {
     out.sampleRate = TTS_SAMPLE_RATE;
     out.abortFn = () => ws.close();
 
-    ws.onopen = () => {
-      // Key is also sent in the first message (older API versions only read it there).
-      ws.send(JSON.stringify({ text: ' ', xi_api_key: env.elevenLabsKey }));
+    let opened = false;
+    let waiting = null; // text received before the socket was open
+    const sendText = (text) => {
       ws.send(JSON.stringify({ text: `${text} `, flush: true })); // generate right away, whole sentence
       ws.send(JSON.stringify({ text: '' })); // end of input
+    };
+    out.say = (text) => {
+      if (!opened) waiting = text;
+      else {
+        try {
+          sendText(text);
+        } catch (error) {
+          out.fail(new ApiError('ElevenLabs', 0, String(error?.message ?? error)));
+        }
+      }
+    };
+
+    ws.onopen = () => {
+      opened = true;
+      // Key is also sent in the first message (older API versions only read it there).
+      ws.send(JSON.stringify({ text: ' ', xi_api_key: env.elevenLabsKey }));
+      if (waiting != null) sendText(waiting);
     };
     ws.onmessage = (e) => {
       if (typeof e.data !== 'string') return;
@@ -77,6 +95,13 @@ export default class ElevenLabsClient {
       if (out.gotAudio || e?.code === 1000) out.finish();
       else out.fail(new ApiError('ElevenLabs', e?.code === 1008 ? 401 : 0, e?.reason || 'flux audio fermé'));
     };
+    return out;
+  }
+
+  /** Same as prepareStream() for a text that is already known. */
+  stream(text, opts) {
+    const out = this.prepareStream(opts);
+    out.say(text);
     return out;
   }
 

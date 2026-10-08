@@ -152,7 +152,11 @@ Bluetooth reste le réglage maître : le mettre au maximum.
 - **Réactivité** (⚙︎ → « Réactivité de la traduction ») : « Rapide » valide un segment après 250 ms de pause (au lieu de 400), libère les
   propositions dès 6 mots (au lieu de 9) et traduit les mots restants après 0,7 s (au lieu de 1,2 s) ; la voix arrive plus tôt avec des morceaux
   de phrase plus courts. Le journal affiche maintenant le délai de reconnaissance (`reco`) et le total `≈ x ms après le dernier mot`.
-- Le tampon de départ de la voix en flux est passé de 0,3 s à 0,15 s.
+- Le tampon de départ de la voix en flux est passé de 0,3 s à 0,15 s, et la connexion à ElevenLabs est ouverte **pendant** que DeepL traduit
+  (`prepareStream`), au lieu d'attendre la fin de la traduction : la poignée de main réseau ne s'ajoute plus au délai.
+- Mesures relevées sur téléphone (mains libres, FR↔ES, Wi-Fi) : DeepL 150–600 ms ; voix (premier son) 270–1 800 ms, avec des pointes isolées à 4–5 s
+  quand le réseau ralentit ; ≈ 0,5–2 s après le dernier mot en général. Le délai `reco` du journal est un minimum : le bruit de fond amplifié compte
+  comme de la voix (seuil relevé à 0,4).
 
 ## Réunions : transcription et comptes rendus
 

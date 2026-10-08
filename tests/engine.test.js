@@ -639,3 +639,46 @@ test('connection changes of the recognizer reach the journal, but not the initia
   const notes = events.filter((e) => e.type === 'note').map((e) => e.text);
   assert.deepEqual(notes, ['Deepgram : reconnexion 1/30']);
 });
+
+// ---- voice connection opened while DeepL translates --------------------------------------------
+
+test('voice streaming: the voice connection is opened BEFORE the translation is ready, and told the text afterwards', async () => {
+  const order = [];
+  const { engine, speak, calls } = setup({ translateDelay: () => 30 });
+  engine.streamTts = true;
+  engine.tts.prepareStream = (opts) => {
+    order.push('prepare');
+    const s = new TtsStream();
+    s.push(new Float32Array(10));
+    s.say = (text) => {
+      order.push(`say:${text}`);
+      s.finish();
+    };
+    s.opts = opts;
+    return s;
+  };
+  const origTranslate = engine.translator.translate;
+  engine.translator.translate = async (...args) => {
+    order.push('translate');
+    return origTranslate(...args);
+  };
+  engine.audio.playStream = async () => order.push('play');
+  await speak('A');
+  assert.deepEqual(order, ['prepare', 'translate', 'say:[en] bonjour', 'play']);
+  assert.equal(calls.tts.length, 0);
+});
+
+test('a prepared voice connection is dropped when the translation fails', async () => {
+  const { engine, speak } = setup();
+  engine.streamTts = true;
+  let aborted = false;
+  engine.tts.prepareStream = () => {
+    const s = new TtsStream();
+    s.say = () => {};
+    s.abortFn = () => { aborted = true; };
+    return s;
+  };
+  engine.translator.translate = async () => { throw new Error('DeepL 456'); };
+  await speak('A');
+  assert.equal(aborted, true);
+});
