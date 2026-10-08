@@ -188,7 +188,7 @@ class AudioRoutingService {
    * back to back on the Web Audio clock as they arrive, so speech starts after ~0.3 s instead of
    * after the whole sentence is ready. Rejects only when nothing at all could be played.
    */
-  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15, rate: speed = 1 } = {}) {
+  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15 } = {}) {
     await this.init();
     const ctx = this.ctx;
     const rate = ctx.sampleRate;
@@ -239,10 +239,9 @@ class AudioRoutingService {
         buffer.getChannelData(0).set(samples);
         const node = ctx.createBufferSource();
         node.buffer = buffer;
-        if (speed !== 1 && node.playbackRate) node.playbackRate.value = speed;
         node.connect(panner);
         const startAt = Math.max(nextTime, ctx.currentTime + 0.03);
-        nextTime = startAt + buffer.duration / (node.playbackRate ? speed : 1);
+        nextTime = startAt + buffer.duration;
         first = false;
         running++;
         this.active.add(node);

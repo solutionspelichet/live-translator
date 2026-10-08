@@ -740,11 +740,3 @@ test('the recognizers receive the injected timers too (keep-alive and reconnecti
   chunk();
   assert.equal(calls.sessions[0].timers, engine.timers);
 });
-
-test('catchUpRate speeds playback only when sentences pile up', async () => {
-  const { catchUpRate } = await import('../src/services/TranslationEngine.js');
-  assert.equal(catchUpRate(0), 1);
-  assert.equal(catchUpRate(1), 1);
-  assert.equal(catchUpRate(2), 1.12);
-  assert.equal(catchUpRate(5), 1.25);
-});
