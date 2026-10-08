@@ -28,6 +28,7 @@ export default function SetupScreen({ settings, onDone }) {
   const [inputs, setInputs] = useState([]);
   const [streamVoice, setStreamVoice] = useState(settings.streamVoice);
   const [speed, setSpeed] = useState(settings.speed);
+  const [voiceBySpeaker, setVoiceBySpeaker] = useState(settings.voiceBySpeaker);
   const [muteWhilePlaying, setMuteWhilePlaying] = useState(settings.muteWhilePlaying);
   const [report, setReport] = useState(null); // result of « Tester mes clés »
   const [testing, setTesting] = useState(false);
@@ -38,7 +39,7 @@ export default function SetupScreen({ settings, onDone }) {
     audio.listInputs().then(setInputs);
   }, []);
   const [saving, setSaving] = useState(false);
-  const complete = SETUP_FIELDS.every((f) => values[f.name]?.trim());
+  const complete = SETUP_FIELDS.every((f) => f.optional || values[f.name]?.trim());
 
   return (
     <SafeAreaView style={styles.root}>
@@ -205,10 +206,21 @@ export default function SetupScreen({ settings, onDone }) {
               autoCorrect={false}
               secureTextEntry={f.secret}
               placeholderTextColor="#55607F"
-              placeholder={f.secret ? '••••••••' : 'ex. 21m00Tcm4TlvDq8ikWAM'}
+              placeholder={f.optional ? 'sk-or-… (laisser vide si inutilisé)' : f.secret ? '••••••••' : 'ex. 21m00Tcm4TlvDq8ikWAM'}
             />
           </Fragment>
         ))}
+        <Text style={styles.label}>À qui appartient la voix ?</Text>
+        <Chip
+          label={voiceBySpeaker ? '✓ Voix liée à la personne qui parle' : 'Voix liée à la langue entendue (par défaut)'}
+          on={voiceBySpeaker}
+          onPress={() => setVoiceBySpeaker((v) => !v)}
+        />
+        <Text style={styles.hint}>
+          Par défaut, la voix A sert à parler la langue A et la voix B la langue B. Activez cette option pour que la voix A soit celle de la
+          personne côté A — par exemple votre propre voix, créée dans ElevenLabs — qui « dit » alors ses traductions dans la langue de l'autre.
+        </Text>
+
         <Text style={styles.label}>Choisir les voix</Text>
         <Pressable
           style={[styles.chip, { alignSelf: 'flex-start' }]}
@@ -305,7 +317,7 @@ export default function SetupScreen({ settings, onDone }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, voiceBySpeaker, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

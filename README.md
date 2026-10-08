@@ -147,6 +147,33 @@ Bluetooth reste le réglage maître : le mettre au maximum.
   de phrase plus courts. Le journal affiche maintenant le délai de reconnaissance (`reco`) et le total `≈ x ms après le dernier mot`.
 - Le tampon de départ de la voix en flux est passé de 0,3 s à 0,15 s.
 
+## Réunions : transcription et comptes rendus
+
+Bouton **📝** sur l'écran principal (le traducteur et son micro sont fermés pendant ce temps).
+
+1. **Enregistrer** : titre, langue parlée (ou « Plusieurs langues » : Nova-3 suit les changements de langue), rappel de consentement des
+   participants (case à cocher obligatoire). Le micro alimente (a) un fichier WAV 16 kHz sur le téléphone (`Documents/meetings/`, ≈ 115 Mo par
+   heure) et (b) une transcription **en direct** avec séparation des intervenants (Deepgram Nova-3, `diarize`). Fonctionne écran éteint. Si le
+   direct n'est pas disponible, l'enregistrement continue.
+2. **Transcription précise** : le fichier audio est envoyé à Deepgram en mode différé (`PrerecordedTranscriber`, Nova-3 puis Nova-2 si la
+   langue le permet) : la reconnaissance voit tout le contexte et sépare mieux les intervenants que le direct. Compter ≈ 1 minute d'envoi
+   par heure d'audio en Wi-Fi.
+3. **Intervenants** : renommer « Intervenant 1, 2… » ; les noms vont dans la transcription et les comptes rendus.
+4. **Compte rendu** : rédigé via **OpenRouter** (clé facultative dans ⚙︎ → Clés API ; modèle au choix, par défaut le Claude Sonnet le plus récent
+   du catalogue) **dans la langue demandée à chaque fois** (32 langues). Modèles : réunion pro, décisions et actions, entretien, appel client,
+   cours, résumé express, libre. Consignes anti-invention (« (à confirmer) », pas de chiffre ou de nom inventé). Transcriptions très longues :
+   notes par tranche de 60 000 caractères puis rédaction finale. Partage par la feuille de partage Android.
+5. Le coût OpenRouter réel (renvoyé par l'API) et les minutes Deepgram des réunions s'ajoutent à l'écran 📊.
+
+Limites assumées : la précision dépend du micro du téléphone (posé au centre de la table, propre) ; la séparation des intervenants est
+automatique (étiquettes à renommer, erreurs possibles quand deux personnes parlent en même temps) ; pas de lecture audio dans l'app (le
+fichier WAV reste sur le téléphone). Le module n'a pas pu être essayé sur un appareil ici.
+
+## Voix personnelle
+
+Une voix créée dans ElevenLabs (la vôtre) apparaît dans ⚙︎ → « Charger mes voix ». L'option **« Voix liée à la personne qui parle »** fait
+dire vos traductions avec **votre** voix (au lieu d'attribuer les voix par langue).
+
 ## Consommation facturée
 
 Le bouton **📊** (minutes d'écoute du jour) ouvre l'écran « Consommation » : pour cette session, aujourd'hui, ce mois-ci et depuis le début,

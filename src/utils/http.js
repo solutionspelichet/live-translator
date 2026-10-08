@@ -43,6 +43,8 @@ export function describeError(error) {
   const { service, status, detail } = error;
   if (status === 0) return `Pas de connexion à ${service}. Vérifiez internet (Wi-Fi / données mobiles) puis réessayez.`;
   if (/quota/i.test(detail) || status === 456) return `Quota ${service} épuisé : rechargez le compte ou changez de clé dans les réglages.`;
+  if (status === 402) return `Crédit ${service} insuffisant : rechargez votre compte.`;
+  if (status === 404 && service === 'OpenRouter') return 'Modèle OpenRouter introuvable : choisissez-en un autre dans la liste.';
   if (status === 401 || status === 403) return `Clé ${service} refusée (invalide, expirée ou sans les droits nécessaires). Vérifiez-la dans les réglages.`;
   if (status === 404 && service === 'ElevenLabs') return 'Voice ID ElevenLabs introuvable : vérifiez les deux identifiants de voix dans les réglages.';
   if (status === 400 && service === 'DeepL') return 'DeepL ne prend pas en charge cette paire de langues avec votre clé. Changez de langue dans les réglages (« Tester mes clés » indique lesquelles posent problème).';

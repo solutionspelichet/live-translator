@@ -46,13 +46,14 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {number} [deps.tailMs]  keep capturing this long after the stop tap (don't clip the last word)
  * @param {boolean} [deps.streamTts]  play each sentence while ElevenLabs is still generating it (tts.stream + audio.playStream)
  * @param {number} [deps.endpointingMs]  pause (ms) after which Deepgram validates a segment
+ * @param {boolean} [deps.voiceBySpeaker]  the translation is voiced with the voice of whoever spoke (voices[side]), not of the language heard
  * @param {boolean} [deps.muteWhilePlaying]  hands-free: send silence to the recognizers while the translated voice plays
  * @param {number} [deps.idleStopMs]  hands-free: stop listening after this long without any recognized speech (billing + battery)
  * @param {number} [deps.detectWindowMs]  hands-free: how long to wait for the other language's transcript before choosing
  */
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker });
     this.pendingUsage = null; // billing units not yet reported (see recordUsage)
     this.usageTimer = null;
     this.lastWarm = 0;
@@ -450,7 +451,9 @@ export default class TranslationEngine {
     const index = turn.segments++;
     const targetSide = other(side);
     const targetLanguage = this.languages[targetSide];
-    const voice = { voiceId: this.voices[targetSide], language: targetLanguage };
+    // By default the voice is the one configured for the language heard (target side); with `voiceBySpeaker` it is the
+    // voice of the person who spoke (e.g. one's own cloned voice), speaking the translation.
+    const voice = { voiceId: this.voices[this.voiceBySpeaker ? side : targetSide], language: targetLanguage };
     const t0 = Date.now();
     const sttMs = turn.lastVoiceAt ? Math.max(0, t0 - turn.lastVoiceAt) : null; // last voice → segment handed to translation
     const timing = { translateMs: 0, readyAt: 0 };

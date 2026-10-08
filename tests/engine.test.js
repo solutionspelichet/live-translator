@@ -584,3 +584,18 @@ test('echo guard is off by default', async () => {
   sink({ pcm16: new Int16Array([1000, -1000]).buffer, sampleRate: 16000, level: 0.5 });
   assert.deepEqual(sent, [true, true]);
 });
+
+test('voice by language (default): A speaks → the voice configured for B\'s language reads it', async () => {
+  const { calls, speak } = setup();
+  await speak('A');
+  assert.equal(calls.tts[0][1].voiceId, 'voice-en');
+});
+
+test('voice by speaker: A speaks → A\'s own voice reads the translation (still on the other ear)', async () => {
+  const { engine, calls, speak } = setup();
+  engine.voiceBySpeaker = true;
+  await speak('A');
+  assert.equal(calls.tts[0][1].voiceId, 'voice-fr');
+  assert.equal(calls.tts[0][1].language, 'en', 'the translation is still spoken in the listener\'s language');
+  assert.deepEqual(calls.play, [PAN.B]);
+});

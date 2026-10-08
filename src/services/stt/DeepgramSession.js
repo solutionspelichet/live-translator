@@ -17,10 +17,10 @@ const MAX_RECONNECTS = 3;
 export default class DeepgramSession {
   /**
    * @param {{language: string, sampleRate: number, onInterim?: (text: string) => void,
-   *          onFinal?: (text: string, confidence?: number) => void, onUtteranceEnd?: () => void,
+   *          onFinal?: (text: string, confidence?: number, words?: object[]) => void, onUtteranceEnd?: () => void,
    *          onError?: (error: Error) => void}} opts
    */
-  constructor({ language, sampleRate, endpointingMs = 400, utteranceEndMs = UTTERANCE_END_MS, onInterim, onFinal, onUtteranceEnd, onError }) {
+  constructor({ language, sampleRate, endpointingMs = 400, utteranceEndMs = UTTERANCE_END_MS, model, languageCode, diarize = false, onInterim, onFinal, onUtteranceEnd, onError }) {
     this.onError = onError;
     this.status = 'connecting'; // shown in the diagnostics panel
     this.onInterim = onInterim;
@@ -38,10 +38,11 @@ export default class DeepgramSession {
     this.retryTimer = null;
 
     // `language` is our key ('pt', 'ar-MA'…): map it to the code and the model Deepgram wants.
-    const lang = getLanguage(language);
+    // Meetings override the model / language code (`languageCode: 'multi'` needs Nova-3) and ask for speakers.
+    const lang = language ? getLanguage(language) : null;
     const params = new URLSearchParams({
-      model: lang.deepgramModel ?? 'nova-2',
-      language: lang.deepgram,
+      model: model ?? lang?.deepgramModel ?? 'nova-2',
+      language: languageCode ?? lang.deepgram,
       encoding: 'linear16',
       sample_rate: String(sampleRate),
       channels: '1',
@@ -51,6 +52,7 @@ export default class DeepgramSession {
       utterance_end_ms: String(Math.max(1000, utteranceEndMs)), // requires interim_results (min 1000)
       endpointing: String(endpointingMs), // validate a segment after this much silence (fewer, longer finals when higher)
     });
+    if (diarize) params.set('diarize', 'true');
 
     this.url = `${env.deepgramWsUrl}?${params}`;
     this.everOpen = false;
@@ -132,7 +134,7 @@ export default class DeepgramSession {
       this.finals.push(text);
       this.lastInterim = '';
       this.lastFinalAt = Date.now();
-      this.onFinal?.(text, alt?.confidence); // lets the caller translate while the user is still talking
+      this.onFinal?.(text, alt?.confidence, alt?.words); // lets the caller translate while the user is still talking
     } else {
       if (!this.lastInterim) this.firstInterimAt = Date.now();
       this.lastInterim = text;

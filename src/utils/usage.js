@@ -3,7 +3,15 @@
 //  - DeepL      : characters of the SOURCE text sent for translation;
 //  - ElevenLabs : characters of the text turned into speech.
 
-export const emptyUsage = () => ({ dgNova2Sec: 0, dgNova3Sec: 0, deeplChars: 0, elevenChars: 0 });
+export const emptyUsage = () => ({
+  dgNova2Sec: 0,
+  dgNova3Sec: 0,
+  dgPreSec: 0, // pre-recorded transcription (meetings, second pass)
+  deeplChars: 0,
+  elevenChars: 0,
+  orTokens: 0, // OpenRouter tokens (minutes)
+  orCostUsd: 0, // OpenRouter cost, as reported by OpenRouter itself
+});
 
 export const USAGE_KEYS = Object.freeze(Object.keys(emptyUsage()));
 
@@ -70,17 +78,21 @@ export function parseUsageState(raw, now = new Date()) {
 export const DEFAULT_PRICES = Object.freeze({
   deepgramNova2PerMin: 0.0058,
   deepgramNova3PerMin: 0.0077,
+  deepgramPrePerMin: 0.0043,
   deeplPerMillionChars: 25,
   elevenPerThousandChars: 0.04,
 });
 
 /** Estimated cost per service and in total. `prices` overrides DEFAULT_PRICES key by key. */
-export function estimateCost(usage, prices = {}) {
+export function estimateCost(rawUsage, prices = {}) {
+  const usage = addUsage(emptyUsage(), rawUsage); // tolerate counters stored before a unit existed
   const p = { ...DEFAULT_PRICES, ...prices };
   const deepgram = ((usage.dgNova2Sec / 60) * p.deepgramNova2PerMin) + ((usage.dgNova3Sec / 60) * p.deepgramNova3PerMin);
+  const deepgramPre = (usage.dgPreSec / 60) * p.deepgramPrePerMin;
   const deepl = (usage.deeplChars / 1e6) * p.deeplPerMillionChars;
   const eleven = (usage.elevenChars / 1000) * p.elevenPerThousandChars;
-  return { deepgram, deepl, eleven, total: deepgram + deepl + eleven };
+  const openrouter = usage.orCostUsd; // exact: reported by OpenRouter
+  return { deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, total: deepgram + deepgramPre + deepl + eleven + openrouter };
 }
 
 export function formatDuration(seconds) {
@@ -97,4 +109,4 @@ export const formatCount = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?
 export const formatMoney = (n) => `${n < 0.01 && n > 0 ? '<0,01' : n.toFixed(2).replace('.', ',')} $`;
 
 /** Total streamed audio, whichever model. */
-export const deepgramSeconds = (usage) => usage.dgNova2Sec + usage.dgNova3Sec;
+export const deepgramSeconds = (usage) => (usage.dgNova2Sec || 0) + (usage.dgNova3Sec || 0) + (usage.dgPreSec || 0);

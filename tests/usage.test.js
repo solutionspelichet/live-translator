@@ -12,7 +12,7 @@ test('deltas accumulate in today, this month and the total', () => {
   let s = newUsageState(d('2026-10-08'));
   s = applyDelta(s, { dgNova2Sec: 60, deeplChars: 100 }, d('2026-10-08'));
   s = applyDelta(s, { dgNova2Sec: 30, elevenChars: 200 }, d('2026-10-08'));
-  assert.deepEqual(s.today, { dgNova2Sec: 90, dgNova3Sec: 0, deeplChars: 100, elevenChars: 200 });
+  assert.deepEqual(s.today, { ...emptyUsage(), dgNova2Sec: 90, deeplChars: 100, elevenChars: 200 });
   assert.deepEqual(s.total, s.today);
 });
 
@@ -36,7 +36,7 @@ test('a corrupt or empty stored value gives a fresh state; unknown fields are ig
   assert.equal(parseUsageState('not json', d('2026-10-08')).total.deeplChars, 0);
   assert.equal(parseUsageState(null, d('2026-10-08')).since, '2026-10-08');
   const ok = parseUsageState(JSON.stringify({ ...newUsageState(d('2026-10-08')), total: { deeplChars: 7, evil: 1 } }), d('2026-10-08'));
-  assert.deepEqual(ok.total, { dgNova2Sec: 0, dgNova3Sec: 0, deeplChars: 7, elevenChars: 0 });
+  assert.deepEqual(ok.total, { ...emptyUsage(), deeplChars: 7 });
 });
 
 test('cost estimate follows the unit prices and can be overridden', () => {
@@ -47,6 +47,13 @@ test('cost estimate follows the unit prices and can be overridden', () => {
   assert.ok(Math.abs(c.eleven - 10 * DEFAULT_PRICES.elevenPerThousandChars) < 1e-9);
   assert.ok(Math.abs(c.total - (c.deepgram + c.deepl + c.eleven)) < 1e-9);
   assert.equal(estimateCost(usage, { deeplPerMillionChars: 0 }).deepl, 0);
+});
+
+test('meeting units: pre-recorded Deepgram minutes are estimated, OpenRouter cost is taken as reported', () => {
+  const c = estimateCost({ ...emptyUsage(), dgPreSec: 3600, orCostUsd: 0.42 });
+  assert.ok(Math.abs(c.deepgram - 60 * DEFAULT_PRICES.deepgramPrePerMin) < 1e-9);
+  assert.equal(c.openrouter, 0.42);
+  assert.ok(Math.abs(c.total - (c.deepgram + 0.42)) < 1e-9);
 });
 
 test('formatting', () => {
@@ -60,5 +67,5 @@ test('formatting', () => {
 });
 
 test('addUsage tolerates missing fields', () => {
-  assert.deepEqual(addUsage(emptyUsage(), { deeplChars: 3 }), { dgNova2Sec: 0, dgNova3Sec: 0, deeplChars: 3, elevenChars: 0 });
+  assert.deepEqual(addUsage(emptyUsage(), { deeplChars: 3 }), { ...emptyUsage(), deeplChars: 3 });
 });

@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import HistoryScreen from './src/components/HistoryScreen';
+import MeetingsScreen from './src/components/MeetingsScreen';
 import UsageScreen from './src/components/UsageScreen';
 import SplitScreen from './src/components/SplitScreen';
 import SetupScreen from './src/components/SetupScreen';
@@ -28,6 +29,7 @@ export default function App() {
   useKeepAwake();
   const [ready, setReady] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [meetings, setMeetings] = useState(false); // meeting recorder: the translator (and its microphone) is closed meanwhile
   // Bumped after saving so the engine is rebuilt with the new keys.
   const [version, setVersion] = useState(0);
   // Language bound to each side AND each ear (A = left earbud, B = right earbud), auto-send…
@@ -50,17 +52,27 @@ export default function App() {
       />
     );
   }
+  if (meetings) {
+    return (
+      <MeetingsScreen
+        settings={settings}
+        onSettingsChange={(next) => saveSettings(next).then(setSettings)}
+        onClose={() => setMeetings(false)}
+      />
+    );
+  }
   return (
     <Translator
       key={version}
       settings={settings}
       onSettingsChange={(next) => saveSettings(next).then(setSettings)}
       onOpenSettings={() => setEditing(true)}
+      onOpenMeetings={() => setMeetings(true)}
     />
   );
 }
 
-function Translator({ settings, onSettingsChange, onOpenSettings }) {
+function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings }) {
   const languages = settings.languages;
   const engine = useMemo(() => {
     const e = createEngine(languages, engineOptions(settings));
@@ -238,6 +250,9 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
         </Pressable>
         <Pressable style={styles.chip} onPress={() => setShowUsage(true)} hitSlop={12} accessibilityLabel="Consommation facturée">
           <Text style={styles.chipText}>{`📊 ${Math.round(deepgramSeconds(usage.today) / 60)} min`}</Text>
+        </Pressable>
+        <Pressable style={styles.gear} onPress={onOpenMeetings} hitSlop={12} accessibilityLabel="Réunions : enregistrer et résumer">
+          <Text style={styles.gearText}>📝</Text>
         </Pressable>
         <Pressable style={styles.gear} onPress={() => setShowHistory(true)} hitSlop={12} accessibilityLabel="Historique">
           <Text style={styles.gearText}>🕘</Text>

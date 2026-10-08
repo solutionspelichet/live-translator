@@ -9,6 +9,7 @@ import { DEFAULT_PRICES, deepgramSeconds, estimateCost, formatCount, formatDurat
 const PRICE_LABELS = {
   deepgramNova2PerMin: 'Deepgram Nova-2 — $ par minute',
   deepgramNova3PerMin: 'Deepgram Nova-3 (arabe) — $ par minute',
+  deepgramPrePerMin: 'Deepgram différé (réunions) — $ par minute',
   deeplPerMillionChars: 'DeepL — $ par million de caractères',
   elevenPerThousandChars: 'ElevenLabs — $ par 1 000 caractères',
 };
@@ -56,6 +57,7 @@ export default function UsageScreen({ visible, usage, prices, onPrices, onReset,
                 <Row label="Deepgram (écoute)" value={formatDuration(deepgramSeconds(u))} money={cost.deepgram} />
                 <Row label="DeepL (traduction)" value={`${formatCount(u.deeplChars)} car.`} money={cost.deepl} />
                 <Row label="ElevenLabs (voix)" value={`${formatCount(u.elevenChars)} car.`} money={cost.eleven} />
+                <Row label="OpenRouter (comptes rendus)" value={`${formatCount(u.orTokens)} jetons`} money={cost.openrouter} />
                 <View style={styles.sep} />
                 <Row label="Estimation totale" value="" money={cost.total} bold />
               </View>

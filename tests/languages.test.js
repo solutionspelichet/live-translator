@@ -49,10 +49,24 @@ test('sanitizeSettings keeps valid values', () => {
     handsFree: false,
     speed: 'normal',
     muteWhilePlaying: false,
+    voiceBySpeaker: false,
+    minutesLanguage: 'fr',
+    minutesTemplate: 'reunion',
+    minutesModel: '',
     recentPairs: [],
     prices: {},
     input: { id: '7', name: 'Headset mic' },
   });
+});
+
+test('minutes preferences are validated', () => {
+  const s = sanitizeSettings({ minutesLanguage: 'en', minutesTemplate: 'cours', minutesModel: '  anthropic/claude-sonnet-4.5 ', voiceBySpeaker: true });
+  assert.equal(s.minutesLanguage, 'en');
+  assert.equal(s.minutesTemplate, 'cours');
+  assert.equal(s.minutesModel, 'anthropic/claude-sonnet-4.5');
+  assert.equal(s.voiceBySpeaker, true);
+  const bad = sanitizeSettings({ minutesLanguage: 'xx', minutesTemplate: 'nope', minutesModel: 42 });
+  assert.deepEqual([bad.minutesLanguage, bad.minutesTemplate, bad.minutesModel], ['fr', 'reunion', '']);
 });
 
 test('speed, recent pairs and prices are validated', () => {
