@@ -4,6 +4,7 @@ import { appendSegments, groupWords, placeSegments } from '../../utils/diarize';
 import { deepgramLanguageFor, MULTI, newMeetingId } from '../../utils/meeting';
 import { pcmSeconds, wavHeader } from '../../utils/wav';
 import BackgroundService from '../BackgroundService';
+import BackgroundTimers from '../BackgroundTimers';
 import MicrophoneStreamer from '../MicrophoneStreamer';
 import DeepgramSession from '../stt/DeepgramSession';
 
@@ -81,7 +82,7 @@ export default class MeetingRecorder {
     this.startedAt = Date.now();
     this.running = true;
     this.mic.setSink((chunk) => this.onChunk(chunk));
-    this.usageTimer = setInterval(() => this.flushUsage(), USAGE_EVERY_MS);
+    this.usageTimer = BackgroundTimers.setInterval(() => this.flushUsage(), USAGE_EVERY_MS);
   }
 
   onChunk({ pcm16, sampleRate, level }) {
@@ -107,6 +108,7 @@ export default class MeetingRecorder {
     try {
       this.session = new DeepgramSession({
         sampleRate,
+        timers: BackgroundTimers,
         model: LIVE_MODEL,
         languageCode: deepgramLanguageFor(this.language, LIVE_MODEL),
         diarize: true,
@@ -145,7 +147,7 @@ export default class MeetingRecorder {
   /** @returns {Promise<object>} the meeting record, ready to be saved */
   async stop() {
     this.running = false;
-    clearInterval(this.usageTimer);
+    BackgroundTimers.clearInterval(this.usageTimer);
     this.mic.setSink(null);
     await this.mic.close();
     this.flushUsage();
@@ -182,7 +184,7 @@ export default class MeetingRecorder {
   /** Throw everything away (the user cancelled). */
   async discard() {
     this.running = false;
-    clearInterval(this.usageTimer);
+    BackgroundTimers.clearInterval(this.usageTimer);
     this.mic.setSink(null);
     this.session?.abort();
     this.session = null;

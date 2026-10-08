@@ -12,6 +12,11 @@ export class ApiError extends Error {
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+let defaultSleep = wait;
+/** Replace the waiting function used between retries (the app gives one that works with the screen off). */
+export const setSleep = (fn) => {
+  defaultSleep = fn;
+};
 
 // 429 (rate limit) and 5xx are usually transient; 4xx/456 (bad key, quota) are not.
 const RETRYABLE = (status) => status === 429 || (status >= 500 && status <= 599);
@@ -20,7 +25,7 @@ const RETRYABLE = (status) => status === 429 || (status >= 500 && status <= 599)
  * Run `request()` (→ Response) and retry on a dropped connection or a transient server error,
  * with a short growing delay. Throws an ApiError once the attempts are used up.
  */
-export async function fetchWithRetry(service, request, { retries = 2, baseDelayMs = 350, sleep = wait } = {}) {
+export async function fetchWithRetry(service, request, { retries = 2, baseDelayMs = 350, sleep = defaultSleep } = {}) {
   let last;
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (attempt > 0) await sleep(baseDelayMs * attempt);

@@ -1,5 +1,6 @@
 import { getLanguage, PAN, SIDE } from '../config/languages.js';
 import { isEcho } from '../utils/echo.js';
+import { defaultTimers } from '../utils/timers.js';
 import SegmentBuffer from '../utils/segments.js';
 
 export const STATE = Object.freeze({
@@ -48,12 +49,13 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {number} [deps.endpointingMs]  pause (ms) after which Deepgram validates a segment
  * @param {boolean} [deps.voiceBySpeaker]  the translation is voiced with the voice of whoever spoke (voices[side]), not of the language heard
  * @param {boolean} [deps.muteWhilePlaying]  hands-free: send silence to the recognizers while the translated voice plays
+ * @param {object} [deps.timers]  setTimeout/clearTimeout/setInterval/clearInterval that keep running with the screen off (see utils/timers.js)
  * @param {number} [deps.idleStopMs]  hands-free: stop listening after this long without any recognized speech (billing + battery)
  * @param {number} [deps.detectWindowMs]  hands-free: how long to wait for the other language's transcript before choosing
  */
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000 }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker, stallMs });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000, timers = defaultTimers }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker, stallMs, timers });
     this.pendingUsage = null; // billing units not yet reported (see recordUsage)
     this.usageTimer = null;
     this.lastWarm = 0;
@@ -91,12 +93,12 @@ export default class TranslationEngine {
     this.pendingUsage = { ...(this.pendingUsage ?? {}) };
     for (const [key, value] of Object.entries(delta)) this.pendingUsage[key] = (this.pendingUsage[key] ?? 0) + value;
     if (this.usageTimer) return;
-    this.usageTimer = setTimeout(() => this.flushUsage(), 3000);
+    this.usageTimer = this.timers.setTimeout(() => this.flushUsage(), 3000);
     this.usageTimer.unref?.();
   }
 
   flushUsage() {
-    clearTimeout(this.usageTimer);
+    this.timers.clearTimeout(this.usageTimer);
     this.usageTimer = null;
     if (!this.pendingUsage) return;
     const delta = this.pendingUsage;
@@ -185,21 +187,22 @@ export default class TranslationEngine {
         sampleRate,
         endpointingMs: this.endpointingMs,
         utteranceEndMs: this.utteranceEndMs,
+        timers: this.timers,
         onStatus: (status) => this.noteConnection('', status),
         onInterim: (text) => {
           if (this.turnId !== id) return;
-          clearTimeout(turn.idleTimer); // new words: the speaker is still going
+          this.timers.clearTimeout(turn.idleTimer); // new words: the speaker is still going
           this.emit({ type: 'interim', side, text });
         },
         onError: (error) => this.fail(id, error),
         onFinal: (text) => {
           if (this.turnId !== id) return;
-          clearTimeout(turn.idleTimer);
+          this.timers.clearTimeout(turn.idleTimer);
           turn.buffer.push(text).forEach((segment) => this.enqueue(turn, segment));
           // Words without a sentence end: don't hold them forever if the speaker stops there.
-          clearTimeout(turn.flushTimer);
+          this.timers.clearTimeout(turn.flushTimer);
           if (turn.buffer.hasPending()) {
-            turn.flushTimer = setTimeout(() => this.flushPending(turn), this.flushAfterMs);
+            turn.flushTimer = this.timers.setTimeout(() => this.flushPending(turn), this.flushAfterMs);
           }
         },
         onUtteranceEnd: () => {
@@ -208,8 +211,8 @@ export default class TranslationEngine {
           // so a monologue with a breath in it isn't cut; the user can also just tap.
           this.flushPending(turn);
           if (this.autoStop) {
-            clearTimeout(turn.idleTimer);
-            turn.idleTimer = setTimeout(() => {
+            this.timers.clearTimeout(turn.idleTimer);
+            turn.idleTimer = this.timers.setTimeout(() => {
               if (this.autoStop && this.turnId === id && this.state === STATE.LISTENING) this.endTurn();
             }, this.autoEndMs);
           }
@@ -248,7 +251,7 @@ export default class TranslationEngine {
    * instead of leaving the user on "Préparation…" forever.
    */
   armWatchdog(turn, onChunk, retried = false) {
-    turn.watchdog = setTimeout(async () => {
+    turn.watchdog = this.timers.setTimeout(async () => {
       const id = turn.id;
       if (this.turnId !== id || turn.live || turn.ended) return;
       if (retried) {
@@ -270,7 +273,7 @@ export default class TranslationEngine {
 
   /** Translate the words still waiting for a sentence end. */
   flushPending(turn) {
-    clearTimeout(turn.flushTimer);
+    this.timers.clearTimeout(turn.flushTimer);
     if (this.turnId !== turn.id) return;
     if (turn.auto) return this.flushAuto(turn);
     turn.buffer.flush().forEach((segment) => this.enqueue(turn, segment));
@@ -289,6 +292,7 @@ export default class TranslationEngine {
         sampleRate,
         endpointingMs: this.endpointingMs,
         utteranceEndMs: this.utteranceEndMs,
+        timers: this.timers,
         onStatus: (status) => this.noteConnection(` ${side}`, status),
         onInterim: () => {}, // text is shown once the language is decided
         onError: (error) => this.fail(id, error),
@@ -325,9 +329,9 @@ export default class TranslationEngine {
   onAutoFinal(turn, side, text, confidence) {
     if (this.turnId !== turn.id) return;
     turn.cands[side] = { text, conf: confidence ?? 0.5 };
-    clearTimeout(turn.decideTimer);
+    this.timers.clearTimeout(turn.decideTimer);
     if (turn.cands.A && turn.cands.B) this.decide(turn);
-    else turn.decideTimer = setTimeout(() => this.decide(turn), this.detectWindowMs);
+    else turn.decideTimer = this.timers.setTimeout(() => this.decide(turn), this.detectWindowMs);
   }
 
   /** Is this transcript just the microphone hearing the voice we played a moment ago? */
@@ -341,7 +345,7 @@ export default class TranslationEngine {
 
   /** Compare the candidates of the two languages and keep the more confident one. */
   decide(turn) {
-    clearTimeout(turn.decideTimer);
+    this.timers.clearTimeout(turn.decideTimer);
     let { A, B } = turn.cands;
     turn.cands = {};
     // Drop what is just our own translation coming back through the microphone.
@@ -363,8 +367,8 @@ export default class TranslationEngine {
     turn.lastSide = side;
     this.emit({ type: 'interim', side, text: chosen.text });
     turn.buffers[side].push(chosen.text).forEach((segment) => this.enqueue(turn, segment, side));
-    clearTimeout(turn.flushTimer);
-    if (turn.buffers[side].hasPending()) turn.flushTimer = setTimeout(() => this.flushAuto(turn), this.flushAfterMs);
+    this.timers.clearTimeout(turn.flushTimer);
+    if (turn.buffers[side].hasPending()) turn.flushTimer = this.timers.setTimeout(() => this.flushAuto(turn), this.flushAfterMs);
   }
 
   /** Connection changes of the speech recognizer, for the journal (what happened while the screen was off). */
@@ -379,8 +383,8 @@ export default class TranslationEngine {
    * re-attach to the turn instead of listening to nothing until the next tap.
    */
   armStallMonitor(turn, onChunk) {
-    clearInterval(turn.stallTimer);
-    turn.stallTimer = setInterval(async () => {
+    this.timers.clearInterval(turn.stallTimer);
+    turn.stallTimer = this.timers.setInterval(async () => {
       if (this.turnId !== turn.id || turn.ended || turn.restarting) return;
       const last = this.mic.stats?.lastChunkAt;
       if (!last || Date.now() - last < this.stallMs) return;
@@ -400,9 +404,9 @@ export default class TranslationEngine {
 
   /** Hands-free keeps two paid transcriptions and the mic running: stop after a long silence. */
   armIdleStop(turn) {
-    clearTimeout(turn.idleStopTimer);
+    this.timers.clearTimeout(turn.idleStopTimer);
     if (!this.idleStopMs) return;
-    turn.idleStopTimer = setTimeout(() => {
+    turn.idleStopTimer = this.timers.setTimeout(() => {
       if (this.turnId !== turn.id || this.state !== STATE.LISTENING) return;
       this.emit({ type: 'idle-stop', minutes: Math.round(this.idleStopMs / 60000) });
       this.endTurn();
@@ -411,7 +415,7 @@ export default class TranslationEngine {
   }
 
   flushAuto(turn) {
-    clearTimeout(turn.flushTimer);
+    this.timers.clearTimeout(turn.flushTimer);
     if (this.turnId !== turn.id) return;
     for (const side of [SIDE.A, SIDE.B]) {
       turn.buffers[side].flush().forEach((segment) => this.enqueue(turn, segment, side));
@@ -447,7 +451,7 @@ export default class TranslationEngine {
       this.clearTimers(turn);
       if (turn.auto) this.decide(turn);
       this.syncState(turn); // immediate feedback; capture continues for the tail
-      if (this.tailMs > 0) await new Promise((r) => setTimeout(r, this.tailMs));
+      if (this.tailMs > 0) await new Promise((r) => this.timers.setTimeout(r, this.tailMs));
       this.mic.setSink(null);
       if (this.turnId !== id) return;
 
@@ -568,7 +572,7 @@ export default class TranslationEngine {
   /** Abort everything in flight (also called automatically by startTurn). */
   cancel() {
     this.turnId++; // any pending await of the previous turn becomes a no-op
-    clearTimeout(this.turn?.watchdog);
+    this.timers.clearTimeout(this.turn?.watchdog);
     this.clearTimers(this.turn);
     this.turn?.session?.abort();
     this.turn?.streams.forEach((stream) => stream.abort());
@@ -581,12 +585,12 @@ export default class TranslationEngine {
 
   clearTimers(turn) {
     if (!turn) return;
-    clearTimeout(turn.watchdog);
-    clearTimeout(turn.flushTimer);
-    clearTimeout(turn.idleTimer);
-    clearTimeout(turn.decideTimer);
-    clearTimeout(turn.idleStopTimer);
-    clearInterval(turn.stallTimer);
+    this.timers.clearTimeout(turn.watchdog);
+    this.timers.clearTimeout(turn.flushTimer);
+    this.timers.clearTimeout(turn.idleTimer);
+    this.timers.clearTimeout(turn.decideTimer);
+    this.timers.clearTimeout(turn.idleStopTimer);
+    this.timers.clearInterval(turn.stallTimer);
   }
 
   fail(id, error) {

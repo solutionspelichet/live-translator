@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
+import BackgroundTimers from './BackgroundTimers';
 import { applyDelta, emptyUsage, addUsage, newUsageState, parseUsageState } from '../utils/usage';
 
 const KEY = 'dualcast_usage';
@@ -32,12 +33,12 @@ class UsageTracker {
     this.state = applyDelta(this.state, delta);
     this.session = addUsage(this.session, delta);
     this.notify();
-    clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => this.save(), SAVE_DELAY_MS);
+    BackgroundTimers.clearTimeout(this.saveTimer);
+    this.saveTimer = BackgroundTimers.setTimeout(() => this.save(), SAVE_DELAY_MS);
   }
 
   async save() {
-    clearTimeout(this.saveTimer);
+    BackgroundTimers.clearTimeout(this.saveTimer);
     try {
       await SecureStore.setItemAsync(KEY, JSON.stringify(this.state));
     } catch {}

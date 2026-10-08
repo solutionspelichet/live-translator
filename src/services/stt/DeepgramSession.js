@@ -1,5 +1,6 @@
 import { env } from '../../config/env';
 import { getLanguage } from '../../config/languages';
+import { defaultTimers } from '../../utils/timers';
 
 const FINALIZE_TIMEOUT_MS = 4000;
 // Silence after the last recognised word before Deepgram sends `UtteranceEnd` (min 1000).
@@ -26,7 +27,8 @@ export default class DeepgramSession {
    *          onFinal?: (text: string, confidence?: number, words?: object[]) => void, onUtteranceEnd?: () => void,
    *          onError?: (error: Error) => void}} opts
    */
-  constructor({ language, sampleRate, endpointingMs = 400, utteranceEndMs = UTTERANCE_END_MS, model, languageCode, diarize = false, onInterim, onFinal, onUtteranceEnd, onError, onStatus }) {
+  constructor({ language, sampleRate, endpointingMs = 400, utteranceEndMs = UTTERANCE_END_MS, model, languageCode, diarize = false, timers = defaultTimers, onInterim, onFinal, onUtteranceEnd, onError, onStatus }) {
+    this.timers = timers; // keep working with the screen off
     this.onError = onError;
     this.onStatus = onStatus; // told about every connection change (journal)
     this.lastAudioAt = 0;
@@ -139,7 +141,7 @@ export default class DeepgramSession {
       try {
         this.ws.close();
       } catch {}
-      this.retryTimer = setTimeout(() => !this.settled && this.connect(), Math.min(400 * this.retries, MAX_BACKOFF_MS));
+      this.retryTimer = this.timers.setTimeout(() => !this.settled && this.connect(), Math.min(400 * this.retries, MAX_BACKOFF_MS));
       return;
     }
     this.fail(new Error(`Deepgram : connexion impossible ou interrompue (${reason || 'clé invalide ou réseau ?'})`));
@@ -172,7 +174,7 @@ export default class DeepgramSession {
 
   /** Ask Deepgram to validate what it has so far when a run of speech has gone on too long. */
   startForceFinalTimer() {
-    this.forceFinalTimer = setInterval(() => {
+    this.forceFinalTimer = this.timers.setInterval(() => {
       if (this.isOpen && !this.settled) {
         const now = Date.now();
         // No audio for a moment (microphone stall, muted playback…): keep the connection alive.
@@ -234,7 +236,7 @@ export default class DeepgramSession {
     if (!this.closed) {
       this.closed = true;
       if (this.isOpen) this.flush();
-      this.timer = setTimeout(() => this.settle(), FINALIZE_TIMEOUT_MS);
+      this.timer = this.timers.setTimeout(() => this.settle(), FINALIZE_TIMEOUT_MS);
     }
     return this.done;
   }
@@ -243,9 +245,9 @@ export default class DeepgramSession {
     this.closed = true;
     this.settled = true;
     this.onFinal = null;
-    clearInterval(this.forceFinalTimer);
-    clearTimeout(this.timer);
-    clearTimeout(this.retryTimer);
+    this.timers.clearInterval(this.forceFinalTimer);
+    this.timers.clearTimeout(this.timer);
+    this.timers.clearTimeout(this.retryTimer);
     try {
       this.ws.close();
     } catch {}
@@ -255,9 +257,9 @@ export default class DeepgramSession {
   settle() {
     if (this.settled) return;
     this.settled = true;
-    clearTimeout(this.timer);
-    clearTimeout(this.retryTimer);
-    clearInterval(this.forceFinalTimer);
+    this.timers.clearTimeout(this.timer);
+    this.timers.clearTimeout(this.retryTimer);
+    this.timers.clearInterval(this.forceFinalTimer);
     // If the last words never got an is_final before close, keep the best interim guess.
     if (this.lastInterim) {
       this.finals.push(this.lastInterim);
@@ -271,9 +273,9 @@ export default class DeepgramSession {
   }
 
   fail(err) {
-    clearTimeout(this.timer);
-    clearTimeout(this.retryTimer);
-    clearInterval(this.forceFinalTimer);
+    this.timers.clearTimeout(this.timer);
+    this.timers.clearTimeout(this.retryTimer);
+    this.timers.clearInterval(this.forceFinalTimer);
     this.status = 'error';
     this.rejectDone(err);
     this.onError?.(err); // surface right away, not only when the user stops talking

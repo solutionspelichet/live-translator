@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import BackgroundTimers from './BackgroundTimers';
+
 // Journal shown in the diagnostics panel: lets a tester see, after waking the screen, what happened meanwhile (app went
 // to background, mic stalled, connection dropped, an error occurred…). It is also written to the phone's storage, so if
 // Android kills the app while the screen is off the trace of what happened survives the restart.
@@ -16,7 +18,7 @@ const stamp = () => {
 
 function scheduleSave() {
   if (saveTimer) return;
-  saveTimer = setTimeout(async () => {
+  saveTimer = BackgroundTimers.setTimeout(async () => {
     saveTimer = null;
     try {
       await AsyncStorage.setItem(KEY, JSON.stringify(lines.slice(-MAX)));

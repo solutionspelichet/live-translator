@@ -16,6 +16,7 @@ import { DEFAULT_SETTINGS, engineOptions } from './src/config/settingsModel';
 import Power from './modules/dualcast-power';
 import audio from './src/services/AudioRoutingService';
 import BackgroundService from './src/services/BackgroundService';
+import BackgroundTimers from './src/services/BackgroundTimers';
 import EventLog from './src/services/EventLog';
 import HistoryStore from './src/services/HistoryStore';
 import TranslationMeetingService from './src/services/TranslationMeetingService';
@@ -190,13 +191,13 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
 
   // Heartbeat in the journal (every minute): if the app is frozen or killed while the screen is off, the gap shows.
   useEffect(() => {
-    const t = setInterval(() => {
+    const t = BackgroundTimers.setInterval(() => {
       const d = engine.diagnostics();
       EventLog.add(
         `♥ ${AppState.currentState} · état ${d.state} · micro ${d.micRunning ? 'ouvert' : 'FERMÉ'} (${d.chunks} paquets, dernier il y a ${d.msSinceChunk ?? '—'} ms) · Deepgram ${d.stt ?? '—'} · veille ${BackgroundService.lockHeld ? 'verrou' : 'SANS verrou'} · batterie ${Power.isIgnoringBatteryOptimizations() ? 'sans limite' : 'LIMITÉE'}`,
       );
     }, 60000);
-    return () => clearInterval(t);
+    return () => BackgroundTimers.clearInterval(t);
   }, [engine]);
 
   // Meeting recorded while translating: state of the chip + a clock that ticks.

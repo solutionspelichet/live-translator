@@ -9,7 +9,10 @@ type Native = {
   requestIgnoreBatteryOptimizations(): boolean;
   startCapture(source: string, deviceId: number, agc: boolean, ns: boolean): string;
   stopCapture(): boolean;
+  setTimer(id: number, delayMs: number): boolean;
+  clearTimer(id: number): boolean;
   addListener(event: 'onAudio', listener: (e: { data: string }) => void): { remove(): void };
+  addListener(event: 'onTimer', listener: (e: { id: number }) => void): { remove(): void };
 };
 
 const native = requireOptionalNativeModule<Native>('DualcastPower');
@@ -22,8 +25,38 @@ const safe = <T>(fn: (n: Native) => T, fallback: T): T => {
   }
 };
 
+// Timers that survive the screen turning off (JS setTimeout is suspended in the background): the native side schedules
+// them and reports back with an "onTimer" event, like the audio chunks.
+const timerCallbacks = new Map<number, () => void>();
+let timerSubscription: { remove(): void } | null = null;
+
+const nativeTimers =
+  native != null && typeof (native as Partial<Native>).setTimer === 'function'
+    ? {
+        setTimer(id: number, ms: number, callback: () => void) {
+          if (!timerSubscription) {
+            timerSubscription = native.addListener('onTimer', (e) => {
+              const cb = timerCallbacks.get(e.id);
+              if (cb) {
+                timerCallbacks.delete(e.id);
+                cb();
+              }
+            });
+          }
+          timerCallbacks.set(id, callback);
+          native.setTimer(id, ms);
+          return true;
+        },
+        clearTimer(id: number) {
+          timerCallbacks.delete(id);
+          native.clearTimer(id);
+        },
+      }
+    : null;
+
 export default {
   available: native != null,
+  nativeTimers,
   acquireWakeLocks: () => safe((n) => n.acquireWakeLocks(), false),
   releaseWakeLocks: () => safe((n) => n.releaseWakeLocks(), false),
   isIgnoringBatteryOptimizations: () => safe((n) => n.isIgnoringBatteryOptimizations(), false),

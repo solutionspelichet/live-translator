@@ -682,3 +682,61 @@ test('a prepared voice connection is dropped when the translation fails', async 
   await speak('A');
   assert.equal(aborted, true);
 });
+
+// ---- screen off: JS timers are suspended, the engine must use the injected (native) ones -------------------------------
+
+function suspendedTimers() {
+  // Stand-in for "the JS runtime is frozen": nothing fires until the test lets it.
+  let nextId = 1;
+  const pending = new Map();
+  const api = {
+    pending,
+    setTimeout: (fn, ms) => (pending.set(nextId, { fn, ms }), nextId++),
+    clearTimeout: (id) => pending.delete(id),
+    setInterval: (fn, ms) => api.setTimeout(fn, ms),
+    clearInterval: (id) => pending.delete(id),
+    sleep: () => Promise.resolve(),
+    fire: (predicate = () => true) => {
+      for (const [id, t] of [...pending]) if (predicate(t)) { pending.delete(id); t.fn(); }
+    },
+  };
+  return api;
+}
+
+test('words without a sentence end are released by the injected timer (not a JS timer that freezes with the screen off)', async () => {
+  const { engine, calls, chunk } = setup({ segments: [], flushAfterMs: 1200 });
+  const timers = suspendedTimers();
+  engine.timers = timers;
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onFinal('et puis on verra bien'); // no final punctuation → waits for the flush timer
+  assert.equal(calls.translate.length, 0);
+  const flush = [...timers.pending.values()].find((t) => t.ms === 1200);
+  assert.ok(flush, 'the 1.2 s flush timer went through the injected timers');
+  flush.fn();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(calls.translate, [['et puis on verra bien', 'fr', 'en']]);
+});
+
+test('hands-free: a lone transcript is decided by the injected timer', async () => {
+  const { engine, calls, chunk } = setup({ segments: [] });
+  engine.timers = suspendedTimers();
+  engine.detectWindowMs = 450;
+  await engine.toggle('auto');
+  chunk();
+  calls.sessions[0].onFinal('Où est la gare ?', 0.9);
+  const wait = [...engine.timers.pending.values()].find((t) => t.ms === 450);
+  assert.ok(wait, 'the language-detection window uses the injected timers');
+  assert.equal(calls.translate.length, 0);
+  wait.fn();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(calls.translate.length, 1);
+});
+
+test('the recognizers receive the injected timers too (keep-alive and reconnection must not freeze)', async () => {
+  const { engine, calls, chunk } = setup({ segments: [] });
+  engine.timers = suspendedTimers();
+  await engine.toggle('A');
+  chunk();
+  assert.equal(calls.sessions[0].timers, engine.timers);
+});

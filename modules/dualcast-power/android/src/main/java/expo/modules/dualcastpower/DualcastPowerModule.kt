@@ -14,6 +14,10 @@ import android.net.wifi.WifiManager
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Base64
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -34,6 +38,12 @@ class DualcastPowerModule : Module() {
   @Volatile private var capturing = false
   private val effects = mutableListOf<AudioEffect>()
 
+  // Native timers (see setTimer): React Native's own JS timers are suspended when the screen is off.
+  private val timerExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
+    Thread(runnable, "DualCast-timers").also { it.isDaemon = true }
+  }
+  private val timers = ConcurrentHashMap<Int, ScheduledFuture<*>>()
+
   private val context: Context
     get() = appContext.reactContext ?: throw IllegalStateException("React context unavailable")
 
@@ -41,7 +51,7 @@ class DualcastPowerModule : Module() {
     Name("DualcastPower")
 
     // PCM16 mono chunks from startCapture(), base64 encoded: { data: String }
-    Events("onAudio")
+    Events("onAudio", "onTimer")
 
     // Safety timeout (12 h) so a crash can never leave a lock held forever.
     Function("acquireWakeLocks") {
@@ -180,6 +190,25 @@ class DualcastPowerModule : Module() {
       "ok;agc=$agcOn;ns=$nsOn"
     }
 
+    /**
+     * One-shot timer that keeps working with the screen off (the CPU is held awake by the wake lock): after
+     * `delayMs` an "onTimer" event { id } is sent to JS. JS timers (setTimeout) are suspended in the background.
+     */
+    Function("setTimer") { id: Int, delayMs: Int ->
+      val module = this@DualcastPowerModule
+      val future = timerExecutor.schedule(Runnable {
+        timers.remove(id)
+        module.sendEvent("onTimer", mapOf("id" to id))
+      }, delayMs.toLong(), TimeUnit.MILLISECONDS)
+      timers[id] = future
+      true
+    }
+
+    Function("clearTimer") { id: Int ->
+      timers.remove(id)?.cancel(false)
+      true
+    }
+
     Function("stopCapture") {
       stopCaptureInternal()
       true
@@ -187,6 +216,7 @@ class DualcastPowerModule : Module() {
 
     OnDestroy {
       stopCaptureInternal()
+      timerExecutor.shutdownNow()
       if (wakeLock?.isHeld == true) wakeLock?.release()
       if (wifiLock?.isHeld == true) wifiLock?.release()
     }

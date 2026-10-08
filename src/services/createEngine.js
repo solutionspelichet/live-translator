@@ -1,6 +1,7 @@
 import { env } from '../config/env';
 import { SIDE } from '../config/languages';
 import audio from './AudioRoutingService';
+import BackgroundTimers from './BackgroundTimers';
 import MicrophoneStreamer from './MicrophoneStreamer';
 import DeepgramSession from './stt/DeepgramSession';
 import DeepLClient from './translate/DeepLClient';
@@ -17,6 +18,7 @@ export default function createEngine(languages, options = {}) {
     translator: new DeepLClient(),
     tts: new ElevenLabsClient(),
     audio,
+    timers: BackgroundTimers,
     ...options,
   });
 }

@@ -1,6 +1,7 @@
 import { getLanguage } from '../config/languages';
 import { translatorTitle } from '../utils/meeting';
 import TranslationMeeting from '../utils/translationMeeting';
+import BackgroundTimers from './BackgroundTimers';
 import MeetingStore from './MeetingStore';
 
 const SAVE_EVERY_MS = 15000;
@@ -33,7 +34,7 @@ class TranslationMeetingService {
   start() {
     if (this.current) return;
     this.current = new TranslationMeeting({ title: translatorTitle(), labelOf });
-    this.timer = setInterval(() => this.autosave(), SAVE_EVERY_MS);
+    this.timer = BackgroundTimers.setInterval(() => this.autosave(), SAVE_EVERY_MS);
     this.notify();
   }
 
@@ -59,7 +60,7 @@ class TranslationMeetingService {
   async stop() {
     const m = this.current;
     if (!m) return null;
-    clearInterval(this.timer);
+    BackgroundTimers.clearInterval(this.timer);
     this.current = null;
     this.notify();
     const record = m.toMeeting();
