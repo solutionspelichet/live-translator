@@ -2,7 +2,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Haptics from 'expo-haptics';
-import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
 import HistoryScreen from './src/components/HistoryScreen';
 import MeetingsScreen from './src/components/MeetingsScreen';
@@ -38,7 +38,7 @@ export default function App() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
 
   useEffect(() => {
-    Promise.all([loadStoredKeys(), loadSettings().then(setSettings), UsageTracker.load()]).finally(() => setReady(true));
+    Promise.all([loadStoredKeys(), loadSettings().then(setSettings), UsageTracker.load(), EventLog.load()]).finally(() => setReady(true));
   }, []);
 
   if (!ready) return <View style={styles.missing} />;
@@ -188,6 +188,17 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       .catch(() => {});
   }, [engine, inputKey, settings.micSource, settings.micAgc]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Heartbeat in the journal (every minute): if the app is frozen or killed while the screen is off, the gap shows.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const d = engine.diagnostics();
+      EventLog.add(
+        `♥ ${AppState.currentState} · état ${d.state} · micro ${d.micRunning ? 'ouvert' : 'FERMÉ'} (${d.chunks} paquets, dernier il y a ${d.msSinceChunk ?? '—'} ms) · Deepgram ${d.stt ?? '—'} · veille ${BackgroundService.lockHeld ? 'verrou' : 'SANS verrou'} · batterie ${Power.isIgnoringBatteryOptimizations() ? 'sans limite' : 'LIMITÉE'}`,
+      );
+    }, 60000);
+    return () => clearInterval(t);
+  }, [engine]);
+
   // Meeting recorded while translating: state of the chip + a clock that ticks.
   useEffect(() => TranslationMeetingService.subscribe(setRecording), []);
   useEffect(() => {
@@ -326,7 +337,15 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         onClose={() => setShowHistory(false)}
       />
       {diag && (
-        <View style={styles.diag} pointerEvents="none">
+        <View style={styles.diag} pointerEvents="box-none">
+          <Pressable
+            style={styles.diagShare}
+            onPress={() => Share.share({ title: 'Journal DualCast', message: EventLog.all().join('\n') }).catch(() => {})}
+            hitSlop={10}
+            accessibilityRole="button"
+          >
+            <Text style={styles.diagShareText}>Partager le journal complet</Text>
+          </Pressable>
           <Text style={styles.diagText}>
             {`micro: ${diag.micRunning ? 'ouvert' : 'FERMÉ'} · paquets: ${diag.chunks}`}
             {diag.msSinceChunk != null ? ` · dernier il y a ${diag.msSinceChunk} ms` : ' · aucun paquet reçu'}
@@ -374,5 +393,7 @@ const styles = StyleSheet.create({
   },
   diag: { position: 'absolute', left: 8, right: 8, bottom: 24, backgroundColor: '#000D', borderRadius: 8, padding: 8 },
   diagText: { color: '#7CE0A3', fontFamily: 'Courier', fontSize: 11 },
+  diagShare: { alignSelf: 'flex-end', backgroundColor: '#2F6FED', borderRadius: 12, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 6 },
+  diagShareText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   gearText: { color: '#fff', fontSize: 20 },
 });

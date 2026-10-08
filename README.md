@@ -114,7 +114,10 @@ Le module n'a pas pu être compilé ni testé en local : seul le build GitHub le
 connexion Deepgram qui tombe (Wi-Fi en veille). Réponses : (1) pendant un tour, si aucun son n'arrive depuis 3 s, la capture est relancée
 et rattachée au tour (`armStallMonitor`) ; (2) Deepgram reçoit un `KeepAlive` quand le micro est muet ; (3) la reconnexion ne s'épuise plus :
 le compteur d'échecs repart à zéro après chaque reconnexion réussie (30 échecs *consécutifs* max, délai plafonné à 5 s), l'audio est gardé
-jusqu'à 30 s pendant la coupure, et une connexion « ouverte mais muette » depuis 15 s est refaite. Tout ce qui se passe est inscrit dans le
+jusqu'à 30 s pendant la coupure, et une connexion « ouverte mais muette » depuis 15 s est refaite. Le journal (200 lignes) est **gardé sur le téléphone** : si Android ferme l'app écran éteint, la ligne « ══ app (re)lancée ══ » le montre
+au redémarrage. Un battement « ♥ » est écrit chaque minute (état, micro, paquets, Deepgram, verrou de veille, exemption batterie) : un trou
+dans les ♥ prouve que l'app était gelée. Le bouton « Partager le journal complet » du panneau de diagnostic l'envoie en texte.
+Tout ce qui se passe est inscrit dans le
 journal du panneau de diagnostic (appui long sur ⚙︎) : « micro silencieux… → redémarrage », « Deepgram : reconnexion 2/30 »…
 
 ## Sensibilité du micro et choix du micro
