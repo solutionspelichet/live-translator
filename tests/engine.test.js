@@ -742,3 +742,11 @@ test('the recognizers receive the injected timers too (keep-alive and reconnecti
   chunk();
   assert.equal(calls.sessions[0].timers, engine.timers);
 });
+
+test('hands-free: two quick sentences of the same language (dialogue) are both translated, none overwritten', async () => {
+  const { calls, a } = await handsFree();
+  a.onFinal('Bonjour tout le monde, comment allez-vous aujourd’hui ?', 0.95);
+  a.onFinal('Moi je vais très bien, merci beaucoup pour votre accueil.', 0.95);
+  await pause(300);
+  assert.equal(calls.translate.length, 2);
+});

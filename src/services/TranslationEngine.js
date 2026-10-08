@@ -330,6 +330,9 @@ export default class TranslationEngine {
 
   onAutoFinal(turn, side, text, confidence) {
     if (this.turnId !== turn.id) return;
+    // A second sentence of the same language before the first was settled (fast dialogue): settle the first now
+    // instead of overwriting it, otherwise it is lost.
+    if (turn.cands[side]) this.decide(turn);
     turn.cands[side] = { text, conf: confidence ?? 0.5 };
     this.timers.clearTimeout(turn.decideTimer);
     if (turn.cands.A && turn.cands.B) this.decide(turn);
