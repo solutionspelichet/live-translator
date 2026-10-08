@@ -16,6 +16,31 @@ export const MIC_SOURCES = Object.freeze({
   voice_communication: { label: 'Appel', hint: 'traitement d\'appel (annulation d\'écho, bruit)' },
 });
 
+/**
+ * How eagerly the translation starts. 'fast' validates a segment after a shorter pause and releases
+ * shorter clauses: the translation starts sooner, at the price of more (shorter) fragments and a
+ * slightly lower DeepL quality. 'normal' keeps longer, more natural sentences.
+ */
+export const SPEEDS = Object.freeze({
+  normal: { label: 'Normale', endpointingMs: 400, utteranceEndMs: 1500, flushAfterMs: 1200, clauseWords: 9, maxWords: 18, autoEndMs: 1500 },
+  fast: { label: 'Rapide', endpointingMs: 250, utteranceEndMs: 1000, flushAfterMs: 700, clauseWords: 6, maxWords: 14, autoEndMs: 1200 },
+});
+
+/** Engine options derived from the settings (reactivity profile, voice streaming, echo guard). */
+export function engineOptions(settings) {
+  const { endpointingMs, utteranceEndMs, flushAfterMs, clauseWords, maxWords, autoEndMs } = SPEEDS[settings.speed] ?? SPEEDS.normal;
+  return {
+    streamTts: Boolean(settings.streamVoice),
+    muteWhilePlaying: Boolean(settings.muteWhilePlaying),
+    endpointingMs,
+    utteranceEndMs,
+    flushAfterMs,
+    clauseWords,
+    maxWords,
+    autoEndMs,
+  };
+}
+
 export const DEFAULT_SETTINGS = Object.freeze({
   languages: Object.freeze({ A: 'fr', B: 'en' }),
   autoStop: true,
@@ -24,10 +49,39 @@ export const DEFAULT_SETTINGS = Object.freeze({
   micSource: 'voice_recognition', // see MIC_SOURCES (Android capture)
   micAgc: true, // use the phone's own automatic gain control when it has one
   voiceVolume: 2, // loudness of the translated voice: 1 (normal) … 2.5 (loud)
+  speed: 'normal', // see SPEEDS
+  muteWhilePlaying: false, // hands-free: stop listening while the translated voice plays (kills echo, no interruption)
+  recentPairs: Object.freeze([]), // last language pairs used: [{A, B}], newest first
+  prices: Object.freeze({}), // unit prices overriding the defaults of the usage counter
   streamVoice: false, // play the translation while ElevenLabs is still generating it (lower delay)
   handsFree: false, // no zone to pick: the spoken language is detected, the turn lasts until a tap
   input: null, // chosen microphone { id, name }, or null = the phone's built-in mic
 });
+
+function sanitizePairs(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((p) => p && LANGUAGES[p.A] && LANGUAGES[p.B] && p.A !== p.B)
+    .map((p) => ({ A: p.A, B: p.B }))
+    .slice(0, 4);
+}
+
+export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deeplPerMillionChars', 'elevenPerThousandChars']);
+
+function sanitizePrices(raw) {
+  const out = {};
+  for (const key of PRICE_KEYS) {
+    const v = Number(raw?.[key]);
+    if (raw && raw[key] !== '' && Number.isFinite(v) && v >= 0) out[key] = v;
+  }
+  return out;
+}
+
+/** Put `pair` first in the list of recent language pairs (swapped duplicates are the same pair). */
+export function rememberPair(pairs, pair) {
+  const same = (p) => (p.A === pair.A && p.B === pair.B) || (p.A === pair.B && p.B === pair.A);
+  return [{ A: pair.A, B: pair.B }, ...pairs.filter((p) => !same(p))].slice(0, 4);
+}
 
 function sanitizeInput(raw) {
   return raw && typeof raw.id === 'string' && typeof raw.name === 'string' ? { id: raw.id, name: raw.name } : null;
@@ -51,6 +105,10 @@ export function sanitizeSettings(raw) {
     background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,
     micGain: MIC_GAIN_CHOICES.includes(gain) ? gain : DEFAULT_SETTINGS.micGain,
     voiceVolume: VOICE_VOLUME_CHOICES.includes(volume) ? volume : DEFAULT_SETTINGS.voiceVolume,
+    speed: SPEEDS[input.speed] ? input.speed : DEFAULT_SETTINGS.speed,
+    muteWhilePlaying: typeof input.muteWhilePlaying === 'boolean' ? input.muteWhilePlaying : DEFAULT_SETTINGS.muteWhilePlaying,
+    recentPairs: sanitizePairs(input.recentPairs),
+    prices: sanitizePrices(input.prices),
     streamVoice: typeof input.streamVoice === 'boolean' ? input.streamVoice : DEFAULT_SETTINGS.streamVoice,
     handsFree: typeof input.handsFree === 'boolean' ? input.handsFree : DEFAULT_SETTINGS.handsFree,
     micSource: MIC_SOURCES[input.micSource] ? input.micSource : DEFAULT_SETTINGS.micSource,

@@ -161,3 +161,18 @@ test('testLanguages flags a language DeepL does not offer', async () => {
   assert.match(r[1].deepl.message, /Hindi|non prise en charge/);
   assert.equal(r[1].deepgram.ok, true);
 });
+
+import { fetchQuotas } from '../src/utils/keyTest.js';
+
+test('fetchQuotas reads the exact quotas and tolerates a service that refuses', async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes('/v2/usage')) return res(200, '{"character_count":120000,"character_limit":500000}');
+    if (url.includes('/v1/user/subscription')) return res(401, '{"detail":{"status":"missing_permissions"}}');
+    throw new Error('unexpected');
+  };
+  const q = await fetchQuotas({ deeplKey: 'k:fx', elevenLabsKey: 'e' }, { fetchImpl });
+  assert.deepEqual(q.deepl, { used: 120000, limit: 500000 });
+  assert.equal(q.elevenlabs, null);
+  const none = await fetchQuotas({}, { fetchImpl });
+  assert.deepEqual(none, { deepl: null, elevenlabs: null });
+});

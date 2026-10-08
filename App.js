@@ -5,19 +5,24 @@ import * as Haptics from 'expo-haptics';
 import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import HistoryScreen from './src/components/HistoryScreen';
+import UsageScreen from './src/components/UsageScreen';
 import SplitScreen from './src/components/SplitScreen';
 import SetupScreen from './src/components/SetupScreen';
 import { loadStoredKeys, missingEnv } from './src/config/env';
 import { SIDE } from './src/config/languages';
 import { loadSettings, saveSettings } from './src/config/settings';
-import { DEFAULT_SETTINGS } from './src/config/settingsModel';
+import { DEFAULT_SETTINGS, engineOptions } from './src/config/settingsModel';
 import Power from './modules/dualcast-power';
 import audio from './src/services/AudioRoutingService';
 import BackgroundService from './src/services/BackgroundService';
 import EventLog from './src/services/EventLog';
+import HistoryStore from './src/services/HistoryStore';
+import UsageTracker from './src/services/UsageTracker';
 import createEngine from './src/services/createEngine';
 import { AUTO, STATE } from './src/services/TranslationEngine';
+import { nextHistoryId, parseHistory } from './src/utils/history';
 import { describeError } from './src/utils/http';
+import { deepgramSeconds } from './src/utils/usage';
 
 export default function App() {
   useKeepAwake();
@@ -29,7 +34,7 @@ export default function App() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
 
   useEffect(() => {
-    Promise.all([loadStoredKeys(), loadSettings().then(setSettings)]).finally(() => setReady(true));
+    Promise.all([loadStoredKeys(), loadSettings().then(setSettings), UsageTracker.load()]).finally(() => setReady(true));
   }, []);
 
   if (!ready) return <View style={styles.missing} />;
@@ -58,7 +63,7 @@ export default function App() {
 function Translator({ settings, onSettingsChange, onOpenSettings }) {
   const languages = settings.languages;
   const engine = useMemo(() => {
-    const e = createEngine(languages, { streamTts: settings.streamVoice });
+    const e = createEngine(languages, engineOptions(settings));
     e.autoStop = settings.autoStop;
     e.mic.setGain(settings.micGain);
     e.mic.configure({ source: settings.micSource, input: settings.input, agc: settings.micAgc });
@@ -74,7 +79,10 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
   const [handsFree, setHandsFree] = useState(settings.handsFree);
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showUsage, setShowUsage] = useState(false);
+  const [usage, setUsage] = useState(UsageTracker.snapshot());
   const historyId = useRef(0);
+  const historyLoaded = useRef(false);
 
   useEffect(() => {
     // Audio session first, then open the mic (the first tap is then instant), then the optional
@@ -113,10 +121,14 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
       else if (ev.type === 'interim' || ev.type === 'transcript' || ev.type === 'translation') {
         setTexts((t) => ({ ...t, [ev.side]: ev.text }));
       } else if (ev.type === 'segment') {
-        setHistory((h) => [...h, { id: ++historyId.current, from: ev.from, to: ev.to, source: ev.source, translated: ev.translated, at: ev.at }].slice(-200));
+        setHistory((h) =>
+          [...h, { id: ++historyId.current, from: ev.from, to: ev.to, fromLang: ev.fromLang, toLang: ev.toLang, source: ev.source, translated: ev.translated, at: ev.at }].slice(-300),
+        );
+      } else if (ev.type === 'usage') {
+        UsageTracker.add(ev.delta);
       } else if (ev.type === 'timing') {
         EventLog.add(
-          `délai: DeepL ${ev.translateMs} ms · voix ${ev.ttsMs ?? '?'} ms · prêt en ${ev.readyMs ?? '?'} ms${ev.streamed ? ' (flux)' : ''}`,
+          `délai: reco ${ev.sttMs ?? '?'} ms · DeepL ${ev.translateMs} ms · voix ${ev.ttsMs ?? '?'} ms · prêt en ${ev.readyMs ?? '?'} ms${ev.streamed ? ' (flux)' : ''}${ev.sttMs != null && ev.readyMs != null ? ` ⇒ ≈ ${ev.sttMs + ev.readyMs} ms après le dernier mot` : ''}`,
         );
       } else if (ev.type === 'idle-stop') {
         EventLog.add(`mains libres arrêté : aucun mot depuis ${ev.minutes} min`);
@@ -158,6 +170,26 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
       .then(() => changed && engine.mic.restart())
       .catch(() => {});
   }, [engine, inputKey, settings.micSource, settings.micAgc]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Billing counter: live numbers on the 📊 chip and in its screen.
+  useEffect(() => UsageTracker.subscribe(setUsage), []);
+  useEffect(() => () => {
+    UsageTracker.save(); // don't lose the last seconds when the screen is left
+  }, []);
+
+  // History: restored at start, saved a moment after each change.
+  useEffect(() => {
+    HistoryStore.load().then((items) => {
+      historyId.current = nextHistoryId(items);
+      historyLoaded.current = true;
+      setHistory((current) => parseHistory([...items, ...current]));
+    });
+  }, []);
+  useEffect(() => {
+    if (!historyLoaded.current) return undefined;
+    const t = setTimeout(() => HistoryStore.save(history), 1500);
+    return () => clearTimeout(t);
+  }, [history]);
 
   // Diagnostics panel (long-press ⚙︎): lets a tester see whether the mic and STT really work.
   useEffect(() => {
@@ -204,6 +236,9 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
         >
           <Text style={styles.chipText}>{autoStop ? 'Auto ✓' : 'Auto'}</Text>
         </Pressable>
+        <Pressable style={styles.chip} onPress={() => setShowUsage(true)} hitSlop={12} accessibilityLabel="Consommation facturée">
+          <Text style={styles.chipText}>{`📊 ${Math.round(deepgramSeconds(usage.today) / 60)} min`}</Text>
+        </Pressable>
         <Pressable style={styles.gear} onPress={() => setShowHistory(true)} hitSlop={12} accessibilityLabel="Historique">
           <Text style={styles.gearText}>🕘</Text>
         </Pressable>
@@ -217,11 +252,22 @@ function Translator({ settings, onSettingsChange, onOpenSettings }) {
           <Text style={styles.gearText}>⚙︎</Text>
         </Pressable>
       </View>
+      <UsageScreen
+        visible={showUsage}
+        usage={usage}
+        prices={settings.prices}
+        onPrices={(prices) => onSettingsChange({ ...settings, prices })}
+        onReset={() => UsageTracker.reset()}
+        onClose={() => setShowUsage(false)}
+      />
       <HistoryScreen
         visible={showHistory}
         items={history}
         languages={languages}
-        onClear={() => setHistory([])}
+        onClear={() => {
+          setHistory([]);
+          HistoryStore.clear();
+        }}
         onClose={() => setShowHistory(false)}
       />
       {diag && (
@@ -248,21 +294,24 @@ const styles = StyleSheet.create({
   missing: { flex: 1, backgroundColor: '#0B0F1A' },
   controls: {
     position: 'absolute',
-    alignSelf: 'center',
+    left: 8,
+    right: 8,
     top: '50%',
     marginTop: -20,
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  chip: { height: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#000C', justifyContent: 'center' },
+  chip: { height: 38, paddingHorizontal: 12, borderRadius: 19, backgroundColor: '#000C', justifyContent: 'center' },
   chipOn: { backgroundColor: '#1F8F4E' },
   chipDim: { opacity: 0.4 },
-  chipText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  chipText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   gear: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: '#000C',
     alignItems: 'center',
     justifyContent: 'center',

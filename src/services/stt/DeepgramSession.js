@@ -20,7 +20,7 @@ export default class DeepgramSession {
    *          onFinal?: (text: string, confidence?: number) => void, onUtteranceEnd?: () => void,
    *          onError?: (error: Error) => void}} opts
    */
-  constructor({ language, sampleRate, onInterim, onFinal, onUtteranceEnd, onError }) {
+  constructor({ language, sampleRate, endpointingMs = 400, utteranceEndMs = UTTERANCE_END_MS, onInterim, onFinal, onUtteranceEnd, onError }) {
     this.onError = onError;
     this.status = 'connecting'; // shown in the diagnostics panel
     this.onInterim = onInterim;
@@ -48,8 +48,8 @@ export default class DeepgramSession {
       interim_results: 'true',
       punctuate: 'true',
       smart_format: 'true',
-      utterance_end_ms: String(UTTERANCE_END_MS), // requires interim_results
-      endpointing: '400', // validate a segment after 400 ms of silence (fewer, longer finals)
+      utterance_end_ms: String(Math.max(1000, utteranceEndMs)), // requires interim_results (min 1000)
+      endpointing: String(endpointingMs), // validate a segment after this much silence (fewer, longer finals when higher)
     });
 
     this.url = `${env.deepgramWsUrl}?${params}`;

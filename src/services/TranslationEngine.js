@@ -1,4 +1,4 @@
-import { PAN, SIDE } from '../config/languages.js';
+import { getLanguage, PAN, SIDE } from '../config/languages.js';
 import { isEcho } from '../utils/echo.js';
 import SegmentBuffer from '../utils/segments.js';
 
@@ -45,12 +45,16 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {number} [deps.noAudioMs]  give up waiting for the first audio chunk after this long (restart mic, then fail)
  * @param {number} [deps.tailMs]  keep capturing this long after the stop tap (don't clip the last word)
  * @param {boolean} [deps.streamTts]  play each sentence while ElevenLabs is still generating it (tts.stream + audio.playStream)
+ * @param {number} [deps.endpointingMs]  pause (ms) after which Deepgram validates a segment
+ * @param {boolean} [deps.muteWhilePlaying]  hands-free: send silence to the recognizers while the translated voice plays
  * @param {number} [deps.idleStopMs]  hands-free: stop listening after this long without any recognized speech (billing + battery)
  * @param {number} [deps.detectWindowMs]  hands-free: how long to wait for the other language's transcript before choosing
  */
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000 }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.7, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false }) {
+    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying });
+    this.pendingUsage = null; // billing units not yet reported (see recordUsage)
+    this.usageTimer = null;
     this.lastWarm = 0;
     this.recentOutputs = []; // translations just played: { side, text, at } (hands-free echo filter)
     this.state = STATE.IDLE;
@@ -72,6 +76,36 @@ export default class TranslationEngine {
   setState(state) {
     this.state = state;
     this.emit({ type: 'state', state, side: this.turn?.side ?? null });
+  }
+
+  newBuffer() {
+    return new SegmentBuffer({ maxWords: this.maxWords, clauseWords: this.clauseWords });
+  }
+
+  /**
+   * Billing units used (Deepgram seconds, DeepL / ElevenLabs characters). Reported in batches
+   * ({type:'usage', delta}) every few seconds and whenever a turn ends, so the counter is live.
+   */
+  recordUsage(delta) {
+    this.pendingUsage = { ...(this.pendingUsage ?? {}) };
+    for (const [key, value] of Object.entries(delta)) this.pendingUsage[key] = (this.pendingUsage[key] ?? 0) + value;
+    if (this.usageTimer) return;
+    this.usageTimer = setTimeout(() => this.flushUsage(), 3000);
+    this.usageTimer.unref?.();
+  }
+
+  flushUsage() {
+    clearTimeout(this.usageTimer);
+    this.usageTimer = null;
+    if (!this.pendingUsage) return;
+    const delta = this.pendingUsage;
+    this.pendingUsage = null;
+    this.emit({ type: 'usage', delta });
+  }
+
+  /** Usage key of the Deepgram model that transcribes `language`. */
+  deepgramKey(language) {
+    return getLanguage(language).deepgramModel === 'nova-3' ? 'dgNova3Sec' : 'dgNova2Sec';
   }
 
   /** Open the microphone ahead of time so the first tap is instant. */
@@ -119,7 +153,7 @@ export default class TranslationEngine {
       startup: null,
       ended: false, // user finished speaking
       playing: false,
-      buffer: new SegmentBuffer(),
+      buffer: new SegmentBuffer({ maxWords: this.maxWords, clauseWords: this.clauseWords }),
       segments: 0,
       shown: { A: [], B: [] }, // translated text per target side, by segment index
       decided: [], // hands-free: transcripts kept after language detection
@@ -128,7 +162,9 @@ export default class TranslationEngine {
       auto, // hands-free: language detected per sentence instead of chosen by the tapped zone
       sessions: {}, // hands-free: one Deepgram session per language
       cands: {}, // hands-free: latest transcript of each language, waiting to be compared
-      buffers: auto ? { A: new SegmentBuffer(), B: new SegmentBuffer() } : null,
+      buffers: auto ? { A: this.newBuffer(), B: this.newBuffer() } : null,
+      lastVoiceAt: 0, // last chunk with a voice in it (to measure the recognition delay)
+      quietUntil: 0, // hands-free: no listening before this time (translated voice just played)
       lastSide: null,
     };
     this.turn = turn;
@@ -145,6 +181,8 @@ export default class TranslationEngine {
       turn.session ??= auto ? this.createAutoSession(turn, sampleRate) : this.stt.createSession({
         language,
         sampleRate,
+        endpointingMs: this.endpointingMs,
+        utteranceEndMs: this.utteranceEndMs,
         onInterim: (text) => {
           if (this.turnId !== id) return;
           clearTimeout(turn.idleTimer); // new words: the speaker is still going
@@ -174,7 +212,17 @@ export default class TranslationEngine {
           }
         },
       });
-      turn.session.sendAudio(pcm16);
+      if (level > 0.12) turn.lastVoiceAt = Date.now();
+      // Echo guard (hands-free): while the translated voice plays — and a moment after — the
+      // recognizers get silence instead of what the microphone hears.
+      const muted = this.muteWhilePlaying && auto && (turn.playing || Date.now() < turn.quietUntil);
+      turn.session.sendAudio(muted ? new ArrayBuffer(pcm16.byteLength) : pcm16);
+      const seconds = pcm16.byteLength / 2 / sampleRate;
+      if (auto) {
+        for (const sideLanguage of [this.languages.A, this.languages.B]) this.recordUsage({ [this.deepgramKey(sideLanguage)]: seconds });
+      } else {
+        this.recordUsage({ [this.deepgramKey(language)]: seconds });
+      }
       this.emit({ type: 'level', level });
     };
 
@@ -236,6 +284,8 @@ export default class TranslationEngine {
       this.stt.createSession({
         language: this.languages[side],
         sampleRate,
+        endpointingMs: this.endpointingMs,
+        utteranceEndMs: this.utteranceEndMs,
         onInterim: () => {}, // text is shown once the language is decided
         onError: (error) => this.fail(id, error),
         onFinal: (text, confidence) => this.onAutoFinal(turn, side, text, confidence),
@@ -369,6 +419,7 @@ export default class TranslationEngine {
       // Sentences validated during the turn were already sent to translation by onFinal;
       // finish() delivers the last ones, then we release any unfinished sentence.
       const transcript = turn.session ? await turn.session.finish() : '';
+      this.flushUsage(); // the audio was billed even if nothing was recognized
       if (this.turnId !== id) return;
       if (!transcript) {
         this.emit({ type: 'empty', side });
@@ -381,6 +432,7 @@ export default class TranslationEngine {
       }
 
       await turn.chain; // wait for the last sentence to finish playing
+      this.flushUsage();
       if (this.turnId === id) this.setState(STATE.IDLE);
     } catch (error) {
       this.fail(id, error);
@@ -400,16 +452,19 @@ export default class TranslationEngine {
     const targetLanguage = this.languages[targetSide];
     const voice = { voiceId: this.voices[targetSide], language: targetLanguage };
     const t0 = Date.now();
+    const sttMs = turn.lastVoiceAt ? Math.max(0, t0 - turn.lastVoiceAt) : null; // last voice → segment handed to translation
     const timing = { translateMs: 0, readyAt: 0 };
+    this.recordUsage({ deeplChars: text.length });
 
     const prepared = this.translator.translate(text, language, targetLanguage).then(async (translated) => {
       if (this.turnId !== id) return null;
       timing.translateMs = Date.now() - t0;
       turn.shown[targetSide][index] = translated;
       this.emit({ type: 'translation', side: targetSide, text: turn.shown[targetSide].filter(Boolean).join(' ') });
-      this.emit({ type: 'segment', from: side, to: targetSide, source: text, translated, at: Date.now() });
+      this.emit({ type: 'segment', from: side, to: targetSide, fromLang: language, toLang: targetLanguage, source: text, translated, at: Date.now() });
       this.recentOutputs.push({ side: targetSide, text: translated, at: Date.now() });
       if (this.recentOutputs.length > 12) this.recentOutputs.shift();
+      this.recordUsage({ elevenChars: translated.length });
       if (this.streamTts && this.tts.stream) {
         const stream = this.tts.stream(translated, voice);
         turn.streams.add(stream);
@@ -436,8 +491,10 @@ export default class TranslationEngine {
           ttsMs: ready ? Math.max(0, ready - t0 - timing.translateMs) : null,
           readyMs: ready ? ready - t0 : null,
           streamed: Boolean(source.stream),
+          sttMs,
         });
         turn.playing = false;
+        turn.quietUntil = Date.now() + 600;
         this.syncState(turn);
       })
       .catch((error) => this.fail(id, error));
@@ -472,6 +529,7 @@ export default class TranslationEngine {
     this.turn?.streams.forEach((stream) => stream.abort());
     this.mic.setSink(null); // the mic itself stays warm
     this.audio.stopAll();
+    this.flushUsage();
     this.turn = null;
     if (this.state !== STATE.IDLE) this.setState(STATE.IDLE);
   }
@@ -492,6 +550,7 @@ export default class TranslationEngine {
     this.turn?.session?.abort();
     this.turn?.streams.forEach((stream) => stream.abort());
     this.mic.setSink(null);
+    this.flushUsage();
     this.emit({ type: 'error', error });
     this.setState(STATE.IDLE);
   }

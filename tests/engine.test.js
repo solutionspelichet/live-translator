@@ -5,7 +5,7 @@ import { PAN } from '../src/config/languages.js';
 import TranslationEngine, { STATE } from '../src/services/TranslationEngine.js';
 
 function setup({ flushAfterMs = 1000, autoEndMs = 20, noAudioMs = 1000, transcript = 'bonjour', segments = transcript ? [transcript] : [], sttDelay = 0, translateDelay = () => 0 } = {}) {
-  const calls = { translate: [], tts: [], play: [], played: [], sessions: [], stopAll: 0, restarts: 0 };
+  const calls = { translate: [], tts: [], play: [], played: [], sessions: [], live: [], stopAll: 0, restarts: 0 };
   let sink = null;
   const engine = new TranslationEngine({
     tailMs: 0,
@@ -24,7 +24,7 @@ function setup({ flushAfterMs = 1000, autoEndMs = 20, noAudioMs = 1000, transcri
     stt: {
       createSession: (opts) => {
         calls.sessions.push(opts);
-        return {
+        const session = {
           sendAudio() {},
           abort() {},
           finish: () =>
@@ -35,6 +35,8 @@ function setup({ flushAfterMs = 1000, autoEndMs = 20, noAudioMs = 1000, transcri
               }, sttDelay),
             ),
         };
+        calls.live.push(session);
+        return session;
       },
     },
     translator: {
@@ -58,7 +60,7 @@ function setup({ flushAfterMs = 1000, autoEndMs = 20, noAudioMs = 1000, transcri
     chunk();
     await engine.endTurn();
   };
-  return { engine, calls, events, speak, chunk, hasSink: () => sink !== null };
+  return { engine, calls, events, speak, chunk, sink: (c) => sink(c), hasSink: () => sink !== null };
 }
 
 test('A speaks French → English voice with A\'s partner on the RIGHT ear', async () => {
@@ -469,4 +471,116 @@ test('manual turns have no idle stop', async () => {
   chunk();
   await new Promise((r) => setTimeout(r, 60));
   assert.equal(engine.state, STATE.LISTENING);
+});
+
+// ---- billing counter, reactivity, echo guard -----------------------------------------------
+
+const usageEvents = (events) => events.filter((e) => e.type === 'usage');
+const sumUsage = (events) => {
+  const total = {};
+  for (const e of usageEvents(events)) for (const [k, v] of Object.entries(e.delta)) total[k] = (total[k] ?? 0) + v;
+  return total;
+};
+
+test('billing counter: audio seconds, DeepL source characters and ElevenLabs characters are reported', async () => {
+  const { engine, calls, events, chunk } = setup({ segments: [] });
+  await engine.toggle('A');
+  chunk(); // 1 sample of 2 bytes at 16 kHz in the fake → tiny but non-zero
+  calls.sessions[0].onFinal('Bonjour tout le monde.');
+  await new Promise((r) => setTimeout(r, 20));
+  await engine.toggle('A');
+  const total = sumUsage(events);
+  assert.equal(total.deeplChars, 'Bonjour tout le monde.'.length);
+  assert.equal(total.elevenChars, '[en] Bonjour tout le monde.'.length);
+  assert.ok(total.dgNova2Sec > 0 && !total.dgNova3Sec);
+});
+
+test('billing counter: Arabic is charged at the Nova-3 rate, and hands-free counts both sessions', async () => {
+  const { engine, events, chunk } = setup({ segments: [] });
+  engine.languages = { A: 'ar', B: 'fr' };
+  engine.detectWindowMs = 10;
+  await engine.toggle('auto');
+  chunk();
+  await engine.toggle('auto');
+  const total = sumUsage(events);
+  assert.ok(total.dgNova3Sec > 0, 'A is Arabic → Nova-3');
+  assert.ok(total.dgNova2Sec > 0, 'B is French → Nova-2');
+  assert.ok(Math.abs(total.dgNova3Sec - total.dgNova2Sec) < 1e-9, 'same audio, both sessions');
+});
+
+test('billing counter is reported at the end of the turn, not only every few seconds', async () => {
+  const { engine, events, chunk } = setup({ segments: [] });
+  await engine.toggle('A');
+  chunk();
+  assert.equal(usageEvents(events).length, 0, 'batched');
+  await engine.toggle('A');
+  assert.ok(usageEvents(events).length >= 1);
+});
+
+test('reactivity settings reach the speech recognizer', async () => {
+  const { engine, calls, chunk } = setup({ segments: [] });
+  engine.endpointingMs = 250;
+  engine.utteranceEndMs = 1000;
+  await engine.toggle('A');
+  chunk();
+  assert.equal(calls.sessions[0].endpointingMs, 250);
+  assert.equal(calls.sessions[0].utteranceEndMs, 1000);
+});
+
+test('"fast" clause size releases a shorter clause for translation', async () => {
+  const { engine, calls, chunk } = setup({ segments: [] });
+  engine.clauseWords = 6;
+  await engine.toggle('A');
+  chunk();
+  calls.sessions[0].onFinal('je voudrais vraiment un café noir,');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(calls.translate.length, 1, '6 words + comma → released');
+});
+
+test('timing reports the recognition delay (last voice → handed to translation)', async () => {
+  const { engine, calls, events, sink } = setup({ segments: [] });
+  await engine.toggle('A');
+  sink({ pcm16: new ArrayBuffer(2), sampleRate: 16000, level: 0.5 }); // a voiced chunk
+  await new Promise((r) => setTimeout(r, 30));
+  calls.sessions[0].onFinal('Bonjour tout le monde.');
+  await new Promise((r) => setTimeout(r, 20));
+  const t = events.find((e) => e.type === 'timing');
+  assert.ok(t.sttMs >= 25, `sttMs ${t.sttMs}`);
+});
+
+test('echo guard: while the translated voice plays, hands-free sends silence to the recognizers', async () => {
+  const { engine, calls, sink } = setup({ segments: [] });
+  engine.muteWhilePlaying = true;
+  await engine.toggle('auto');
+  const sent = [];
+    const loud = () => {
+    const pcm = new Int16Array([1000, -1000]).buffer;
+    sink({ pcm16: pcm, sampleRate: 16000, level: 0.5 });
+  };
+  sink({ pcm16: new Int16Array([1, 1]).buffer, sampleRate: 16000, level: 0.5 }); // creates the sessions
+  for (const s of calls.live) s.sendAudio = (pcm) => sent.push(new Uint8Array(pcm).some((b) => b !== 0));
+  loud();
+  assert.deepEqual(sent, [true, true], 'listening normally: both sessions get the real audio');
+  sent.length = 0;
+  engine.turn.playing = true; // the voice is playing
+  loud();
+  assert.deepEqual(sent, [false, false], 'muted while the voice plays');
+  engine.turn.playing = false;
+  engine.turn.quietUntil = Date.now() + 1000;
+  loud();
+  assert.deepEqual(sent, [false, false, false, false], 'and for a short tail afterwards');
+  engine.turn.quietUntil = 0;
+  loud();
+  assert.equal(sent.slice(4).every(Boolean), true, 'listening again');
+});
+
+test('echo guard is off by default', async () => {
+  const { engine, calls, sink } = setup({ segments: [] });
+  await engine.toggle('auto');
+  sink({ pcm16: new Int16Array([1, 1]).buffer, sampleRate: 16000, level: 0.5 });
+  const sent = [];
+  for (const s of calls.live) s.sendAudio = (pcm) => sent.push(new Uint8Array(pcm).some((b) => b !== 0));
+  engine.turn.playing = true;
+  sink({ pcm16: new Int16Array([1000, -1000]).buffer, sampleRate: 16000, level: 0.5 });
+  assert.deepEqual(sent, [true, true]);
 });

@@ -4,7 +4,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 import { currentValues, env, saveKeys, SETUP_FIELDS } from '../config/env';
 import { getLanguage, LANGUAGES } from '../config/languages';
 import { saveSettings } from '../config/settings';
-import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
+import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 import { describeError } from '../utils/http';
@@ -27,6 +27,8 @@ export default function SetupScreen({ settings, onDone }) {
   const [micAgc, setMicAgc] = useState(settings.micAgc);
   const [inputs, setInputs] = useState([]);
   const [streamVoice, setStreamVoice] = useState(settings.streamVoice);
+  const [speed, setSpeed] = useState(settings.speed);
+  const [muteWhilePlaying, setMuteWhilePlaying] = useState(settings.muteWhilePlaying);
   const [report, setReport] = useState(null); // result of « Tester mes clés »
   const [testing, setTesting] = useState(false);
   const [voices, setVoices] = useState(null); // voices of the ElevenLabs account
@@ -46,6 +48,14 @@ export default function SetupScreen({ settings, onDone }) {
           Collez vos clés API. Elles restent dans le stockage sécurisé de ce téléphone, jamais dans le code.
         </Text>
         <Text style={styles.section}>Langues</Text>
+        <View style={styles.chips}>
+          <Chip label="⇄ Inverser A et B" on={false} onPress={() => setLanguages((l) => ({ A: l.B, B: l.A }))} />
+          {settings.recentPairs
+            .filter((p) => !(p.A === languages.A && p.B === languages.B))
+            .map((p) => (
+              <Chip key={`${p.A}-${p.B}`} label={`${getLanguage(p.A).flag} ↔ ${getLanguage(p.B).flag}  ${getLanguage(p.A).label} / ${getLanguage(p.B).label}`} on={false} onPress={() => setLanguages({ A: p.A, B: p.B })} />
+            ))}
+        </View>
         <LanguagePicker
           title="Langue A — écouteur gauche"
           selected={languages.A}
@@ -118,6 +128,28 @@ export default function SetupScreen({ settings, onDone }) {
         </View>
         <Text style={styles.hint}>
           Amplifie la voix dans les écouteurs sans la déformer. Pensez aussi à monter le volume « média » du téléphone et des écouteurs.
+        </Text>
+
+        <Text style={styles.label}>Réactivité de la traduction</Text>
+        <View style={styles.chips}>
+          {Object.entries(SPEEDS).map(([key, v]) => (
+            <Chip key={key} label={v.label} on={speed === key} onPress={() => setSpeed(key)} />
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          « Rapide » lance la traduction après une pause plus courte et coupe les phrases plus tôt : la voix arrive plus vite, avec des
+          morceaux de phrase plus courts (traduction un peu moins fluide). « Normale » attend des phrases plus naturelles.
+        </Text>
+
+        <Text style={styles.label}>Mains libres : écho</Text>
+        <Chip
+          label={muteWwp(muteWhilePlaying)}
+          on={muteWhilePlaying}
+          onPress={() => setMuteWhilePlaying((v) => !v)}
+        />
+        <Text style={styles.hint}>
+          Coupe l'écoute pendant que la voix traduite est lue (et une demi-seconde après) : plus aucun risque que l'app se réécoute. En
+          contrepartie, ce que l'on dit pendant la lecture n'est pas traduit. À activer si des phrases fantômes reviennent.
         </Text>
 
         <Text style={styles.label}>Voix en flux (expérimental)</Text>
@@ -273,7 +305,7 @@ export default function SetupScreen({ settings, onDone }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice });
+            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}
@@ -284,6 +316,8 @@ export default function SetupScreen({ settings, onDone }) {
     </SafeAreaView>
   );
 }
+
+const muteWwp = (on) => (on ? '✓ Couper le micro pendant la voix traduite' : 'Couper le micro pendant la voix traduite : non');
 
 function Chip({ label, on, onPress }) {
   return (

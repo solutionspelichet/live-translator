@@ -188,7 +188,7 @@ class AudioRoutingService {
    * back to back on the Web Audio clock as they arrive, so speech starts after ~0.3 s instead of
    * after the whole sentence is ready. Rejects only when nothing at all could be played.
    */
-  async playStream(stream, pan, { volume = 1.0 } = {}) {
+  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15 } = {}) {
     await this.init();
     const ctx = this.ctx;
     const rate = ctx.sampleRate;
@@ -222,8 +222,8 @@ class AudioRoutingService {
       };
 
       const flush = (force) => {
-        // Wait for ~0.3 s before the first sound (jitter buffer), then ~0.12 s pieces.
-        const need = (first ? 0.3 : 0.12) * inRate;
+        // Wait for a little audio before the first sound (jitter buffer), then ~0.1 s pieces.
+        const need = (first ? prebufferSec : 0.1) * inRate;
         if (!pendingLen || (!force && pendingLen < need)) return;
         const joined = new Float32Array(pendingLen);
         let o = 0;

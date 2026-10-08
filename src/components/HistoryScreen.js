@@ -1,6 +1,7 @@
-import { FlatList, Modal, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Modal, Pressable, SafeAreaView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { getLanguage } from '../config/languages';
+import { formatConversation } from '../utils/history';
 
 /**
  * Everything translated since the app was opened, newest first: the original sentence and its
@@ -10,11 +11,26 @@ import { getLanguage } from '../config/languages';
  */
 export default function HistoryScreen({ visible, items, languages, onClear, onClose }) {
   const time = (at) => new Date(at).toTimeString().slice(0, 8);
+  // The language the sentence was in when it was said (old items without it: the current pair).
+  const describe = (i, which) => getLanguage((which === 'from' ? i.fromLang : i.toLang) ?? languages[which === 'from' ? i.from : i.to]);
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.root}>
         <View style={styles.header}>
           <Text style={styles.title}>Historique</Text>
+          <Pressable
+            onPress={() =>
+              Share.share({
+                message: formatConversation(items, (i, which) => describe(i, which)),
+                title: 'Conversation DualCast Translate',
+              }).catch(() => {})
+            }
+            hitSlop={12}
+            accessibilityRole="button"
+            disabled={!items.length}
+          >
+            <Text style={[styles.link, !items.length && styles.off]}>Partager</Text>
+          </Pressable>
           <Pressable onPress={onClear} hitSlop={12} accessibilityRole="button">
             <Text style={styles.link}>Effacer</Text>
           </Pressable>
@@ -30,7 +46,7 @@ export default function HistoryScreen({ visible, items, languages, onClear, onCl
           renderItem={({ item }) => (
             <View style={styles.item}>
               <Text style={styles.meta}>
-                {`${time(item.at)} · ${getLanguage(languages[item.from]).flag} → ${getLanguage(languages[item.to]).flag}`}
+                {`${time(item.at)} · ${describe(item, 'from').flag} → ${describe(item, 'to').flag}`}
               </Text>
               <Text style={styles.source}>{item.source}</Text>
               <Text style={styles.translated}>{item.translated}</Text>
@@ -44,9 +60,10 @@ export default function HistoryScreen({ visible, items, languages, onClear, onCl
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0B0F1A' },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 20, padding: 20, paddingTop: 40 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 20, paddingTop: 40 },
   title: { flex: 1, color: '#fff', fontSize: 24, fontWeight: '700' },
   link: { color: '#6FA0FF', fontSize: 16 },
+  off: { opacity: 0.35 },
   list: { padding: 16, paddingTop: 0 },
   empty: { color: '#9AA6C4', fontSize: 16, marginTop: 24 },
   item: { backgroundColor: '#16233B', borderRadius: 12, padding: 14, marginBottom: 10 },

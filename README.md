@@ -142,6 +142,21 @@ Bluetooth reste le réglage maître : le mettre au maximum.
 - Les connexions HTTPS vers DeepL et ElevenLabs sont ouvertes à l'avance (`warm`), ce qui évite la poignée de main TLS à la première phrase.
 - Le journal du panneau de diagnostic (appui long sur ⚙︎) affiche pour chaque phrase : `délai: DeepL x ms · voix y ms · prêt en z ms`.
 
+- **Réactivité** (⚙︎ → « Réactivité de la traduction ») : « Rapide » valide un segment après 250 ms de pause (au lieu de 400), libère les
+  propositions dès 6 mots (au lieu de 9) et traduit les mots restants après 0,7 s (au lieu de 1,2 s) ; la voix arrive plus tôt avec des morceaux
+  de phrase plus courts. Le journal affiche maintenant le délai de reconnaissance (`reco`) et le total `≈ x ms après le dernier mot`.
+- Le tampon de départ de la voix en flux est passé de 0,3 s à 0,15 s.
+
+## Consommation facturée
+
+Le bouton **📊** (minutes d'écoute du jour) ouvre l'écran « Consommation » : pour cette session, aujourd'hui, ce mois-ci et depuis le début,
+les **secondes d'audio envoyées à Deepgram** (comptées deux fois en mains libres : une reconnaissance par langue ; Nova-3 pour l'arabe),
+les **caractères envoyés à DeepL** (texte source) et les **caractères synthétisés par ElevenLabs**, avec une estimation en dollars.
+Les volumes sont exacts côté app ; les tarifs (modifiables dans l'écran) sont indicatifs : certains n'ont pas pu être confirmés
+(tarif Nova-2, formules DeepL actuelles, crédits ElevenLabs). Les quotas réels de DeepL (`/v2/usage`) et d'ElevenLabs
+(`/v1/user/subscription`) sont lus en direct quand la clé le permet. Les compteurs sont gardés sur le téléphone (`src/services/UsageTracker.js`,
+`src/utils/usage.js`) ; bouton de remise à zéro.
+
 ## Fiabilité
 
 - Appels DeepL / ElevenLabs : jusqu'à 2 nouvelles tentatives sur coupure réseau, 429 ou erreur serveur (`src/utils/http.js`).
@@ -153,7 +168,10 @@ Bluetooth reste le réglage maître : le mettre au maximum.
 ## Confort
 
 - **Voix par langue** : ⚙︎ → « Charger mes voix ElevenLabs » liste les voix du compte ; une pour la langue A, une pour la langue B.
-- **Historique** : bouton 🕘 sur l'écran principal (phrase originale + traduction, 200 dernières, effacé à la fermeture de l'app).
+- **Historique** : bouton 🕘 (phrase originale + traduction, 300 dernières), conservé après la fermeture de l'app (`@react-native-async-storage/async-storage`),
+  avec un bouton **Partager** (feuille de partage Android : copier, message, e-mail…).
+- **Paires de langues** : bouton « ⇄ Inverser A et B » et raccourcis vers les 4 dernières paires utilisées (⚙︎ → Langues).
+- **Écho en mains libres** : option « Couper le micro pendant la voix traduite » (⚙︎), en plus du filtre de texte.
 - **Mains libres** : bouton « Mains libres ». Un appui démarre l'écoute continue, un second l'arrête ; plus besoin de choisir la zone.
   Le même son est envoyé à deux sessions Deepgram (une par langue) ; la transcription la plus fiable (confiance) indique la langue
   parlée, et la phrase est traduite vers l'autre oreille. Deux fois plus de transcription facturée ; moins fiable que le choix manuel
@@ -171,6 +189,11 @@ Bluetooth reste le réglage maître : le mettre au maximum.
   et la séparation G/D disparaît. iOS : session `playAndRecord` avec A2DP seulement ; Android : entrée forcée sur le micro intégré.
 - Les deux écouteurs doivent être une paire TWS connectée **au même téléphone** (un seul lien stéréo).
 - Sans écouteurs, la voix sort sur le haut-parleur (pan sans effet) : l'app avertit.
+
+## Livraison
+
+Chaque build publie l'APK comme version GitHub **`latest-apk`** (lien direct, pas de zip) en plus de l'artefact :
+`https://github.com/solutionspelichet/live-translator/releases/tag/latest-apk`. L'APK ne contient aucune clé (elles se saisissent dans l'app).
 
 ## Statut
 

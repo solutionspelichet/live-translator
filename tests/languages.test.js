@@ -47,8 +47,37 @@ test('sanitizeSettings keeps valid values', () => {
     micAgc: false,
     streamVoice: false,
     handsFree: false,
+    speed: 'normal',
+    muteWhilePlaying: false,
+    recentPairs: [],
+    prices: {},
     input: { id: '7', name: 'Headset mic' },
   });
+});
+
+test('speed, recent pairs and prices are validated', () => {
+  const s = sanitizeSettings({
+    speed: 'fast',
+    muteWhilePlaying: true,
+    recentPairs: [{ A: 'fr', B: 'zh' }, { A: 'fr', B: 'fr' }, { A: 'xx', B: 'en' }, 'junk'],
+    prices: { deeplPerMillionChars: '20', deepgramNova2PerMin: -1, elevenPerThousandChars: 'abc', other: 5 },
+  });
+  assert.equal(s.speed, 'fast');
+  assert.equal(s.muteWhilePlaying, true);
+  assert.deepEqual(s.recentPairs, [{ A: 'fr', B: 'zh' }]);
+  assert.deepEqual(s.prices, { deeplPerMillionChars: 20 });
+  assert.equal(sanitizeSettings({ speed: 'turbo' }).speed, 'normal');
+});
+
+test('rememberPair puts the pair first, merges swapped duplicates and keeps 4', () => {
+  let pairs = [];
+  for (const pair of [{ A: 'fr', B: 'en' }, { A: 'fr', B: 'zh' }, { A: 'de', B: 'es' }, { A: 'it', B: 'pt' }, { A: 'ja', B: 'ko' }]) pairs = rememberPair(pairs, pair);
+  assert.equal(pairs.length, 4);
+  assert.deepEqual(pairs[0], { A: 'ja', B: 'ko' });
+  pairs = rememberPair(pairs, { A: 'zh', B: 'fr' }); // fr/zh swapped: not in the list anymore (dropped), so added first
+  assert.deepEqual(pairs[0], { A: 'zh', B: 'fr' });
+  pairs = rememberPair(pairs, { A: 'ko', B: 'ja' });
+  assert.equal(pairs.filter((p) => [p.A, p.B].sort().join() === 'ja,ko').length, 1);
 });
 
 test('sanitizeSettings never returns the same language on both ears', () => {
@@ -129,7 +158,7 @@ test('mic source defaults to voice recognition with the phone gain control on, a
   assert.equal(sanitizeSettings({ micAgc: false }).micAgc, false);
 });
 
-import { DEFAULT_SETTINGS as DEFAULTS, sanitizeSettings as sanitize } from '../src/config/settingsModel.js';
+import { DEFAULT_SETTINGS as DEFAULTS, rememberPair, sanitizeSettings as sanitize } from '../src/config/settingsModel.js';
 
 test('new settings (voice streaming, hands-free) default to off and survive sanitizing', () => {
   assert.equal(DEFAULTS.streamVoice, false);

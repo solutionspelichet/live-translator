@@ -150,3 +150,24 @@ export async function testLanguages({ deepgramKey, deeplKey, languages }, opts =
   }
   return out;
 }
+
+/**
+ * Exact remaining quotas straight from the services (best effort: a restricted key may not be allowed
+ * to read them). → { deepl: {used, limit}|null, elevenlabs: {used, limit}|null }
+ */
+export async function fetchQuotas({ deeplKey, elevenLabsKey }, { fetchImpl = fetch, elevenLabsBase = 'https://api.elevenlabs.io' } = {}) {
+  const out = { deepl: null, elevenlabs: null };
+  if (deeplKey) {
+    try {
+      const u = await get('DeepL', `${deeplBaseFor(deeplKey)}/v2/usage`, { Authorization: `DeepL-Auth-Key ${deeplKey}` }, fetchImpl);
+      if (u.character_limit) out.deepl = { used: u.character_count ?? 0, limit: u.character_limit };
+    } catch {}
+  }
+  if (elevenLabsKey) {
+    try {
+      const u = await get('ElevenLabs', `${elevenLabsBase}/v1/user/subscription`, { 'xi-api-key': elevenLabsKey }, fetchImpl);
+      if (u.character_limit) out.elevenlabs = { used: u.character_count ?? 0, limit: u.character_limit };
+    } catch {}
+  }
+  return out;
+}

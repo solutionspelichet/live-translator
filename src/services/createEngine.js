@@ -8,7 +8,7 @@ import ElevenLabsClient from './tts/ElevenLabsClient';
 import TranslationEngine from './TranslationEngine';
 
 /** Wire the real services. `languages` e.g. { A: 'fr', B: 'en' }. */
-export default function createEngine(languages, { streamTts = false } = {}) {
+export default function createEngine(languages, options = {}) {
   return new TranslationEngine({
     languages,
     voices: { [SIDE.A]: env.voiceA, [SIDE.B]: env.voiceB },
@@ -17,6 +17,6 @@ export default function createEngine(languages, { streamTts = false } = {}) {
     translator: new DeepLClient(),
     tts: new ElevenLabsClient(),
     audio,
-    streamTts,
+    ...options,
   });
 }
