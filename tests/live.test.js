@@ -160,3 +160,22 @@ test('LiveGate scriptRule: Chinese speech makes the French output the real trans
   g.text('out', 'Apprendre le chinois est la partie la plus difficile', 1100);
   assert.equal(g.audio([1], 1200).length, 1);
 });
+
+test('LiveGate: French found in the source is a repetition even when Chinese dominated the last seconds', () => {
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', '对,就是这种感觉。所以我想,我们今天不如就来聊一聊这个话题吧。怎么用中文自然地介绍自己', 1000);
+  g.text('in', "le niveau en gros c'était débutant oui c'est", 5000);
+  g.text('out', "Le niveau, en gros, c'était débutant. Oui, c'est", 5200);
+  assert.equal(g.audio([1], 5300).length, 0);
+  assert.equal(g.mode, 'mute');
+  assert.match(g.trace.at(-1).why, /mots communs/);
+});
+
+test('LiveGate: only the recent seconds decide the script (speech alternates)', () => {
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', '是学习中文最难、最紧张的一部分。我非常理解。我虽然是中国人', 1000);
+  g.text('in', 'ça reste quand même assez silencieux oui vraiment très agréable', 9000);
+  g.text('out', 'Mais c’est tout de même assez calme, vraiment agréable', 9200);
+  assert.equal(g.audio([1], 9300).length, 0);
+  assert.equal(g.mode, 'mute');
+});

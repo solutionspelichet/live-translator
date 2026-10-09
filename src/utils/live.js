@@ -86,8 +86,9 @@ export default class LiveGate {
    *   whether a direction repeats it (paraphrases defeat word comparison); only an unclear mix falls back to comparing words
    *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, fallback = null } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, fallback });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, shortWindowMs = 6000, fallback = null } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, shortWindowMs, fallback });
+    this.trace = []; // decisions taken (for the journal): { at, mode, basis, why }
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
     this.reset();
   }
@@ -108,21 +109,50 @@ export default class LiveGate {
   }
 
   /** What was said lately (source transcript of the last `windowMs`). */
-  reference(now = Date.now()) {
-    return this.log.filter((e) => e.at >= now - this.windowMs).map((e) => e.text).join('');
+  reference(now = Date.now(), windowMs = this.windowMs) {
+    return this.log.filter((e) => e.at >= now - windowMs).map((e) => e.text).join('');
   }
 
-  /** Is `output` (a direction's translated text) a repetition of what was said (`ref`)? */
-  repeats(ref, output) {
+  /**
+   * Is `output` (a direction's translated text) a repetition of what was said? Evidence, strongest first:
+   * 1. words (characters) of the output's own script found in what was said → it hands the same sentence back;
+   * 2. (languages of different scripts) the script of what was said LATELY (short window first, speech alternates)
+   *    — a paraphrase shares few words with its source, but is in the same script.
+   * `this.why` keeps the reason for the journal.
+   */
+  repeats(ref, output, now = Date.now()) {
+    if (isPassthrough(ref, output, this.threshold)) {
+      this.why = 'mots communs avec le texte dit';
+      return true;
+    }
     if (this.scriptRule) {
-      const share = cjkShare(ref);
+      const share = cjkShare(this.reference(now, this.shortWindowMs)) ?? cjkShare(ref);
       if (share !== null) {
         const outCjk = CJK.test(output);
-        if (share >= 0.7) return outCjk; // said in Chinese: a Chinese output repeats it
-        if (share <= 0.3) return !outCjk; // said in French: a French output repeats it
+        const pct = Math.round(share * 100);
+        if (share >= 0.7) {
+          this.why = `texte dit à ${pct} % en CJK`;
+          return outCjk; // said in Chinese: a Chinese output repeats it
+        }
+        if (share <= 0.3) {
+          this.why = `texte dit à ${pct} % en CJK`;
+          return !outCjk; // said in French: a French output repeats it
+        }
+        this.why = `écritures mélangées (${pct} % CJK)`;
+        return false;
       }
     }
-    return isPassthrough(ref, output, this.threshold);
+    this.why = 'rien de commun';
+    return false;
+  }
+
+  setMode(mode, basis, why, now) {
+    if (mode !== this.mode) {
+      this.trace.push({ at: now, mode, basis, why });
+      if (this.trace.length > 20) this.trace.shift();
+    }
+    this.mode = mode;
+    this.basis = basis;
   }
 
   /** Transcript text (`kind` = 'in' source | 'out' translated). Returns audio released by the decision. */
@@ -156,15 +186,14 @@ export default class LiveGate {
     this.lastCheckLen = this.output.length;
     const ref = this.reference(now);
     if (!ref.trim()) return; // nothing to compare: keep the decision
-    const want = this.repeats(ref, this.output.slice(-this.tailChars)) ? 'mute' : 'play';
+    const want = this.repeats(ref, this.output.slice(-this.tailChars), now) ? 'mute' : 'play';
     if (want === this.mode) {
       this.streak = { to: null, n: 0 };
       return;
     }
     this.streak = this.streak.to === want ? { to: want, n: this.streak.n + 1 } : { to: want, n: 1 };
     if (this.streak.n >= 2) {
-      this.mode = want;
-      this.basis = 'compare';
+      this.setMode(want, 'compare', `bascule : ${this.why}`, now);
       this.streak = { to: null, n: 0 };
     }
   }
@@ -172,8 +201,9 @@ export default class LiveGate {
   /** End of the burst with audio still held and no decision: decide with what we have and release. */
   flush(now = Date.now()) {
     if (this.mode !== 'undecided' || !this.held.length) return [];
-    this.mode = this.repeats(this.reference(now), this.output) ? 'mute' : 'play';
-    this.basis = this.reference(now).trim() && this.output.trim() ? 'compare' : 'fallback';
+    const compare = !!(this.reference(now).trim() && this.output.trim());
+    const mute = this.repeats(this.reference(now), this.output, now);
+    this.setMode(mute ? 'mute' : 'play', compare ? 'compare' : 'fallback', compare ? this.why : 'rien à comparer', now);
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
     return released;
@@ -185,9 +215,8 @@ export default class LiveGate {
     const expired = this.held.length > 0 && now - this.heldSince >= this.holdMs;
     if (!enough && !(expired && onAudio)) return [];
     // Out of time without a way to compare: ask the fallback (default: let it through, better a duplicate than a loss).
-    this.basis = enough ? 'compare' : 'fallback';
-    if (enough) this.mode = this.repeats(ref, this.output) ? 'mute' : 'play';
-    else this.mode = this.fallback && !this.fallback() ? 'mute' : 'play';
+    if (enough) this.setMode(this.repeats(ref, this.output, now) ? 'mute' : 'play', 'compare', this.why, now);
+    else this.setMode(this.fallback && !this.fallback() ? 'mute' : 'play', 'fallback', 'rien à comparer (le frère décide)', now);
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
     return released;

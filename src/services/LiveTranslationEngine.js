@@ -10,6 +10,7 @@ const SILENCE_LEVEL = 0.02;
 // Continuous speech never leaves a gap: cut a history segment (and a journal line) every so many translated characters.
 const SEGMENT_MAX_CHARS = 220;
 
+const excerpt = (text) => (text.length <= 100 ? text : `${text.slice(0, 50)} … ${text.slice(-50)}`);
 const clock = (ms) => (ms ? new Date(ms).toTimeString().slice(0, 8) + '.' + String(ms % 1000).padStart(3, '0') : '—');
 
 const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
@@ -301,8 +302,15 @@ export default class LiveTranslationEngine {
     if ((source || translated) && (real || !soft)) {
       this.emit({
         type: 'note',
-        text: `passage ${d.from}→${d.to} ${real ? 'lu' : 'non lu (répétition ou rien à traduire)'} [texte dès ${clock(d.firstOutAt)}, son dès ${clock(d.firstAudioAt)}] : « ${source.slice(0, 50)} » → « ${translated.slice(0, 50)} »`,
+        text: `passage ${d.from}→${d.to} ${real ? 'lu' : 'non lu (répétition ou rien à traduire)'} [texte dès ${clock(d.firstOutAt)}, son dès ${clock(d.firstAudioAt)}] : « ${excerpt(source)} » → « ${excerpt(translated)} »`,
       });
+      const decisions = d.gate?.trace.splice(0) ?? [];
+      if (decisions.length) {
+        this.emit({
+          type: 'note',
+          text: `  filtre ${d.from}→${d.to} : ${decisions.map((x) => `${clock(x.at)} ${x.mode === 'play' ? 'lit' : 'coupe'} (${x.basis}, ${x.why})`).join(' ; ')}`,
+        });
+      }
     }
     if (real && source && translated) {
       this.emit({
