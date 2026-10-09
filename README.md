@@ -246,6 +246,7 @@ Les volumes sont exacts côté app ; les tarifs (modifiables dans l'écran) sont
 
 ## Fiabilité
 
+- **Micro qui ne capte rien** : en OpenAI/Gemini live comme en classique, si aucun son n'arrive 1,5 s après l'appui, le micro est redémarré une fois (sinon message clair) ; pendant une traduction, un micro qui ne livre que des zéros numériques (Android le coupe sans erreur) ou plus rien pendant 3 s est redémarré (au plus une fois toutes les 10 s). Le journal note « micro rouvert au premier appui en N ms », « aucun son reçu… » et, à la fin de chaque traduction live, « micro : N paquets, crête X, Z paquets à zéro ».
 - **Micro libéré au repos** (`src/utils/micIdle.js`) : sans traduction en cours, le micro est coupé après 15 s si l'appli est en arrière-plan (écran éteint), après 5 min si elle est affichée ; un appui, ou le retour dans l'appli, le rouvre (le journal note « micro coupé … »). Avant, il restait ouvert des heures, indicateur de micro allumé et batterie sollicitée. Contrepartie : après une longue veille, le premier appui rouvre le micro (quelques centaines de ms) au lieu de partir d'un micro déjà chaud.
 - Appels DeepL / ElevenLabs : jusqu'à 2 nouvelles tentatives sur coupure réseau, 429 ou erreur serveur (`src/utils/http.js`).
 - Deepgram : si la connexion tombe en cours de parole, reconnexion automatique (3 essais), l'audio est conservé pendant la coupure.

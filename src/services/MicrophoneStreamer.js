@@ -29,7 +29,7 @@ export default class MicrophoneStreamer {
     this.preRoll = [];
     this.gain = new MicGain({ mode: 'auto' });
     this.queue = Promise.resolve(); // open/close/restart never overlap (native recorder races)
-    this.stats = { chunks: 0, lastChunkAt: 0, sampleRate: 0, gain: 1, lastError: null, backend: '—' };
+    this.stats = { chunks: 0, lastChunkAt: 0, sampleRate: 0, gain: 1, lastError: null, backend: '—', zeroRun: 0, zeroChunks: 0, peak: 0, openedAt: 0 };
     this.config = { source: 'voice_recognition', deviceId: -1, agc: true };
     this.stopNative = null;
   }
@@ -87,6 +87,8 @@ export default class MicrophoneStreamer {
         this.stopNative = native.stop;
         this.stats.backend = `natif · ${source} · ${native.status}`;
         this.running = true;
+        this.stats.openedAt = Date.now();
+        this.stats.zeroRun = 0;
         return;
       }
       this.stats.lastError = `capture native: ${native.status} (repli sur la bibliothèque)`;
@@ -100,6 +102,8 @@ export default class MicrophoneStreamer {
     if (res.status === 'error') throw new Error(`Recorder failed: ${res.message}`);
     this.stats.backend = 'bibliothèque';
     this.running = true;
+    this.stats.openedAt = Date.now();
+    this.stats.zeroRun = 0;
   }
 
   /** Tear the native recorder down and bring it back up (recovers from a silent recorder). */
@@ -108,6 +112,17 @@ export default class MicrophoneStreamer {
   }
 
   handleSamples(rawSamples, sampleRate) {
+    // Raw level, before any gain: all zeros = the system silenced the recorder (see utils/micHealth.js).
+    let peak = 0;
+    for (let i = 0; i < rawSamples.length; i++) {
+      const a = Math.abs(rawSamples[i]);
+      if (a > peak) peak = a;
+    }
+    if (peak > this.stats.peak) this.stats.peak = peak;
+    if (peak === 0) {
+      this.stats.zeroRun++;
+      this.stats.zeroChunks++;
+    } else this.stats.zeroRun = 0;
     // Amplify before recognition: the phone usually lies flat between two people.
     const samples = this.gain.process(rawSamples);
     this.stats.chunks++;
@@ -122,6 +137,12 @@ export default class MicrophoneStreamer {
       this.preRoll.push(chunk);
       if (this.preRoll.length > PRE_ROLL_CHUNKS) this.preRoll.shift();
     }
+  }
+
+  /** Per-turn figures for the journal (peak level, chunks of pure zeros). */
+  resetTurnStats() {
+    this.stats.peak = 0;
+    this.stats.zeroChunks = 0;
   }
 
   /** Start (fn) or stop (null) forwarding audio. Starting replays the pre-roll first. */

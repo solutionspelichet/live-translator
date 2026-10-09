@@ -1,5 +1,6 @@
 import { getLanguage, PAN, SIDE } from '../config/languages.js';
 import LiveGate, { scriptOf, toLiveAudio } from '../utils/live.js';
+import { micProblem } from '../utils/micHealth.js';
 import { OPENAI_LIVE } from './liveProfiles.js';
 import { rmsLevel } from '../utils/pcm.js';
 import { defaultTimers } from '../utils/timers.js';
@@ -36,8 +37,8 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {(opts) => {connect(), sendAudio(b64), close(): Promise<void>, abort(), status}} deps.createSession
  */
 export default class LiveTranslationEngine {
-  constructor({ languages, mic, audio, createSession, profile = OPENAI_LIVE, timers = defaultTimers, idleStopMs = 300000, stallMs = 3000, muteWhilePlaying = false, burstGapMs = 1500, tailMs = 200, gate = {} }) {
-    Object.assign(this, { languages, mic, audio, createSession, profile, timers, idleStopMs, stallMs, muteWhilePlaying, burstGapMs, tailMs, gateOptions: gate });
+  constructor({ languages, mic, audio, createSession, profile = OPENAI_LIVE, timers = defaultTimers, idleStopMs = 300000, stallMs = 3000, noAudioMs = 1500, muteWhilePlaying = false, burstGapMs = 1500, tailMs = 200, gate = {} }) {
+    Object.assign(this, { languages, mic, audio, createSession, profile, timers, idleStopMs, stallMs, noAudioMs, muteWhilePlaying, burstGapMs, tailMs, gateOptions: gate });
     this.autoStop = true; // not used here (the service has no turn detection); the screen sets it
     this.state = STATE.IDLE;
     this.listeners = new Set();
@@ -183,13 +184,44 @@ export default class LiveTranslationEngine {
       this.emit({ type: 'level', level });
     };
 
+    // A mic released at rest (micIdle.js) is reopened here: say how long it took, and watch that audio really comes.
+    const wasClosed = !this.mic.running;
+    const openStart = Date.now();
+    this.mic.resetTurnStats?.();
     turn.startup = this.mic
       .open()
       .then(() => {
-        if (this.turnId === id) this.mic.setSink(onChunk);
+        if (this.turnId !== id) return;
+        if (wasClosed) this.emit({ type: 'note', text: `micro rouvert au premier appui en ${Date.now() - openStart} ms` });
+        this.mic.setSink(onChunk);
+        this.armWatchdog(turn, onChunk);
       })
       .catch((error) => this.fail(id, error));
     await turn.startup;
+  }
+
+  /**
+   * If no audio arrives shortly after the tap, the recorder (warm, or just reopened) delivers nothing: restart it once, and if it
+   * is still silent, say so instead of leaving the user on « Préparation… » forever (same safety net as the classic engine).
+   */
+  armWatchdog(turn, onChunk, retried = false) {
+    turn.watchdog = this.timers.setTimeout(async () => {
+      const id = turn.id;
+      if (this.turnId !== id || turn.live || turn.ended) return;
+      this.emit({ type: 'note', text: `micro : aucun son reçu ${Math.round(this.noAudioMs)} ms après l'appui${retried ? ' (2ᵉ essai)' : ''} → ${retried ? 'abandon' : 'redémarrage'}` });
+      if (retried) {
+        return this.fail(id, new Error("Le micro ne renvoie aucun son. Vérifiez la permission Micro de l'app dans les réglages du téléphone."));
+      }
+      try {
+        await this.mic.restart();
+        if (this.turnId !== id || turn.live || turn.ended) return;
+        this.mic.setSink(onChunk);
+        this.armWatchdog(turn, onChunk, true);
+      } catch (error) {
+        this.fail(id, error);
+      }
+    }, this.noAudioMs);
+    turn.watchdog.unref?.();
   }
 
   onText(turn, d, kind, delta) {
@@ -358,10 +390,11 @@ export default class LiveTranslationEngine {
     this.timers.clearInterval(turn.stallTimer);
     turn.stallTimer = this.timers.setInterval(async () => {
       if (this.turnId !== turn.id || turn.ended || turn.restarting) return;
-      const last = this.mic.stats?.lastChunkAt;
-      if (!last || Date.now() - last < this.stallMs) return;
+      const problem = micProblem(this.mic.stats, Date.now(), { stallMs: this.stallMs });
+      if (!problem || Date.now() - (turn.lastRestartAt ?? 0) < 10000) return;
+      turn.lastRestartAt = Date.now();
       turn.restarting = true;
-      this.emit({ type: 'note', text: `micro silencieux depuis ${Math.round((Date.now() - last) / 1000)} s → redémarrage` });
+      this.emit({ type: 'note', text: `${problem} → redémarrage` });
       try {
         await this.mic.restart();
         if (this.turnId === turn.id && !turn.ended) this.mic.setSink(onChunk);
@@ -403,6 +436,10 @@ export default class LiveTranslationEngine {
 
   /** One line per direction in the journal: what the service really sent during the turn. */
   reportStats(turn) {
+    const m = this.mic.stats;
+    if (m && turn?.live) {
+      this.emit({ type: 'note', text: `micro : ${m.chunks} paquets au total, crête ${(m.peak ?? 0).toFixed(3)}, ${m.zeroChunks ?? 0} paquets à zéro (${m.backend ?? '—'})` });
+    }
     for (const d of turn?.dirs ?? []) {
       this.emit({
         type: 'note',
@@ -442,6 +479,7 @@ export default class LiveTranslationEngine {
   clearTimers(turn) {
     if (!turn) return;
     this.timers.clearTimeout(turn.idleStopTimer);
+    this.timers.clearTimeout(turn.watchdog);
     this.timers.clearInterval(turn.stallTimer);
     turn.dirs.forEach((d) => this.timers.clearTimeout(d.timer));
   }
