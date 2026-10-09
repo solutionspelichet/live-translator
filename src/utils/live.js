@@ -47,20 +47,26 @@ export function isPassthrough(input, output, threshold = 0.6) {
 /**
  * Hands-free runs two sessions on the same microphone, one per direction (A→B and B→A). Whatever the
  * speaker says, the direction whose target is the language ALREADY spoken just repeats it. The gate holds
- * a direction's audio until both transcripts are long enough to compare them, then either lets the
- * audio through (a real translation) or drops it (a repetition). It decides once per burst of speech.
+ * a direction's audio until its translated text can be compared with what was just SAID, then either lets the
+ * audio through (a real translation) or drops it (a repetition).
+ *
+ * What was said is a rolling window of the last `windowMs` of source transcript, NOT the text of the current
+ * burst: the translated voice lags the speech, so its first words usually belong to a sentence heard a moment
+ * before the burst began. The decision is also re-checked while the burst plays (a first decision taken on a
+ * few words can be wrong): a "translation" that turns out to repeat the source is cut as soon as it is clear.
  */
 export default class LiveGate {
   /**
-   * @param {{minChars?: number, holdMs?: number, threshold?: number}} [opts]
+   * @param {{minChars?: number, holdMs?: number, threshold?: number, windowMs?: number, recheckChars?: number}} [opts]
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6 } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16 } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars });
+    this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
     this.reset();
   }
 
+  /** New burst of translated speech. The source transcript history is kept. */
   reset() {
-    this.input = '';
     this.output = '';
     this.mode = 'undecided'; // 'play' | 'mute'
     this.held = [];
@@ -71,11 +77,20 @@ export default class LiveGate {
     return this.mode === 'play';
   }
 
-  /** Transcript text of the burst (`kind` = 'in' | 'out'). Returns audio released by the decision. */
+  /** What was said lately (source transcript of the last `windowMs`). */
+  reference(now = Date.now()) {
+    return this.log.filter((e) => e.at >= now - this.windowMs).map((e) => e.text).join('');
+  }
+
+  /** Transcript text (`kind` = 'in' source | 'out' translated). Returns audio released by the decision. */
   text(kind, delta, now = Date.now()) {
-    if (kind === 'in') this.input += delta;
-    else this.output += delta;
-    return this.mode === 'undecided' ? this.tryDecide(now, false) : [];
+    if (kind === 'in') {
+      this.log.push({ at: now, text: delta });
+      this.log = this.log.filter((e) => e.at >= now - this.windowMs * 3);
+    } else this.output += delta;
+    if (this.mode === 'undecided') return this.tryDecide(now, false);
+    if (this.mode === 'play') this.recheck(now);
+    return [];
   }
 
   /** A piece of translated audio. Returns the pieces that may be played now. */
@@ -87,21 +102,27 @@ export default class LiveGate {
     return this.tryDecide(now, true);
   }
 
+  /** A burst that was let through but clearly repeats the source: cut it. */
+  recheck(now) {
+    if (this.output.trim().length >= this.recheckChars && isPassthrough(this.reference(now), this.output, this.threshold)) this.mode = 'mute';
+  }
+
   /** End of the burst with audio still held and no decision: decide with what we have and release. */
-  flush() {
+  flush(now = Date.now()) {
     if (this.mode !== 'undecided' || !this.held.length) return [];
-    this.mode = isPassthrough(this.input, this.output, this.threshold) ? 'mute' : 'play';
+    this.mode = isPassthrough(this.reference(now), this.output, this.threshold) ? 'mute' : 'play';
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
     return released;
   }
 
   tryDecide(now, onAudio) {
-    const enough = this.input.trim().length >= this.minChars && this.output.trim().length >= this.minChars;
+    const ref = this.reference(now);
+    const enough = ref.trim().length >= this.minChars && this.output.trim().length >= this.minChars;
     const expired = this.held.length > 0 && now - this.heldSince >= this.holdMs;
     if (!enough && !(expired && onAudio)) return [];
     // Out of time without a way to compare: let it through (better a duplicate than a lost translation).
-    this.mode = enough && isPassthrough(this.input, this.output, this.threshold) ? 'mute' : 'play';
+    this.mode = enough && isPassthrough(ref, this.output, this.threshold) ? 'mute' : 'play';
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
     return released;

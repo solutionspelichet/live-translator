@@ -66,3 +66,33 @@ test('LiveGate.flush: end of a burst still undecided → decides with what exist
   assert.equal(g.flush().length, 1);
   assert.equal(g.playing, true);
 });
+
+test('LiveGate: the voice lags the speech — its first words belong to a sentence heard BEFORE the burst (rolling source window)', () => {
+  const g = new LiveGate({ minChars: 6 });
+  g.text('in', '我喜欢听音乐。你好小雨', 1000); // said just before the translated burst starts
+  g.reset(); // the previous burst ended
+  g.audio(new Float32Array(4).fill(0.1), 3000);
+  assert.deepEqual(g.text('out', '我喜欢听音乐你好小雨', 3100), []);
+  assert.equal(g.playing, false, 'a repetition of what was just said, even though the burst itself had no source text yet');
+});
+
+test('LiveGate: old source text (another speaker, another language) no longer counts as the reference', () => {
+  const g = new LiveGate({ minChars: 6, windowMs: 12000 });
+  g.text('in', '我喜欢听音乐你好小雨', 1000);
+  g.audio(new Float32Array(4).fill(0.1), 30000);
+  g.text('in', 'je pense que ça ira', 30000);
+  const released = g.text('out', '我喜欢听音乐你好小雨', 30010); // a real translation into Chinese of what was just said in French
+  assert.equal(released.length, 1);
+  assert.equal(g.playing, true);
+});
+
+test('LiveGate: a burst let through on a few words is cut when it turns out to repeat the source', () => {
+  const g = new LiveGate({ minChars: 6, holdMs: 100, recheckChars: 12 });
+  g.audio(new Float32Array(4).fill(0.1), 0);
+  assert.equal(g.audio(new Float32Array(4).fill(0.1), 200).length, 2, 'no text yet: let it through');
+  assert.equal(g.playing, true);
+  g.text('in', '你好小雨我叫李明很高兴认识你', 300);
+  g.text('out', '你好小雨我叫黎明很高兴认识你', 310);
+  assert.equal(g.playing, false);
+  assert.deepEqual(g.audio(new Float32Array(4).fill(0.1), 320), []);
+});

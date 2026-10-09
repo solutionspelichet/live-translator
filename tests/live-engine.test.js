@@ -233,3 +233,18 @@ test('the source transcript of the one transcribing session reaches every direct
   assert.ok(notes.some((t) => /^passage B→A lu : « 我叫李英我来自北京 » → « je m’appelle/.test(t)), notes.join('\n'));
   engine.cancel();
 });
+
+test('continuous speech: a history segment is cut every ~220 translated characters, without a gap and without stopping the voice', async () => {
+  const { engine, sessions, events, chunk, audioPiece } = setup();
+  await engine.toggle('A');
+  chunk();
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  for (let i = 0; i < 6; i++) {
+    sessions[0].opts.onInputText(`phrase numéro ${i} dite par le locuteur `);
+    sessions[0].opts.onOutputText(`sentence number ${i} said by the speaker, and some more words to be long enough `);
+  }
+  const segments = events.filter((e) => e.type === 'segment');
+  assert.ok(segments.length >= 1, 'a segment was cut before any gap');
+  assert.ok(segments.every((s) => s.translated.length >= 100));
+  engine.cancel();
+});

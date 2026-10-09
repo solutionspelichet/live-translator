@@ -7,6 +7,8 @@ import { AUTO, STATE } from './TranslationEngine.js';
 
 // The service may stream silence between phrases: below this level a piece of audio is not a voice (see onAudio).
 const SILENCE_LEVEL = 0.02;
+// Continuous speech never leaves a gap: cut a history segment (and a journal line) every so many translated characters.
+const SEGMENT_MAX_CHARS = 220;
 
 const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
 
@@ -190,6 +192,8 @@ export default class LiveTranslationEngine {
     released.forEach((samples) => this.play(turn, d, samples));
     this.armBurst(turn, d);
     this.render(d);
+    // Long passage: cut a history segment now (not while the gate is still undecided: it needs the text).
+    if (d.outText.length >= SEGMENT_MAX_CHARS && (!d.gate || d.gate.mode !== 'undecided')) this.emitSegment(turn, d, true);
   }
 
   onAudio(turn, d, samples, rate) {
@@ -250,10 +254,16 @@ export default class LiveTranslationEngine {
     if (d.gate) d.gate.flush().forEach((samples) => this.play(turn, d, samples));
     d.stream?.finish();
     d.stream = null;
+    this.emitSegment(turn, d);
+    d.gate?.reset();
+  }
+
+  /** The words of the current passage go to the history and the journal; the voice carries on (no gap needed). */
+  emitSegment(turn, d, soft = false) {
     const real = !d.gate || d.gate.playing;
     const source = d.inText.trim();
     const translated = d.outText.trim();
-    if (source || translated) {
+    if ((source || translated) && (real || !soft)) {
       this.emit({
         type: 'note',
         text: `passage ${d.from}→${d.to} ${real ? 'lu' : 'non lu (répétition ou rien à traduire)'} : « ${source.slice(0, 50)} » → « ${translated.slice(0, 50)} »`,
@@ -273,7 +283,6 @@ export default class LiveTranslationEngine {
     }
     d.inText = '';
     d.outText = '';
-    d.gate?.reset();
   }
 
   syncState(turn) {
