@@ -211,7 +211,7 @@ test('a passage is written to the journal, read or not', async () => {
   sessions[1].opts.onOutputText('je pense que ça ira');
   await pause(200);
   const notes = events.filter((e) => e.type === 'note' && /^passage /.test(e.text)).map((e) => e.text);
-  assert.ok(notes.some((t) => /^passage A→B lu : « je pense que ça ira » → « i think it will be fine »/.test(t)), notes.join('\n'));
+  assert.ok(notes.some((t) => /^passage A→B lu \[.*\] : « je pense que ça ira » → « i think it will be fine »/.test(t)), notes.join('\n'));
   assert.ok(notes.some((t) => /^passage B→A non lu/.test(t)), notes.join('\n'));
   engine.cancel();
 });
@@ -230,7 +230,7 @@ test('the source transcript of the one transcribing session reaches every direct
   await pause(200);
   const notes = events.filter((e) => e.type === 'note' && /^passage /.test(e.text)).map((e) => e.text);
   assert.ok(notes.some((t) => /^passage A→B non lu/.test(t)), notes.join('\n'));
-  assert.ok(notes.some((t) => /^passage B→A lu : « 我叫李英我来自北京 » → « je m’appelle/.test(t)), notes.join('\n'));
+  assert.ok(notes.some((t) => /^passage B→A lu \[.*\] : « 我叫李英我来自北京 » → « je m’appelle/.test(t)), notes.join('\n'));
   engine.cancel();
 });
 
@@ -277,4 +277,17 @@ test('hands-free without transcript: the direction that was real last time keeps
   assert.equal(played.length, 1);
   assert.equal(played[0].pan, -1, 'B→A plays towards language A = left ear');
   engine.cancel();
+});
+
+test('a hard stop keeps the passage in progress (history segment), it is not lost', async () => {
+  const { engine, sessions, events, chunk, audioPiece } = setup();
+  await engine.toggle('A');
+  chunk();
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  sessions[0].opts.onInputText('je dois partir maintenant');
+  sessions[0].opts.onOutputText('i have to leave now');
+  engine.cancel();
+  const segment = events.find((e) => e.type === 'segment');
+  assert.equal(segment?.translated, 'i have to leave now');
+  assert.equal(segment?.source, 'je dois partir maintenant');
 });

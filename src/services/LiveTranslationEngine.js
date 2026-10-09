@@ -10,6 +10,8 @@ const SILENCE_LEVEL = 0.02;
 // Continuous speech never leaves a gap: cut a history segment (and a journal line) every so many translated characters.
 const SEGMENT_MAX_CHARS = 220;
 
+const clock = (ms) => (ms ? new Date(ms).toTimeString().slice(0, 8) + '.' + String(ms % 1000).padStart(3, '0') : '—');
+
 const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
 
 /**
@@ -200,6 +202,7 @@ export default class LiveTranslationEngine {
       }
       return;
     }
+    d.firstOutAt ??= Date.now();
     d.outText += delta;
     const released = d.gate ? d.gate.text('out', delta) : [];
     released.forEach((samples) => this.play(turn, d, samples));
@@ -220,6 +223,7 @@ export default class LiveTranslationEngine {
       return;
     }
     d.stats.loud++;
+    d.firstAudioAt ??= Date.now();
     const chunks = d.gate ? d.gate.audio(samples) : [samples];
     chunks.forEach((chunk) => this.play(turn, d, chunk));
     this.armBurst(turn, d);
@@ -280,7 +284,7 @@ export default class LiveTranslationEngine {
     if ((source || translated) && (real || !soft)) {
       this.emit({
         type: 'note',
-        text: `passage ${d.from}→${d.to} ${real ? 'lu' : 'non lu (répétition ou rien à traduire)'} : « ${source.slice(0, 50)} » → « ${translated.slice(0, 50)} »`,
+        text: `passage ${d.from}→${d.to} ${real ? 'lu' : 'non lu (répétition ou rien à traduire)'} [texte dès ${clock(d.firstOutAt)}, son dès ${clock(d.firstAudioAt)}] : « ${source.slice(0, 50)} » → « ${translated.slice(0, 50)} »`,
       });
     }
     if (real && source && translated) {
@@ -297,6 +301,8 @@ export default class LiveTranslationEngine {
     }
     d.inText = '';
     d.outText = '';
+    d.firstOutAt = null;
+    d.firstAudioAt = null;
   }
 
   syncState(turn) {
@@ -383,7 +389,14 @@ export default class LiveTranslationEngine {
   cancel() {
     this.turnId++;
     const turn = this.turn;
-    if (turn?.live && !turn.ended) this.reportStats(turn);
+    if (turn?.live && !turn.ended) {
+      // A hard stop must not lose the passage in progress: it goes to the history like any other.
+      turn.dirs.forEach((d) => {
+        d.gate?.flush();
+        this.emitSegment(turn, d);
+      });
+      this.reportStats(turn);
+    }
     this.clearTimers(turn);
     turn?.dirs.forEach((d) => d.session.abort());
     turn?.streams.forEach((stream) => stream.abort());
