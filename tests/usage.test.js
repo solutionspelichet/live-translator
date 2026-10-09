@@ -69,3 +69,11 @@ test('formatting', () => {
 test('addUsage tolerates missing fields', () => {
   assert.deepEqual(addUsage(emptyUsage(), { deeplChars: 3 }), { ...emptyUsage(), deeplChars: 3 });
 });
+
+test('estimateCost: Gemini live counts audio sent and voice received at their own prices', async () => {
+  const { estimateCost } = await import('../src/utils/usage.js');
+  const cost = estimateCost({ geminiInSec: 600, geminiOutSec: 120 });
+  assert.ok(Math.abs(cost.geminiLive - (10 * 0.0053 + 2 * 0.0315)) < 1e-9);
+  assert.ok(Math.abs(cost.total - cost.geminiLive) < 1e-9);
+  assert.ok(Math.abs(estimateCost({ geminiInSec: 60 }, { geminiInPerMin: 1 }).geminiLive - 1) < 1e-9);
+});

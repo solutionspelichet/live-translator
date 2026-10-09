@@ -1,5 +1,6 @@
-import { getLanguage, liveOutputCode, LIVE_OUTPUT_LANGUAGES, PAN, SIDE } from '../config/languages.js';
+import { getLanguage, PAN, SIDE } from '../config/languages.js';
 import LiveGate, { scriptOf, toLiveAudio } from '../utils/live.js';
+import { OPENAI_LIVE } from './liveProfiles.js';
 import { rmsLevel } from '../utils/pcm.js';
 import { defaultTimers } from '../utils/timers.js';
 import TtsStream from '../utils/ttsStream.js';
@@ -16,7 +17,7 @@ const clock = (ms) => (ms ? new Date(ms).toTimeString().slice(0, 8) + '.' + Stri
 const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
 
 /**
- * "Live" strategy: ONE service turns speech into translated speech (OpenAI `gpt-realtime-translate`) instead of the
+ * "Live" strategy: ONE service turns speech into translated speech (OpenAI `gpt-realtime-translate` or Gemini Live Translate) instead of the
  * Deepgram → DeepL → ElevenLabs chain. Same public surface as TranslationEngine (the screen does not care which one it holds).
  *
  *   mic ─▶ 24 kHz PCM16 ─▶ session (target = the OTHER language) ─▶ translated audio ─▶ panned to the listener's ear
@@ -35,8 +36,8 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {(opts) => {connect(), sendAudio(b64), close(): Promise<void>, abort(), status}} deps.createSession
  */
 export default class LiveTranslationEngine {
-  constructor({ languages, mic, audio, createSession, timers = defaultTimers, idleStopMs = 300000, stallMs = 3000, muteWhilePlaying = false, burstGapMs = 1500, tailMs = 200, gate = {} }) {
-    Object.assign(this, { languages, mic, audio, createSession, timers, idleStopMs, stallMs, muteWhilePlaying, burstGapMs, tailMs, gateOptions: gate });
+  constructor({ languages, mic, audio, createSession, profile = OPENAI_LIVE, timers = defaultTimers, idleStopMs = 300000, stallMs = 3000, muteWhilePlaying = false, burstGapMs = 1500, tailMs = 200, gate = {} }) {
+    Object.assign(this, { languages, mic, audio, createSession, profile, timers, idleStopMs, stallMs, muteWhilePlaying, burstGapMs, tailMs, gateOptions: gate });
     this.autoStop = true; // not used here (the service has no turn detection); the screen sets it
     this.state = STATE.IDLE;
     this.listeners = new Set();
@@ -102,11 +103,11 @@ export default class LiveTranslationEngine {
     const auto = side === AUTO;
     const pairs = auto ? [[SIDE.A, SIDE.B], [SIDE.B, SIDE.A]] : [[side, other(side)]];
     for (const [, to] of pairs) {
-      if (!liveOutputCode(this.languages[to])) {
+      if (!this.profile.outputCode(this.languages[to])) {
         this.emit({
           type: 'error',
           error: new Error(
-            `« ${getLanguage(this.languages[to]).label} » n'est pas disponible en sortie avec OpenAI live (voix possibles : ${LIVE_OUTPUT_LANGUAGES.map((c) => getLanguage(c).label).join(', ')}). Changez de langue ou repassez en mode classique.`,
+            `« ${getLanguage(this.languages[to]).label} » n'est pas disponible en sortie avec ${this.profile.label} (voix possibles : ${this.profile.speakable.map((c) => getLanguage(c).label).join(', ')}). Changez de langue ou repassez en mode classique.`,
           ),
         });
         return;
@@ -131,25 +132,25 @@ export default class LiveTranslationEngine {
       const d = { from, to, gate: null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 } };
       const label = `${from}→${to}`;
       d.session = this.createSession({
-        target: liveOutputCode(this.languages[to]),
+        target: this.profile.outputCode(this.languages[to]),
         // The speech is the same for both directions: ONE transcription of it (shared below) is enough, and it is what lets
         // the gate tell a translation from a repetition (without it both directions were played).
         transcribeInput: index === 0,
         onAudio: (samples, rate) => this.onAudio(turn, d, samples, rate),
         onInputText: (text) => this.onText(turn, d, 'in', text),
         onOutputText: (text) => this.onText(turn, d, 'out', text),
-        onStatus: (status) => status !== 'connecting' && this.emit({ type: 'note', text: `OpenAI live ${label} : ${status}` }),
+        onStatus: (status) => status !== 'connecting' && this.emit({ type: 'note', text: `${this.profile.label} ${label} : ${status}` }),
         onNote: (text) => this.emit({ type: 'note', text }),
         onError: (error) => this.fail(id, error),
       });
-      if (auto) {
+      if (auto && this.profile.gate) {
         // Nothing to compare with (the source transcript can be sparse or wrong): a direction is silenced only when its sibling
         // was chosen on EVIDENCE as the real one. Otherwise both speak: in the intended use (two people, one earbud each) the
         // repetition only reaches the speaker's own ear, while a wrong silence kills the translation for the listener.
         d.gate = new LiveGate({
           scriptRule: (() => {
-            const a = scriptOf(liveOutputCode(this.languages[from]));
-            const b = scriptOf(liveOutputCode(this.languages[to]));
+            const a = scriptOf(this.profile.outputCode(this.languages[from]));
+            const b = scriptOf(this.profile.outputCode(this.languages[to]));
             return !!a && !!b && a !== b;
           })(),
           ...this.gateOptions,
@@ -173,11 +174,12 @@ export default class LiveTranslationEngine {
       }
       // Optional echo guard: silence instead of the microphone while our own voice plays.
       const silent = this.muteWhilePlaying && (this.playingCount > 0 || Date.now() < turn.quietUntil);
-      const audio = toLiveAudio(pcm16, sampleRate, { silence: silent });
+      const audio = toLiveAudio(pcm16, sampleRate, { silence: silent, rate: this.profile.inputRate });
       for (const d of turn.dirs) d.session.sendAudio(audio);
       // The service bills the audio it receives, per session.
       const seconds = pcm16.byteLength / 2 / sampleRate;
-      this.recordUsage({ oaiLiveSec: seconds * turn.dirs.length, oaiTranscribeSec: seconds });
+      const { send, transcribe } = this.profile.usage;
+      this.recordUsage({ [send]: seconds * turn.dirs.length, ...(transcribe ? { [transcribe]: seconds } : {}) });
       this.emit({ type: 'level', level });
     };
 
@@ -219,6 +221,7 @@ export default class LiveTranslationEngine {
     if (this.turnId !== turn.id) return;
     d.rate = rate;
     d.stats.audio++;
+    if (this.profile.usage.receive) this.recordUsage({ [this.profile.usage.receive]: samples.length / rate });
     if (rmsLevel(samples) < SILENCE_LEVEL) {
       // Silence: it only keeps the cadence of a voice that is already playing. It must not open a burst, be held by the
       // gate or keep a finished burst alive (the service may stream silence all the time).
@@ -400,7 +403,7 @@ export default class LiveTranslationEngine {
     for (const d of turn?.dirs ?? []) {
       this.emit({
         type: 'note',
-        text: `OpenAI live ${d.from}→${d.to} : ${d.stats.audio} morceaux audio reçus (${d.stats.loud} avec de la voix), ${d.stats.inChars} car. entendus, ${d.stats.outChars} car. traduits`,
+        text: `${this.profile.label} ${d.from}→${d.to} : ${d.stats.audio} morceaux audio reçus (${d.stats.loud} avec de la voix), ${d.stats.inChars} car. entendus, ${d.stats.outChars} car. traduits`,
       });
     }
   }
@@ -452,7 +455,7 @@ export default class LiveTranslationEngine {
       backend: mic.backend ?? '—',
       micError: mic.lastError ?? null,
       stt: this.turn ? this.turn.dirs.map((d) => `${d.from}→${d.to} ${d.session.status}`).join(' · ') : null,
-      sttLabel: 'OpenAI live',
+      sttLabel: this.profile.label,
     };
   }
 }

@@ -62,3 +62,12 @@ export const LIVE_OUTPUT_LANGUAGES = Object.freeze(['en', 'fr', 'es', 'pt', 'de'
 export function liveOutputCode(code) {
   return LIVE_OUTPUT_LANGUAGES.includes(code) ? code : null;
 }
+
+// Gemini Live Translate speaks 70+ languages: all of ours. Only the codes that differ from ours are listed
+// (the Arabic dialects are answered in standard Arabic, like with ElevenLabs).
+const GEMINI_CODES = Object.freeze({ pt: 'pt-BR', zh: 'zh-Hans', 'ar-MA': 'ar', 'ar-DZ': 'ar', 'ar-TN': 'ar' });
+
+/** The code to ask Gemini live for, or null for a language the app does not know. */
+export function geminiOutputCode(code) {
+  return LANGUAGES[code] ? GEMINI_CODES[code] ?? code : null;
+}
