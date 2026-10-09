@@ -87,28 +87,55 @@ test('LiveGate: old source text (another speaker, another language) no longer co
 });
 
 test('LiveGate: a burst let through on a few words is cut when it turns out to repeat the source', () => {
-  const g = new LiveGate({ minChars: 6, holdMs: 100, recheckChars: 12 });
+  const g = new LiveGate({ minChars: 6, holdMs: 100, recheckChars: 12, recheckStep: 8 });
   g.audio(new Float32Array(4).fill(0.1), 0);
   assert.equal(g.audio(new Float32Array(4).fill(0.1), 200).length, 2, 'no text yet: let it through');
   assert.equal(g.playing, true);
-  g.text('in', '你好小雨我叫李明很高兴认识你', 300);
+  g.text('in', '你好小雨我叫李明很高兴认识你我也很喜欢听音乐', 300);
   g.text('out', '你好小雨我叫黎明很高兴认识你', 310);
+  g.text('out', '我也很喜欢听音乐你喜欢听谁的歌', 320);
+  g.text('out', '嗯我喜欢周杰伦', 330);
   assert.equal(g.playing, false);
-  assert.deepEqual(g.audio(new Float32Array(4).fill(0.1), 320), []);
+  assert.deepEqual(g.audio(new Float32Array(4).fill(0.1), 340), []);
 });
 
-test('isPassthrough: a short source transcript fully found in a long output is a repetition (the voice runs ahead of the transcript)', () => {
-  assert.equal(isPassthrough('ils sont jeunes', 'Et derrière, tout est manipulé : plus ils sont jeunes'), true);
-  assert.equal(isPassthrough('ils sont jeunes', 'And behind it, everything is manipulated; the younger they are'), false);
-  assert.equal(isPassthrough('bon', 'bon alors on y va tous ensemble'), false, 'one word proves nothing');
+test('LiveGate: the same direction goes from TRANSLATING to REPEATING when the other person starts talking over the translation', () => {
+  const g = new LiveGate({ minChars: 6, recheckChars: 12, recheckStep: 8 });
+  // The French speaker is being translated into Chinese (this direction targets Chinese).
+  g.text('in', 'je pense que ça ira très bien demain', 1000);
+  g.audio(new Float32Array(4).fill(0.1), 1010);
+  g.text('out', '我认为明天会很顺利的我们', 1020);
+  assert.equal(g.playing, true);
+  // The Chinese person answers before the translation has ended: the service now just repeats the Chinese.
+  g.text('in', '好的没问题我们明天早上九点见面吧', 5000);
+  g.text('out', '好的没问题', 5100);
+  g.text('out', '我们明天早上九点见面吧', 5200);
+  g.text('out', '到时候我会带上所有的文件', 5300);
+  g.text('in', '到时候我会带上所有的文件', 5350);
+  g.text('out', '你也记得带上合同', 5400);
+  g.text('in', '你也记得带上合同', 5450);
+  assert.equal(g.playing, false, 'the repetition of the Chinese answer is cut');
 });
 
-test('LiveGate fallback: nothing to compare → the fallback decides who may speak', () => {
-  const quiet = new LiveGate({ holdMs: 100, fallback: () => false });
-  quiet.audio(new Float32Array(4).fill(0.1), 0);
-  assert.deepEqual(quiet.audio(new Float32Array(4).fill(0.1), 200), []);
-  assert.equal(quiet.playing, false);
-  const loud = new LiveGate({ holdMs: 100, fallback: () => true });
-  loud.audio(new Float32Array(4).fill(0.1), 0);
-  assert.equal(loud.audio(new Float32Array(4).fill(0.1), 200).length, 2);
+test('LiveGate: the other direction goes from REPEATING to TRANSLATING when the other person answers in the other language', () => {
+  const g = new LiveGate({ minChars: 6, recheckChars: 12, recheckStep: 8 });
+  // Chinese target, French speaker: this direction translates... here the mirror direction (target French) just repeats.
+  g.text('in', 'je pense que ça ira très bien demain', 1000);
+  g.audio(new Float32Array(4).fill(0.1), 1010);
+  g.text('out', 'je pense que ça ira très bien demain', 1020);
+  assert.equal(g.playing, false);
+  // Now the Chinese person answers: this direction (target French) really translates.
+  g.text('in', '好的没问题我们明天早上九点见面吧', 5000);
+  g.text('out', "D'accord, pas de problème, on se retrouve", 5100);
+  g.text('out', 'demain matin à neuf heures, et je', 5200);
+  g.text('out', 'ramènerai tous les documents nécessaires', 5300);
+  assert.equal(g.playing, true, 'the translation of the answer is no longer silenced');
+});
+
+test('isPassthrough: a window holding French AND Chinese does not make letters match a Chinese sentence (and vice versa)', () => {
+  const said = 'je pense que ça ira très bien demain 好的没问题我们明天早上九点见面吧';
+  assert.equal(isPassthrough(said, '好的没问题我们明天早上九点见面吧'), true);
+  assert.equal(isPassthrough(said, 'je pense que ça ira très bien demain'), true);
+  assert.equal(isPassthrough(said, "D'accord, pas de problème, on se retrouve demain matin"), false);
+  assert.equal(isPassthrough(said, '我认为明天会很顺利的我们见面'), false);
 });

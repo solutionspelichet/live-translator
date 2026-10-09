@@ -34,8 +34,10 @@ const tokens = (text) => text.toLowerCase().replace(/[\p{P}\p{S}]+/gu, ' ').spli
  */
 export function isPassthrough(input, output, threshold = 0.6) {
   if (!input || !output) return false;
-  const cjk = CJK.test(output) || CJK.test(input);
-  const pick = (text) => (cjk ? [...text.replace(/[\s\p{P}\p{S}]+/gu, '')] : tokens(text));
+  // The script of the OUTPUT decides how to compare, and only the same kind of text of the source is used: the window of
+  // what was said can hold several languages (French then Chinese), and Latin letters must not "match" a Chinese sentence.
+  const cjk = CJK.test(output);
+  const pick = (text) => (cjk ? [...text.replace(/[\s\p{P}\p{S}]+/gu, '')].filter((c) => CJK.test(c)) : tokens(text).filter((t) => !CJK.test(t)));
   const out = pick(output);
   const inn = new Set(pick(input));
   const outSet = new Set(out);
@@ -64,11 +66,11 @@ export function isPassthrough(input, output, threshold = 0.6) {
  */
 export default class LiveGate {
   /**
-   * @param {{minChars?: number, holdMs?: number, threshold?: number, windowMs?: number, recheckChars?: number, fallback?: () => boolean}} [opts]
+   * @param {{minChars?: number, holdMs?: number, threshold?: number, windowMs?: number, recheckChars?: number, tailChars?: number, recheckStep?: number, fallback?: () => boolean}} [opts]
    *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, fallback = null } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, fallback });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, fallback = null } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, fallback });
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
     this.reset();
   }
@@ -80,6 +82,8 @@ export default class LiveGate {
     this.basis = null; // how it was decided: 'compare' (source vs translated text) or 'fallback' (nothing to compare)
     this.held = [];
     this.heldSince = 0;
+    this.lastCheckLen = 0;
+    this.streak = { to: null, n: 0 };
   }
 
   get playing() {
@@ -98,7 +102,7 @@ export default class LiveGate {
       this.log = this.log.filter((e) => e.at >= now - this.windowMs * 3);
     } else this.output += delta;
     if (this.mode === 'undecided') return this.tryDecide(now, false);
-    if (this.mode === 'play') this.recheck(now);
+    else this.reevaluate(now);
     return [];
   }
 
@@ -111,11 +115,27 @@ export default class LiveGate {
     return this.tryDecide(now, true);
   }
 
-  /** A burst that was let through but clearly repeats the source: cut it. */
-  recheck(now) {
-    if (this.output.trim().length >= this.recheckChars && isPassthrough(this.reference(now), this.output, this.threshold)) {
-      this.mode = 'mute';
+  /**
+   * The decision is not for the whole burst: people answer each other while the previous translation is still being
+   * spoken, so the SAME direction can go from "translating" to "just repeating" (or back) within one burst. Every few
+   * characters the recent end of the translated text is compared with what was said lately; two verdicts in a row
+   * that disagree with the current mode flip it.
+   */
+  reevaluate(now) {
+    if (this.output.length - this.lastCheckLen < this.recheckStep || this.output.trim().length < this.recheckChars) return;
+    this.lastCheckLen = this.output.length;
+    const ref = this.reference(now);
+    if (!ref.trim()) return; // nothing to compare: keep the decision
+    const want = isPassthrough(ref, this.output.slice(-this.tailChars), this.threshold) ? 'mute' : 'play';
+    if (want === this.mode) {
+      this.streak = { to: null, n: 0 };
+      return;
+    }
+    this.streak = this.streak.to === want ? { to: want, n: this.streak.n + 1 } : { to: want, n: 1 };
+    if (this.streak.n >= 2) {
+      this.mode = want;
       this.basis = 'compare';
+      this.streak = { to: null, n: 0 };
     }
   }
 
