@@ -1,3 +1,4 @@
+import { micProblem } from '../utils/micHealth.js';
 import { getLanguage, PAN, SIDE } from '../config/languages.js';
 import { isEcho } from '../utils/echo.js';
 import { defaultTimers } from '../utils/timers.js';
@@ -400,10 +401,11 @@ export default class TranslationEngine {
     this.timers.clearInterval(turn.stallTimer);
     turn.stallTimer = this.timers.setInterval(async () => {
       if (this.turnId !== turn.id || turn.ended || turn.restarting) return;
-      const last = this.mic.stats?.lastChunkAt;
-      if (!last || Date.now() - last < this.stallMs) return;
+      const problem = micProblem(this.mic.stats, Date.now(), { stallMs: this.stallMs });
+      if (!problem || Date.now() - (turn.lastRestartAt ?? 0) < 10000) return;
+      turn.lastRestartAt = Date.now();
       turn.restarting = true;
-      this.emit({ type: 'note', text: `micro silencieux depuis ${Math.round((Date.now() - last) / 1000)} s → redémarrage` });
+      this.emit({ type: 'note', text: `${problem} → redémarrage` });
       try {
         await this.mic.restart();
         if (this.turnId === turn.id && !turn.ended) this.mic.setSink(onChunk);

@@ -342,3 +342,29 @@ test('the source transcript is taken from the transcribing session only (Gemini 
   assert.equal(second.stats.inChars, 0, 'the second session transcribed nothing as far as the journal is concerned');
   engine.cancel();
 });
+
+test('no audio after the tap: the mic is restarted once, then the turn fails with a clear message', async () => {
+  const restarts = [];
+  const { engine, events } = setup({ noAudioMs: 30 });
+  engine.mic.restart = async () => void restarts.push(1);
+  await engine.toggle('A'); // the mic never delivers a chunk
+  await pause(120);
+  assert.equal(restarts.length, 1, 'restarted once');
+  assert.ok(events.some((e) => e.type === 'note' && /aucun son reçu/.test(e.text)));
+  assert.ok(events.some((e) => e.type === 'error' && /ne renvoie aucun son/.test(e.error.message)));
+  assert.equal(engine.state, STATE.IDLE);
+});
+
+test('a mic that delivers only digital zeros is restarted during the turn', async () => {
+  const { engine, events, chunk } = setup();
+  engine.mic.stats = { chunks: 50, lastChunkAt: Date.now() + 60000, zeroRun: 0 }; // chunks keep coming (fresh timestamp)
+  let restarted = 0;
+  engine.mic.restart = async () => void restarted++;
+  await engine.toggle('A');
+  chunk(); // first chunk: the turn is live, the monitor is armed
+  engine.mic.stats.zeroRun = 45;
+  await pause(1300);
+  assert.ok(restarted >= 1);
+  assert.ok(events.some((e) => e.type === 'note' && /que des zéros/.test(e.text)));
+  engine.cancel();
+});
