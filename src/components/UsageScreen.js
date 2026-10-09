@@ -5,6 +5,7 @@ import { env } from '../config/env';
 import { PRICE_KEYS } from '../config/settingsModel';
 import { fetchQuotas } from '../utils/keyTest';
 import { DEFAULT_PRICES, deepgramSeconds, estimateCost, formatCount, formatDuration, formatMoney } from '../utils/usage';
+import { palette, themedStyles } from '../theme';
 
 const PRICE_LABELS = {
   deepgramNova2PerMin: 'Deepgram Nova-2 — $ par minute',
@@ -91,7 +92,7 @@ export default function UsageScreen({ visible, usage, prices, onPrices, onReset,
                 style={styles.input}
                 value={draft[key] ?? ''}
                 placeholder={String(DEFAULT_PRICES[key])}
-                placeholderTextColor="#55607F"
+                placeholderTextColor={palette().placeholder}
                 keyboardType="decimal-pad"
                 onChangeText={(t) => {
                   const clean = t.replace(',', '.');
@@ -137,24 +138,24 @@ function QuotaRow({ label, quota, loading }) {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0B0F1A' },
+const styles = themedStyles((c) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.bg },
   header: { flexDirection: 'row', alignItems: 'center', padding: 20, paddingTop: 40 },
-  title: { flex: 1, color: '#fff', fontSize: 24, fontWeight: '700' },
-  link: { color: '#6FA0FF', fontSize: 16 },
+  title: { flex: 1, color: c.text, fontSize: 24, fontWeight: '700' },
+  link: { color: c.link, fontSize: 16 },
   content: { padding: 16, paddingTop: 0, paddingBottom: 40 },
-  card: { backgroundColor: '#16233B', borderRadius: 12, padding: 14, marginBottom: 12 },
-  cardTitle: { color: '#C9D2EA', fontSize: 14, marginBottom: 8 },
+  card: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginBottom: 12 },
+  cardTitle: { color: c.textSoft, fontSize: 14, marginBottom: 8 },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 3 },
-  rowLabel: { color: '#9AA6C4', fontSize: 14, flex: 2 },
-  rowValue: { color: '#fff', fontSize: 14, flex: 2, textAlign: 'right' },
-  rowMoney: { color: '#7CE0A3', fontSize: 14, flex: 1.4, textAlign: 'right' },
+  rowLabel: { color: c.textMuted, fontSize: 14, flex: 2 },
+  rowValue: { color: c.text, fontSize: 14, flex: 2, textAlign: 'right' },
+  rowMoney: { color: c.success, fontSize: 14, flex: 1.4, textAlign: 'right' },
   bold: { fontWeight: '700' },
-  sep: { height: 1, backgroundColor: '#FFFFFF22', marginVertical: 6 },
-  section: { color: '#fff', fontSize: 18, fontWeight: '700', marginTop: 16, marginBottom: 8 },
-  note: { color: '#9AA6C4', fontSize: 13, marginVertical: 8 },
-  label: { color: '#C9D2EA', fontSize: 14, marginTop: 10, marginBottom: 4 },
-  input: { backgroundColor: '#16233B', color: '#fff', borderRadius: 10, padding: 12, fontSize: 16 },
-  reset: { backgroundColor: '#3A1B1B', borderRadius: 12, padding: 14, alignItems: 'center', marginTop: 20 },
-  resetText: { color: '#FF8A80', fontSize: 16, fontWeight: '600' },
-});
+  sep: { height: 1, backgroundColor: c.track, marginVertical: 6 },
+  section: { color: c.text, fontSize: 18, fontWeight: '700', marginTop: 16, marginBottom: 8 },
+  note: { color: c.textMuted, fontSize: 13, marginVertical: 8 },
+  label: { color: c.textSoft, fontSize: 14, marginTop: 10, marginBottom: 4 },
+  input: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, color: c.text, borderRadius: 10, padding: 12, fontSize: 16 },
+  reset: { backgroundColor: c.dangerBg, borderRadius: 12, padding: 14, alignItems: 'center', marginTop: 20 },
+  resetText: { color: c.danger, fontSize: 16, fontWeight: '600' },
+}));

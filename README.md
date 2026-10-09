@@ -234,6 +234,12 @@ la voix est celle du service (pas d'ElevenLabs, donc ni voix choisies ni « voix
 la voix de sortie est en 24 kHz (documenté ; un premier essai qui la déduisait de la taille des morceaux, 19 200 octets = 400 ms, l'avait prise pour du 48 kHz et jouée deux fois trop vite) ; le journal note chaque passage (« passage A→B lu : … → … ») et les événements inconnus du service.
 Écrit d'après la documentation d'OpenAI et des sources tierces, **sans pouvoir l'essayer ici** : les événements ignorés ou les erreurs apparaissent dans le journal.
 
+## Apparence et réglages
+
+- **Thème clair / sombre** : ⚙︎ → Apparence → Auto (suit le téléphone), Clair ou Sombre. Le changement s'applique tout de suite, avant même d'enregistrer. Les deux palettes (`src/theme/index.js`) ont les mêmes jetons de couleur ; un test vérifie le contraste de chaque texte sur chaque fond dans les deux thèmes. Les écrans lisent le thème au moment de s'afficher (`themedStyles`), il n'y a aucune couleur écrite en dur.
+- **Réglages en sections repliables** : en haut, un résumé (mode, langues, clés complètes ou non, apparence) ; puis Traduction, Clés API, Micro, Voix, Apparence, Arrière-plan. Seule « Traduction » est ouverte (et « Clés API » quand il en manque) ; le bouton Enregistrer reste en bas de l'écran.
+- **Comptes rendus de réunion** : le texte du modèle (titres, puces, **gras**) est mis en page au lieu d'être affiché avec ses symboles (`src/utils/markdown.js`, `src/components/MarkdownText.js`).
+
 ## Consommation facturée
 
 Le bouton **📊** (minutes d'écoute du jour) ouvre l'écran « Consommation » : pour cette session, aujourd'hui, ce mois-ci et depuis le début,

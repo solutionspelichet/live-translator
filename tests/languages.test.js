@@ -40,6 +40,7 @@ test('sanitizeSettings keeps valid values', () => {
   assert.deepEqual(s, {
     languages: { A: 'de', B: 'es' },
     strategy: 'classic',
+    theme: 'system',
     autoStop: false,
     background: false,
     micGain: 16,
@@ -199,4 +200,11 @@ test('geminiOutputCode: our codes mapped to the ones Gemini Live Translate expec
   assert.equal(geminiOutputCode('ar-MA'), 'ar');
   assert.equal(geminiOutputCode('fr'), 'fr');
   assert.equal(geminiOutputCode('xx'), null);
+});
+
+test('sanitizeSettings: theme is system, light or dark', () => {
+  assert.equal(sanitizeSettings({}).theme, 'system');
+  assert.equal(sanitizeSettings({ theme: 'light' }).theme, 'light');
+  assert.equal(sanitizeSettings({ theme: 'dark' }).theme, 'dark');
+  assert.equal(sanitizeSettings({ theme: 'pink' }).theme, 'system');
 });

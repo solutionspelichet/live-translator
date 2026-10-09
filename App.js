@@ -2,7 +2,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Haptics from 'expo-haptics';
-import { Alert, AppState, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Pressable, Share, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
 import HistoryScreen from './src/components/HistoryScreen';
 import MeetingsScreen from './src/components/MeetingsScreen';
@@ -28,6 +28,7 @@ import { nextHistoryId, parseHistory } from './src/utils/history';
 import { describeError } from './src/utils/http';
 import MicIdleController from './src/utils/micIdle';
 import { deepgramSeconds } from './src/utils/usage';
+import { palette, resolveTheme, setTheme, themedStyles } from './src/theme';
 
 export default function App() {
   useKeepAwake();
@@ -38,31 +39,45 @@ export default function App() {
   const [version, setVersion] = useState(0);
   // Language bound to each side AND each ear (A = left earbud, B = right earbud), auto-send…
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  // Light / dark: the choice (or the phone's setting), previewed live from the settings screen. The screens read the active theme
+  // when they render, so changing it just re-renders the tree (no remount: the settings form keeps what was typed).
+  const systemScheme = useColorScheme();
+  const [previewTheme, setPreviewTheme] = useState(null);
+  setTheme(resolveTheme(previewTheme ?? settings.theme, systemScheme));
 
   useEffect(() => {
     Promise.all([loadStoredKeys(), loadSettings().then(setSettings), UsageTracker.load(), EventLog.load()]).finally(() => setReady(true));
   }, []);
 
   if (!ready) return <View style={styles.missing} />;
+  const bar = <StatusBar style={palette().scheme === 'dark' ? 'light' : 'dark'} />;
   if (editing || missingEnv(settings.strategy).length) {
     return (
+      <>
+        {bar}
       <SetupScreen
         settings={settings}
+        onPreviewTheme={setPreviewTheme}
         onDone={(saved) => {
+          setPreviewTheme(null);
           setSettings(saved);
           setVersion((v) => v + 1);
           setEditing(false);
         }}
       />
+      </>
     );
   }
   if (meetings) {
     return (
+      <>
+        {bar}
       <MeetingsScreen
         settings={settings}
         onSettingsChange={(next) => saveSettings(next).then(setSettings)}
         onClose={() => setMeetings(false)}
       />
+      </>
     );
   }
   return (
@@ -279,7 +294,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
 
   return (
     <View style={styles.flex}>
-      <StatusBar style="light" />
+      <StatusBar style={palette().scheme === 'dark' ? 'light' : 'dark'} />
       <SplitScreen
         languages={languages}
         state={state}
@@ -389,9 +404,9 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themedStyles((c) => StyleSheet.create({
   flex: { flex: 1 },
-  missing: { flex: 1, backgroundColor: '#0B0F1A' },
+  missing: { flex: 1, backgroundColor: c.bg },
   controls: {
     position: 'absolute',
     left: 8,
@@ -404,22 +419,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  chip: { height: 38, paddingHorizontal: 12, borderRadius: 19, backgroundColor: '#000C', justifyContent: 'center' },
-  chipOn: { backgroundColor: '#1F8F4E' },
+  chip: { height: 38, paddingHorizontal: 12, borderRadius: 19, backgroundColor: c.overlay, justifyContent: 'center' },
+  chipOn: { backgroundColor: c.successStrong },
   chipDim: { opacity: 0.4 },
-  chipRec: { backgroundColor: '#C0392B' },
-  chipText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  chipRec: { backgroundColor: c.dangerStrong },
+  chipText: { color: c.onAccent, fontSize: 14, fontWeight: '700' },
   gear: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#000C',
+    backgroundColor: c.overlay,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  diag: { position: 'absolute', left: 8, right: 8, bottom: 24, backgroundColor: '#000D', borderRadius: 8, padding: 8 },
-  diagText: { color: '#7CE0A3', fontFamily: 'Courier', fontSize: 11 },
-  diagShare: { alignSelf: 'flex-end', backgroundColor: '#2F6FED', borderRadius: 12, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 6 },
-  diagShareText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  gearText: { color: '#fff', fontSize: 20 },
-});
+  diag: { position: 'absolute', left: 8, right: 8, bottom: 24, backgroundColor: c.overlayStrong, borderRadius: 8, padding: 8 },
+  diagText: { color: c.success, fontFamily: 'Courier', fontSize: 11 },
+  diagShare: { alignSelf: 'flex-end', backgroundColor: c.accent, borderRadius: 12, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 6 },
+  diagShareText: { color: c.onAccent, fontSize: 12, fontWeight: '700' },
+  gearText: { color: c.onAccent, fontSize: 20 },
+}));
