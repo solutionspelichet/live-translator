@@ -64,9 +64,9 @@ test('connects with the key in the URL, sends the setup (target language, silent
       model: 'models/gemini-3.5-live-translate-preview',
       generationConfig: {
         responseModalities: ['AUDIO'],
-        outputAudioTranscription: {},
         translationConfig: { targetLanguageCode: 'zh-Hans', echoTargetLanguage: false },
       },
+      outputAudioTranscription: {},
     },
   });
   assert.equal(sockets[0].sent.length, 1, 'audio waits for setupComplete');
@@ -80,9 +80,11 @@ test('transcribeInput asks for the source transcript; echo can be turned on', ()
   const { session, sockets } = make({ transcribeInput: true, echo: true });
   session.connect();
   sockets[0].open();
-  const config = sockets[0].sent[0].setup.generationConfig;
-  assert.deepEqual(config.inputAudioTranscription, {});
-  assert.equal(config.translationConfig.echoTargetLanguage, true);
+  const { setup } = sockets[0].sent[0];
+  assert.deepEqual(setup.inputAudioTranscription, {}, 'transcription switches sit at the setup level');
+  assert.equal(setup.generationConfig.inputAudioTranscription, undefined);
+  assert.equal(setup.generationConfig.outputAudioTranscription, undefined);
+  assert.equal(setup.generationConfig.translationConfig.echoTargetLanguage, true);
 });
 
 test('translated audio (24 kHz) and both transcripts are delivered, from text and binary frames', async () => {
@@ -155,4 +157,16 @@ test('abort() stops everything and ignores late messages', () => {
   sockets[0].message({ serverContent: { outputTranscription: { text: 'late' } } });
   assert.deepEqual(got.outText, []);
   assert.equal(sockets[0].closed, true);
+});
+
+test('a payload refused by the service (1007) fails at once with its reason, instead of retrying 30 times', async () => {
+  const { session, sockets, got } = make();
+  session.connect();
+  sockets[0].open();
+  sockets[0].onclose({ code: 1007, reason: "Invalid JSON payload received. Unknown name \"foo\" at 'setup': Cannot find field." });
+  await pause(450);
+  assert.equal(sockets.length, 1, 'no reconnection');
+  assert.equal(got.errors.length, 1);
+  assert.equal(got.errors[0].status, 400);
+  assert.match(String(got.errors[0].message), /Unknown name/);
 });

@@ -82,13 +82,18 @@ export default class GeminiLiveSession {
     this.ws = ws;
     ws.onopen = () => {
       if (this.ws !== ws) return;
-      const generationConfig = {
-        responseModalities: ['AUDIO'],
+      // The transcription switches belong to `setup` itself (the server rejects them inside generationConfig, error 1007);
+      // the translation settings belong to generationConfig.
+      const setup = {
+        model: MODEL,
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          translationConfig: { targetLanguageCode: this.target, echoTargetLanguage: this.echo },
+        },
         outputAudioTranscription: {},
-        translationConfig: { targetLanguageCode: this.target, echoTargetLanguage: this.echo },
       };
-      if (this.transcribeInput) generationConfig.inputAudioTranscription = {};
-      this.send({ setup: { model: MODEL, generationConfig } });
+      if (this.transcribeInput) setup.inputAudioTranscription = {};
+      this.send({ setup });
     };
     ws.onmessage = (e) => {
       if (this.ws !== ws) return;
@@ -106,6 +111,8 @@ export default class GeminiLiveSession {
       if (this.closing || this.dead) return this.finishClose();
       const reason = String(e?.reason ?? '').replace(this.apiKey ?? '', '…');
       if (KEY_PROBLEM.test(reason)) return this.fail(new ApiError('Gemini', 401, reason || 'clé refusée'));
+      // 1007 = the server rejected what we sent (invalid payload), 1008 = policy: retrying the same thing cannot help.
+      if (e?.code === 1007 || e?.code === 1008) return this.fail(new ApiError('Gemini', 400, reason || `refusé par le service (${e.code})`));
       this.lost(`${e?.code ?? ''} ${reason}`.trim());
     };
   }
