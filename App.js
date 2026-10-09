@@ -112,6 +112,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       .init()
       .then(() => audio.selectInput(settings.input))
       .then(() => engine.warmUp())
+      .then(() => micIdle.verifySoon()) // the recorder just started: make sure it delivers sound, not zeros
       .then(() => {
         // Optional and non-blocking: must never get in the way of the microphone.
         if (settings.background) BackgroundService.start();

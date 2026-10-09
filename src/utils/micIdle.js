@@ -7,7 +7,11 @@
 //   - app in the foreground: stay warm for a while (`foregroundMs`), then release; the next tap reopens it.
 // Coming back to the foreground re-opens it (warm again).
 
+import { micProblem } from './micHealth.js';
+
 const IDLE = 'idle';
+const CHECK_AFTER_MS = 2500; // after (re)opening the mic: is it really delivering sound?
+const ZERO_CHUNKS = 15; // 1.5 s of exact zeros (chunks are 100 ms)
 
 export default class MicIdleController {
   /**
@@ -22,7 +26,9 @@ export default class MicIdleController {
   constructor({ engine, timers, appState = 'active', foregroundMs = 5 * 60 * 1000, backgroundMs = 15 * 1000, onNote }) {
     Object.assign(this, { engine, timers, appState, foregroundMs, backgroundMs, onNote });
     this.timer = null;
+    this.checkTimer = null;
     this.reschedule();
+    this.verifySoon(); // launch: the recorder is started while the app is still settling in the foreground
   }
 
   /** The engine changed state (a turn started, ended, was cancelled…). */
@@ -38,7 +44,26 @@ export default class MicIdleController {
       this.cancel();
       Promise.resolve(this.engine.warmUp()).catch(() => {});
       this.reschedule();
+      this.verifySoon();
     } else this.reschedule();
+  }
+
+  /**
+   * A capture started while the app is not fully in the foreground (cold start, returning from the background) can be silenced by
+   * Android: chunks keep coming but they are all exact zeros, with no error. Look a moment after opening, and reopen it if so.
+   */
+  verifySoon() {
+    this.timers.clearTimeout(this.checkTimer);
+    this.checkTimer = this.timers.setTimeout(() => {
+      this.checkTimer = null;
+      const mic = this.engine.mic;
+      if (!mic?.running || this.engine.state !== IDLE) return; // released, or a turn is on (its own monitor watches it)
+      const problem = micProblem(mic.stats, Date.now(), { zeroChunks: ZERO_CHUNKS });
+      if (!problem) return;
+      this.onNote?.(`${problem} juste après l'ouverture → redémarrage du micro`);
+      Promise.resolve(mic.restart?.()).catch(() => {});
+    }, CHECK_AFTER_MS);
+    this.checkTimer.unref?.();
   }
 
   cancel() {
@@ -61,5 +86,6 @@ export default class MicIdleController {
 
   dispose() {
     this.cancel();
+    this.timers.clearTimeout(this.checkTimer);
   }
 }
