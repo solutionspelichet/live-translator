@@ -96,3 +96,19 @@ test('LiveGate: a burst let through on a few words is cut when it turns out to r
   assert.equal(g.playing, false);
   assert.deepEqual(g.audio(new Float32Array(4).fill(0.1), 320), []);
 });
+
+test('isPassthrough: a short source transcript fully found in a long output is a repetition (the voice runs ahead of the transcript)', () => {
+  assert.equal(isPassthrough('ils sont jeunes', 'Et derrière, tout est manipulé : plus ils sont jeunes'), true);
+  assert.equal(isPassthrough('ils sont jeunes', 'And behind it, everything is manipulated; the younger they are'), false);
+  assert.equal(isPassthrough('bon', 'bon alors on y va tous ensemble'), false, 'one word proves nothing');
+});
+
+test('LiveGate fallback: nothing to compare → the fallback decides who may speak', () => {
+  const quiet = new LiveGate({ holdMs: 100, fallback: () => false });
+  quiet.audio(new Float32Array(4).fill(0.1), 0);
+  assert.deepEqual(quiet.audio(new Float32Array(4).fill(0.1), 200), []);
+  assert.equal(quiet.playing, false);
+  const loud = new LiveGate({ holdMs: 100, fallback: () => true });
+  loud.audio(new Float32Array(4).fill(0.1), 0);
+  assert.equal(loud.audio(new Float32Array(4).fill(0.1), 200).length, 2);
+});

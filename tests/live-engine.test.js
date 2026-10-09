@@ -248,3 +248,33 @@ test('continuous speech: a history segment is cut every ~220 translated characte
   assert.ok(segments.every((s) => s.translated.length >= 100));
   engine.cancel();
 });
+
+test('hands-free without any source transcript: only ONE direction speaks (the first to run out of patience wins, the sibling stays silent)', async () => {
+  const { engine, sessions, played, chunk, audioPiece } = setup({ gate: { holdMs: 40 }, burstGapMs: 600 });
+  await engine.toggle(AUTO);
+  chunk();
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  sessions[1].opts.onAudio(audioPiece(), 24000);
+  await pause(60);
+  sessions[0].opts.onAudio(audioPiece(), 24000); // A→B runs out of patience first
+  sessions[1].opts.onAudio(audioPiece(), 24000);
+  await pause(30);
+  assert.equal(played.length, 1, 'a single voice');
+  engine.cancel();
+});
+
+test('hands-free without transcript: the direction that was real last time keeps the floor', async () => {
+  const { engine, sessions, played, chunk, audioPiece } = setup({ gate: { holdMs: 40 }, burstGapMs: 600 });
+  await engine.toggle(AUTO);
+  chunk();
+  engine.turn.lastReal = 'B'; // B→A was the real one before (the speaker was talking language B)
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  sessions[1].opts.onAudio(audioPiece(), 24000);
+  await pause(60);
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  sessions[1].opts.onAudio(audioPiece(), 24000);
+  await pause(30);
+  assert.equal(played.length, 1);
+  assert.equal(played[0].pan, -1, 'B→A plays towards language A = left ear');
+  engine.cancel();
+});

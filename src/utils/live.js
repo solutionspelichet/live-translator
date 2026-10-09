@@ -38,10 +38,17 @@ export function isPassthrough(input, output, threshold = 0.6) {
   const pick = (text) => (cjk ? [...text.replace(/[\s\p{P}\p{S}]+/gu, '')] : tokens(text));
   const out = pick(output);
   const inn = new Set(pick(input));
+  const outSet = new Set(out);
   if (out.length < (cjk ? 3 : 2) || !inn.size) return false;
-  let shared = 0;
-  for (const t of out) if (inn.has(t)) shared++;
-  return shared / out.length >= threshold;
+  let sharedOut = 0; // words of the output found in the source
+  for (const t of out) if (inn.has(t)) sharedOut++;
+  let sharedIn = 0; // words of the source found in the output
+  for (const t of inn) if (outSet.has(t)) sharedIn++;
+  // Either the output is contained in what was said (the usual case), or — the source transcript is often a few words
+  // while the voice already produced a whole sentence — what was said is contained in the output.
+  const bigEnough = inn.size >= (cjk ? 5 : 3);
+  const ratio = Math.max(sharedOut / out.length, bigEnough ? sharedIn / inn.size : 0);
+  return ratio >= threshold && Math.max(sharedOut, sharedIn) >= (cjk ? 3 : 2);
 }
 
 /**
@@ -57,10 +64,11 @@ export function isPassthrough(input, output, threshold = 0.6) {
  */
 export default class LiveGate {
   /**
-   * @param {{minChars?: number, holdMs?: number, threshold?: number, windowMs?: number, recheckChars?: number}} [opts]
+   * @param {{minChars?: number, holdMs?: number, threshold?: number, windowMs?: number, recheckChars?: number, fallback?: () => boolean}} [opts]
+   *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16 } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, fallback = null } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, fallback });
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
     this.reset();
   }
@@ -121,8 +129,9 @@ export default class LiveGate {
     const enough = ref.trim().length >= this.minChars && this.output.trim().length >= this.minChars;
     const expired = this.held.length > 0 && now - this.heldSince >= this.holdMs;
     if (!enough && !(expired && onAudio)) return [];
-    // Out of time without a way to compare: let it through (better a duplicate than a lost translation).
-    this.mode = enough && isPassthrough(ref, this.output, this.threshold) ? 'mute' : 'play';
+    // Out of time without a way to compare: ask the fallback (default: let it through, better a duplicate than a loss).
+    if (enough) this.mode = isPassthrough(ref, this.output, this.threshold) ? 'mute' : 'play';
+    else this.mode = this.fallback && !this.fallback() ? 'mute' : 'play';
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
     return released;

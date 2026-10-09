@@ -127,7 +127,7 @@ export default class LiveTranslationEngine {
     this.setState(STATE.STARTING);
 
     for (const [index, [from, to]] of pairs.entries()) {
-      const d = { from, to, gate: auto ? new LiveGate(this.gateOptions) : null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 } };
+      const d = { from, to, gate: null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 } };
       const label = `${from}→${to}`;
       d.session = this.createSession({
         target: liveOutputCode(this.languages[to]),
@@ -141,6 +141,19 @@ export default class LiveTranslationEngine {
         onNote: (text) => this.emit({ type: 'note', text }),
         onError: (error) => this.fail(id, error),
       });
+      if (auto) {
+        // No source transcript to compare with (it can be sparse): only ONE direction may speak. The sibling already chosen
+        // wins; otherwise the direction that was the real one last time (a conversation tends to stay in a language).
+        d.gate = new LiveGate({
+          ...this.gateOptions,
+          fallback: () => {
+            const sibling = turn.dirs.find((x) => x !== d);
+            if (sibling?.gate?.mode === 'play') return false;
+            if (sibling?.gate?.mode === 'mute') return true;
+            return turn.lastReal ? turn.lastReal === d.from : true;
+          },
+        });
+      }
       turn.dirs.push(d);
       d.session.connect();
     }
@@ -220,6 +233,7 @@ export default class LiveTranslationEngine {
   }
 
   play(turn, d, samples) {
+    turn.lastReal = d.from;
     if (!d.stream) {
       const stream = new TtsStream();
       stream.sampleRate = d.rate;
