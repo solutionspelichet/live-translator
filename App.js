@@ -26,6 +26,7 @@ import { AUTO, STATE } from './src/services/TranslationEngine';
 import { formatClock } from './src/utils/diarize';
 import { nextHistoryId, parseHistory } from './src/utils/history';
 import { describeError } from './src/utils/http';
+import MicIdleController from './src/utils/micIdle';
 import { deepgramSeconds } from './src/utils/usage';
 
 export default function App() {
@@ -102,6 +103,9 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
   const historyLoaded = useRef(false);
 
   useEffect(() => {
+    // Nothing to translate for a while: release the microphone (see micIdle.js). The next tap, or coming back to the app, reopens it.
+    const micIdle = new MicIdleController({ engine, timers: BackgroundTimers, appState: AppState.currentState, onNote: (text) => EventLog.add(text) });
+
     // Audio session first, then open the mic (the first tap is then instant), then the optional
     // background service (must start while the app is visible).
     audio
@@ -122,12 +126,13 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     const appState = AppState.addEventListener('change', (next) => {
       const d = engine.diagnostics();
       EventLog.add(`app: ${next} (micro ${d.micRunning ? 'ouvert' : 'fermé'}, ${d.chunks} paquets, dernier il y a ${d.msSinceChunk ?? '—'} ms)`);
-      if (next === 'active') engine.warmUp();
+      micIdle.onAppState(next); // back in the foreground: open the mic again
     });
 
     const off = engine.subscribe((ev) => {
       if (ev.type === 'state') {
         EventLog.add(`état: ${ev.state}`);
+        micIdle.onState(ev.state);
         setState(ev.state);
         setActiveSide(ev.side);
         if (ev.state === STATE.STARTING) setTexts({ [SIDE.A]: '', [SIDE.B]: '' });
@@ -162,6 +167,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     return () => {
       off();
       appState.remove();
+      micIdle.dispose();
       engine.sleep();
       if (settings.background) BackgroundService.stop();
       audio.dispose();
@@ -185,7 +191,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     const changed = engine.mic.configure({ source: settings.micSource, input: settings.input, agc: settings.micAgc });
     audio
       .selectInput(settings.input)
-      .then(() => changed && engine.mic.restart())
+      .then(() => changed && engine.mic.running && engine.mic.restart()) // a released mic simply opens with the new settings at the next tap
       .catch(() => {});
   }, [engine, inputKey, settings.micSource, settings.micAgc]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -194,7 +200,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     const t = BackgroundTimers.setInterval(() => {
       const d = engine.diagnostics();
       EventLog.add(
-        `♥ ${AppState.currentState} · état ${d.state} · micro ${d.micRunning ? 'ouvert' : 'FERMÉ'} (${d.chunks} paquets, dernier il y a ${d.msSinceChunk ?? '—'} ms) · ${d.sttLabel ?? 'Deepgram'} ${d.stt ?? '—'} · veille ${BackgroundService.lockHeld ? 'verrou' : 'SANS verrou'} · batterie ${Power.isIgnoringBatteryOptimizations() ? 'sans limite' : 'LIMITÉE'}`,
+        `♥ ${AppState.currentState} · état ${d.state} · micro ${d.micRunning ? 'ouvert' : d.state === STATE.IDLE ? 'coupé (veille)' : 'FERMÉ'} (${d.chunks} paquets, dernier il y a ${d.msSinceChunk ?? '—'} ms) · ${d.sttLabel ?? 'Deepgram'} ${d.stt ?? '—'} · veille ${BackgroundService.lockHeld ? 'verrou' : 'SANS verrou'} · batterie ${Power.isIgnoringBatteryOptimizations() ? 'sans limite' : 'LIMITÉE'}`,
       );
     }, 60000);
     return () => BackgroundTimers.clearInterval(t);
