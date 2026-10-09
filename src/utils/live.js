@@ -53,6 +53,21 @@ export function isPassthrough(input, output, threshold = 0.6) {
   return ratio >= threshold && Math.max(sharedOut, sharedIn) >= (cjk ? 3 : 2);
 }
 
+const CJK_LANGS = new Set(['zh', 'ja', 'ko']);
+const LATIN_LANGS = new Set(['en', 'fr', 'es', 'pt', 'de', 'it', 'id', 'vi']);
+/** 'cjk' | 'latin' | null (other scripts) */
+export function scriptOf(code) {
+  const base = String(code ?? '').toLowerCase().split(/[-_]/)[0];
+  return CJK_LANGS.has(base) ? 'cjk' : LATIN_LANGS.has(base) ? 'latin' : null;
+}
+
+/** Share of CJK in a text, counting a Latin word as ~1.7 characters; null when there is too little text. */
+export function cjkShare(text) {
+  const cjk = [...text].filter((c) => CJK.test(c)).length;
+  const latin = tokens(text.replace(/[぀-ヿ㐀-鿿가-힯]/gu, ' ')).filter((t) => /\p{L}/u.test(t)).length * 1.7;
+  return cjk + latin < 4 ? null : cjk / (cjk + latin);
+}
+
 /**
  * Hands-free runs two sessions on the same microphone, one per direction (A→B and B→A). Whatever the
  * speaker says, the direction whose target is the language ALREADY spoken just repeats it. The gate holds
@@ -67,10 +82,12 @@ export function isPassthrough(input, output, threshold = 0.6) {
 export default class LiveGate {
   /**
    * @param {{minChars?: number, holdMs?: number, threshold?: number, windowMs?: number, recheckChars?: number, tailChars?: number, recheckStep?: number, fallback?: () => boolean}} [opts]
+   *   `scriptRule`: the two languages use different scripts (e.g. French/Chinese): the script of what was said tells at once
+   *   whether a direction repeats it (paraphrases defeat word comparison); only an unclear mix falls back to comparing words
    *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, fallback = null } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, fallback });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, fallback = null } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, fallback });
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
     this.reset();
   }
@@ -93,6 +110,19 @@ export default class LiveGate {
   /** What was said lately (source transcript of the last `windowMs`). */
   reference(now = Date.now()) {
     return this.log.filter((e) => e.at >= now - this.windowMs).map((e) => e.text).join('');
+  }
+
+  /** Is `output` (a direction's translated text) a repetition of what was said (`ref`)? */
+  repeats(ref, output) {
+    if (this.scriptRule) {
+      const share = cjkShare(ref);
+      if (share !== null) {
+        const outCjk = CJK.test(output);
+        if (share >= 0.7) return outCjk; // said in Chinese: a Chinese output repeats it
+        if (share <= 0.3) return !outCjk; // said in French: a French output repeats it
+      }
+    }
+    return isPassthrough(ref, output, this.threshold);
   }
 
   /** Transcript text (`kind` = 'in' source | 'out' translated). Returns audio released by the decision. */
@@ -126,7 +156,7 @@ export default class LiveGate {
     this.lastCheckLen = this.output.length;
     const ref = this.reference(now);
     if (!ref.trim()) return; // nothing to compare: keep the decision
-    const want = isPassthrough(ref, this.output.slice(-this.tailChars), this.threshold) ? 'mute' : 'play';
+    const want = this.repeats(ref, this.output.slice(-this.tailChars)) ? 'mute' : 'play';
     if (want === this.mode) {
       this.streak = { to: null, n: 0 };
       return;
@@ -142,7 +172,7 @@ export default class LiveGate {
   /** End of the burst with audio still held and no decision: decide with what we have and release. */
   flush(now = Date.now()) {
     if (this.mode !== 'undecided' || !this.held.length) return [];
-    this.mode = isPassthrough(this.reference(now), this.output, this.threshold) ? 'mute' : 'play';
+    this.mode = this.repeats(this.reference(now), this.output) ? 'mute' : 'play';
     this.basis = this.reference(now).trim() && this.output.trim() ? 'compare' : 'fallback';
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
@@ -156,7 +186,7 @@ export default class LiveGate {
     if (!enough && !(expired && onAudio)) return [];
     // Out of time without a way to compare: ask the fallback (default: let it through, better a duplicate than a loss).
     this.basis = enough ? 'compare' : 'fallback';
-    if (enough) this.mode = isPassthrough(ref, this.output, this.threshold) ? 'mute' : 'play';
+    if (enough) this.mode = this.repeats(ref, this.output) ? 'mute' : 'play';
     else this.mode = this.fallback && !this.fallback() ? 'mute' : 'play';
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];

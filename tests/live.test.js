@@ -139,3 +139,24 @@ test('isPassthrough: a window holding French AND Chinese does not make letters m
   assert.equal(isPassthrough(said, "D'accord, pas de problème, on se retrouve demain matin"), false);
   assert.equal(isPassthrough(said, '我认为明天会很顺利的我们见面'), false);
 });
+
+test('LiveGate scriptRule: a French paraphrase of French speech is a repetition, Chinese output of French speech is a translation', () => {
+  const said = "c'est pas c'est c'est pas désagréable, c'est pas gênant";
+  const fr = new LiveGate({ scriptRule: true });
+  fr.text('in', said, 1000);
+  fr.text('out', 'Euh, assez silencieuse. Non, ce n’est pas', 1100);
+  assert.equal(fr.audio([1], 1200).length, 0);
+  assert.equal(fr.mode, 'mute');
+  const zh = new LiveGate({ scriptRule: true });
+  zh.text('in', said, 1000);
+  zh.text('out', '这不难受、不碍事,总比其他车更好', 1100);
+  assert.equal(zh.audio([1], 1200).length, 1);
+  assert.equal(zh.mode, 'play');
+});
+
+test('LiveGate scriptRule: Chinese speech makes the French output the real translation', () => {
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', '是学习中文最难、最紧张的一部分。我非常理解', 1000);
+  g.text('out', 'Apprendre le chinois est la partie la plus difficile', 1100);
+  assert.equal(g.audio([1], 1200).length, 1);
+});

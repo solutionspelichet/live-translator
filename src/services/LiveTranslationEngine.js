@@ -1,5 +1,5 @@
 import { getLanguage, liveOutputCode, LIVE_OUTPUT_LANGUAGES, PAN, SIDE } from '../config/languages.js';
-import LiveGate, { toLiveAudio } from '../utils/live.js';
+import LiveGate, { scriptOf, toLiveAudio } from '../utils/live.js';
 import { rmsLevel } from '../utils/pcm.js';
 import { defaultTimers } from '../utils/timers.js';
 import TtsStream from '../utils/ttsStream.js';
@@ -146,6 +146,11 @@ export default class LiveTranslationEngine {
         // was chosen on EVIDENCE as the real one. Otherwise both speak: in the intended use (two people, one earbud each) the
         // repetition only reaches the speaker's own ear, while a wrong silence kills the translation for the listener.
         d.gate = new LiveGate({
+          scriptRule: (() => {
+            const a = scriptOf(liveOutputCode(this.languages[from]));
+            const b = scriptOf(liveOutputCode(this.languages[to]));
+            return !!a && !!b && a !== b;
+          })(),
           ...this.gateOptions,
           fallback: () => {
             const sibling = turn.dirs.find((x) => x !== d);
