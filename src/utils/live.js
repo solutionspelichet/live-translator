@@ -77,6 +77,7 @@ export default class LiveGate {
   reset() {
     this.output = '';
     this.mode = 'undecided'; // 'play' | 'mute'
+    this.basis = null; // how it was decided: 'compare' (source vs translated text) or 'fallback' (nothing to compare)
     this.held = [];
     this.heldSince = 0;
   }
@@ -112,13 +113,17 @@ export default class LiveGate {
 
   /** A burst that was let through but clearly repeats the source: cut it. */
   recheck(now) {
-    if (this.output.trim().length >= this.recheckChars && isPassthrough(this.reference(now), this.output, this.threshold)) this.mode = 'mute';
+    if (this.output.trim().length >= this.recheckChars && isPassthrough(this.reference(now), this.output, this.threshold)) {
+      this.mode = 'mute';
+      this.basis = 'compare';
+    }
   }
 
   /** End of the burst with audio still held and no decision: decide with what we have and release. */
   flush(now = Date.now()) {
     if (this.mode !== 'undecided' || !this.held.length) return [];
     this.mode = isPassthrough(this.reference(now), this.output, this.threshold) ? 'mute' : 'play';
+    this.basis = this.reference(now).trim() && this.output.trim() ? 'compare' : 'fallback';
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
     return released;
@@ -130,6 +135,7 @@ export default class LiveGate {
     const expired = this.held.length > 0 && now - this.heldSince >= this.holdMs;
     if (!enough && !(expired && onAudio)) return [];
     // Out of time without a way to compare: ask the fallback (default: let it through, better a duplicate than a loss).
+    this.basis = enough ? 'compare' : 'fallback';
     if (enough) this.mode = isPassthrough(ref, this.output, this.threshold) ? 'mute' : 'play';
     else this.mode = this.fallback && !this.fallback() ? 'mute' : 'play';
     const released = this.mode === 'play' ? this.held : [];

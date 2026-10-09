@@ -249,33 +249,34 @@ test('continuous speech: a history segment is cut every ~220 translated characte
   engine.cancel();
 });
 
-test('hands-free without any source transcript: only ONE direction speaks (the first to run out of patience wins, the sibling stays silent)', async () => {
+test('hands-free without any source transcript: both directions speak (a wrong silence would kill the translation)', async () => {
   const { engine, sessions, played, chunk, audioPiece } = setup({ gate: { holdMs: 40 }, burstGapMs: 600 });
   await engine.toggle(AUTO);
   chunk();
   sessions[0].opts.onAudio(audioPiece(), 24000);
   sessions[1].opts.onAudio(audioPiece(), 24000);
   await pause(60);
-  sessions[0].opts.onAudio(audioPiece(), 24000); // A→B runs out of patience first
+  sessions[0].opts.onAudio(audioPiece(), 24000);
   sessions[1].opts.onAudio(audioPiece(), 24000);
   await pause(30);
-  assert.equal(played.length, 1, 'a single voice');
+  assert.equal(played.length, 2, 'no evidence → no silence');
   engine.cancel();
 });
 
-test('hands-free without transcript: the direction that was real last time keeps the floor', async () => {
+test('a direction is silenced when its sibling was chosen on EVIDENCE (text comparison) as the real one', async () => {
   const { engine, sessions, played, chunk, audioPiece } = setup({ gate: { holdMs: 40 }, burstGapMs: 600 });
   await engine.toggle(AUTO);
   chunk();
-  engine.turn.lastReal = 'B'; // B→A was the real one before (the speaker was talking language B)
+  // A→B has text to compare (a real translation); B→A has nothing and runs out of patience.
   sessions[0].opts.onAudio(audioPiece(), 24000);
+  sessions[0].opts.onInputText('je pense que ça ira');
+  sessions[0].opts.onOutputText('i think it will be fine');
   sessions[1].opts.onAudio(audioPiece(), 24000);
   await pause(60);
-  sessions[0].opts.onAudio(audioPiece(), 24000);
   sessions[1].opts.onAudio(audioPiece(), 24000);
   await pause(30);
   assert.equal(played.length, 1);
-  assert.equal(played[0].pan, -1, 'B→A plays towards language A = left ear');
+  assert.equal(played[0].pan, 1);
   engine.cancel();
 });
 

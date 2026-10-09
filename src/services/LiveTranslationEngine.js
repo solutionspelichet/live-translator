@@ -41,7 +41,6 @@ export default class LiveTranslationEngine {
     this.listeners = new Set();
     this.turnId = 0;
     this.turn = null;
-    this.playChain = Promise.resolve();
     this.playingCount = 0;
     this.pendingUsage = null;
     this.usageTimer = null;
@@ -124,7 +123,6 @@ export default class LiveTranslationEngine {
       dirs: [],
     };
     this.turn = turn;
-    this.playChain = Promise.resolve();
     this.playingCount = 0;
     this.setState(STATE.STARTING);
 
@@ -144,15 +142,14 @@ export default class LiveTranslationEngine {
         onError: (error) => this.fail(id, error),
       });
       if (auto) {
-        // No source transcript to compare with (it can be sparse): only ONE direction may speak. The sibling already chosen
-        // wins; otherwise the direction that was the real one last time (a conversation tends to stay in a language).
+        // Nothing to compare with (the source transcript can be sparse or wrong): a direction is silenced only when its sibling
+        // was chosen on EVIDENCE as the real one. Otherwise both speak: in the intended use (two people, one earbud each) the
+        // repetition only reaches the speaker's own ear, while a wrong silence kills the translation for the listener.
         d.gate = new LiveGate({
           ...this.gateOptions,
           fallback: () => {
             const sibling = turn.dirs.find((x) => x !== d);
-            if (sibling?.gate?.mode === 'play') return false;
-            if (sibling?.gate?.mode === 'mute') return true;
-            return turn.lastReal ? turn.lastReal === d.from : true;
+            return !(sibling?.gate?.mode === 'play' && sibling.gate.basis === 'compare');
           },
         });
       }
@@ -245,8 +242,8 @@ export default class LiveTranslationEngine {
       d.stream = stream;
       turn.streams.add(stream);
       this.playingCount++;
-      // One voice at a time, in order: the next burst waits for this one to finish.
-      this.playChain = this.playChain
+      // In order PER DIRECTION (the next burst of this ear waits for this one); the two ears play independently.
+      d.chain = (d.chain ?? Promise.resolve())
         .then(async () => {
           if (this.turnId !== turn.id) return null;
           const state = this.audio.ctx?.state;
@@ -378,7 +375,7 @@ export default class LiveTranslationEngine {
       turn.dirs.forEach((d) => this.endBurst(turn, d));
       this.reportStats(turn);
       this.flushUsage();
-      await this.playChain;
+      await Promise.all(turn.dirs.map((x) => x.chain));
       if (this.turnId === id) this.setState(STATE.IDLE);
     } catch (error) {
       this.fail(id, error);
@@ -418,7 +415,6 @@ export default class LiveTranslationEngine {
     this.mic.setSink(null);
     this.audio.stopAll();
     this.flushUsage();
-    this.playChain = Promise.resolve();
     this.playingCount = 0;
     this.turn = null;
     if (this.state !== STATE.IDLE) this.setState(STATE.IDLE);
