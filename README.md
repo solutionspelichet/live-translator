@@ -207,7 +207,7 @@ traductions. Pas d'audio gardé dans ce mode (donc pas de « transcription préc
 Une voix créée dans ElevenLabs (la vôtre) apparaît dans ⚙︎ → « Charger mes voix ». L'option **« Voix liée à la personne qui parle »** fait
 dire vos traductions avec **votre** voix (au lieu d'attribuer les voix par langue).
 
-## Stratégie de traduction : classique ou OpenAI live (expérimental)
+## Stratégie de traduction : classique, OpenAI live ou Gemini live (expérimentaux)
 
 ⚙︎ → **Stratégie de traduction**.
 
@@ -215,7 +215,12 @@ dire vos traductions avec **votre** voix (au lieu d'attribuer les voix par langu
 - **OpenAI live** : un seul service, `gpt-realtime-translate`, qui traduit la parole en parole en continu. Une seule clé
   (`Clé OpenAI`, comme les autres : saisie dans l'app, jamais dans le build). Environ 0,034 $ la minute d'audio envoyé, plus 0,017 $ la minute pour la transcription du texte source (`gpt-realtime-whisper`, une seule fois
   même en mains libres : le compteur 📊 a une ligne dédiée, tarifs modifiables) — le son part aussi pendant les silences, donc arrêt automatique après 5 min sans parole.
-- **Gemini live** : annoncé dans le sélecteur, pas encore construit.
+- **Gemini live (expérimental)** : un seul service, `gemini-3.5-live-translate-preview` (préversion chez Google), une seule clé (`Clé Gemini`, saisie dans l'app,
+  jamais dans le build ; ⚙︎ → « Tester mes clés » la vérifie sans rien facturer). Environ 0,0053 $ la minute d'audio envoyé et 0,0315 $ la minute de voix traduite reçue
+  (niveau gratuit chez Google ; deux lignes de tarif modifiables dans 📊). Toutes les langues de l'app sont acceptées en sortie. Le micro part en 16 kHz, la voix revient en 24 kHz.
+  En mains libres, les deux sessions (A→B et B→A) sont ouvertes avec `echoTargetLanguage: false` : le modèle est **censé rester muet quand on parle déjà la langue cible**, mais un essai avec plusieurs langues mélangées a montré du chinois relu en chinois :
+  le même `LiveGate` que pour OpenAI s'applique donc. Gemini renvoie la transcription du texte source depuis chaque session : seule celle de la première est gardée (sinon chaque morceau était doublé).
+  Code : `src/services/live/GeminiLiveSession.js` (même interface qu'OpenAI) ; le moteur est le même (`LiveTranslationEngine`) avec un « profil » (`src/services/liveProfiles.js`).
 
 Fonctionnement (`src/services/LiveTranslationEngine.js`) : le micro est rééchantillonné en 24 kHz PCM16 base64 et envoyé en continu à une session
 dont la **langue cible est celle de l'autre personne**. Le service renvoie l'audio traduit (lu sur l'oreille du destinataire, même panoramique dur)
@@ -233,7 +238,7 @@ la voix de sortie est en 24 kHz (documenté ; un premier essai qui la déduisait
 
 Le bouton **📊** (minutes d'écoute du jour) ouvre l'écran « Consommation » : pour cette session, aujourd'hui, ce mois-ci et depuis le début,
 les **secondes d'audio envoyées à Deepgram** (comptées deux fois en mains libres : une reconnaissance par langue ; Nova-3 pour l'arabe),
-les **caractères envoyés à DeepL** (texte source), les **caractères synthétisés par ElevenLabs** et, en stratégie OpenAI live, les **minutes d'audio envoyées**, avec une estimation en dollars.
+les **caractères envoyés à DeepL** (texte source), les **caractères synthétisés par ElevenLabs** et, en stratégie OpenAI live, les **minutes d'audio envoyées** (et, avec Gemini, de voix reçue), avec une estimation en dollars.
 Les volumes sont exacts côté app ; les tarifs (modifiables dans l'écran) sont indicatifs : certains n'ont pas pu être confirmés
 (tarif Nova-2, formules DeepL actuelles, crédits ElevenLabs). Les quotas réels de DeepL (`/v2/usage`) et d'ElevenLabs
 (`/v1/user/subscription`) sont lus en direct quand la clé le permet. Les compteurs sont gardés sur le téléphone (`src/services/UsageTracker.js`,

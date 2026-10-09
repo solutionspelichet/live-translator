@@ -81,6 +81,26 @@ export async function testOpenAiKey(key, { fetchImpl = fetch, base = 'https://ap
   }
 }
 
+/**
+ * Gemini key for the live translation strategy: valid? and can this account see the translation model?
+ * (Read-only calls, nothing is billed.)
+ */
+export async function testGeminiKey(key, { fetchImpl = fetch, base = 'https://generativelanguage.googleapis.com/v1beta' } = {}) {
+  if (!key) return { ok: false, message: 'clé non renseignée' };
+  const headers = { 'x-goog-api-key': key };
+  const valid = await check('Gemini', () => get('Gemini', `${base}/models?pageSize=1`, headers, fetchImpl).then(() => 'clé valide'));
+  if (!valid.ok) return valid;
+  try {
+    await get('Gemini', `${base}/models/gemini-3.5-live-translate-preview`, headers, fetchImpl);
+    return { ok: true, message: 'clé valide · modèle de traduction en direct disponible' };
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
+      return { ok: false, message: "clé valide, mais ce compte n'a pas accès au modèle gemini-3.5-live-translate-preview" };
+    }
+    return { ok: true, message: 'clé valide (disponibilité du modèle non vérifiable)' };
+  }
+}
+
 /** The voices available on the account: [{ id, name, hint }]. Throws an ApiError. */
 export async function listVoices(apiKey, { fetchImpl = fetch, elevenLabsBase = 'https://api.elevenlabs.io' } = {}) {
   const json = await get('ElevenLabs', `${elevenLabsBase}/v1/voices`, { 'xi-api-key': apiKey }, fetchImpl);

@@ -187,7 +187,16 @@ test('new settings (voice streaming, hands-free) default to off and survive sani
 
 test('sanitizeSettings: strategy is one of the AVAILABLE ones', () => {
   assert.equal(sanitizeSettings({ strategy: 'openai' }).strategy, 'openai');
-  assert.equal(sanitizeSettings({ strategy: 'gemini' }).strategy, 'classic'); // announced, not built
+  assert.equal(sanitizeSettings({ strategy: 'gemini' }).strategy, 'gemini');
   assert.equal(sanitizeSettings({ strategy: 'nonsense' }).strategy, 'classic');
   assert.equal(sanitizeSettings({}).strategy, 'classic');
+});
+
+test('geminiOutputCode: our codes mapped to the ones Gemini Live Translate expects', async () => {
+  const { geminiOutputCode } = await import('../src/config/languages.js');
+  assert.equal(geminiOutputCode('zh'), 'zh-Hans');
+  assert.equal(geminiOutputCode('pt'), 'pt-BR');
+  assert.equal(geminiOutputCode('ar-MA'), 'ar');
+  assert.equal(geminiOutputCode('fr'), 'fr');
+  assert.equal(geminiOutputCode('xx'), null);
 });

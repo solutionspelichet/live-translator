@@ -52,7 +52,7 @@ export function engineOptions(settings) {
 export const STRATEGIES = Object.freeze({
   classic: { label: 'Classique', hint: 'Deepgram → DeepL → ElevenLabs : vos voix, 32 langues, trois clés' },
   openai: { label: 'OpenAI live (expérimental)', hint: 'un seul service et une seule clé, la voix d\'OpenAI, 13 langues parlées' },
-  gemini: { label: 'Gemini live (bientôt)', hint: 'pas encore disponible', available: false },
+  gemini: { label: 'Gemini live (expérimental)', hint: 'un seul service et une seule clé, la voix de Gemini, toutes les langues de l\'app, un filtre coupe les répétitions' },
 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
@@ -85,7 +85,7 @@ function sanitizePairs(raw) {
     .slice(0, 4);
 }
 
-export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin']);
+export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin', 'geminiInPerMin', 'geminiOutPerMin']);
 
 function sanitizePrices(raw) {
   const out = {};

@@ -17,10 +17,10 @@ export function bufferToBase64(buffer) {
   return btoa(binary);
 }
 
-/** One microphone chunk (PCM16 at `sampleRate`) → base64 PCM16 @ 24 kHz, or an equally long silence. */
-export function toLiveAudio(pcm16, sampleRate, { silence = false } = {}) {
+/** One microphone chunk (PCM16 at `sampleRate`) → base64 PCM16 @ `rate` (24 kHz for OpenAI, 16 kHz for Gemini), or an equally long silence. */
+export function toLiveAudio(pcm16, sampleRate, { silence = false, rate = LIVE_INPUT_RATE } = {}) {
   const samples = pcm16ToFloat(pcm16);
-  const resampled = resampleLinear(samples, sampleRate, LIVE_INPUT_RATE);
+  const resampled = resampleLinear(samples, sampleRate, rate);
   if (silence) return bufferToBase64(new Int16Array(resampled.length).buffer);
   return bufferToBase64(floatToPcm16(resampled));
 }

@@ -8,7 +8,7 @@ import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, STRA
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 import { describeError } from '../utils/http';
-import { listVoices, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
+import { listVoices, testGeminiKey, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
 
 /**
  * First-launch / settings form. API keys and preferences (languages, auto-send) are stored in
@@ -27,7 +27,8 @@ export default function SetupScreen({ settings, onDone }) {
   const [micAgc, setMicAgc] = useState(settings.micAgc);
   const [inputs, setInputs] = useState([]);
   const [strategy, setStrategy] = useState(settings.strategy);
-  const live = strategy === 'openai';
+  const live = strategy !== 'classic'; // one live-translation service (OpenAI or Gemini) instead of the Deepgram → DeepL → ElevenLabs chain
+  const liveKeyField = strategy === 'gemini' ? 'EXPO_PUBLIC_GEMINI_API_KEY' : 'EXPO_PUBLIC_OPENAI_API_KEY';
   const [streamVoice, setStreamVoice] = useState(settings.streamVoice);
   const [speed, setSpeed] = useState(settings.speed);
   const [voiceBySpeaker, setVoiceBySpeaker] = useState(settings.voiceBySpeaker);
@@ -63,12 +64,15 @@ export default function SetupScreen({ settings, onDone }) {
         </View>
         <Text style={styles.hint}>
           {STRATEGIES[strategy].hint}.
-          {live
+          {strategy === 'gemini'
+            ? ' Gemini traduit directement la parole en parole (modèle gemini-3.5-live-translate-preview, environ 0,005 $ par minute d\'audio envoyé et 0,03 $ par minute de voix traduite, un niveau gratuit existe ; deux sessions en mains libres). Il est censé rester muet quand on parle déjà la langue cible ; un filtre coupe les répétitions qui restent. Vos voix ElevenLabs, DeepL et Deepgram ne servent pas dans ce mode. Fonction nouvelle, en préversion chez Google : renvoyez-moi le journal si quelque chose cloche.'
+            : ''}
+          {strategy === 'openai'
             ? ` OpenAI traduit directement la parole en parole (modèle gpt-realtime-translate, environ 0,034 $ par minute d'audio envoyé, deux fois plus en mains libres). Langues parlées possibles : ${LIVE_OUTPUT_LANGUAGES.map((c) => getLanguage(c).label).join(', ')}. Vos voix ElevenLabs, DeepL et Deepgram ne servent pas dans ce mode. Fonction nouvelle : renvoyez-moi le journal si quelque chose cloche.`
             : ''}
         </Text>
 
-        {live && [languages.A, languages.B].some((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)) && (
+        {strategy === 'openai' && [languages.A, languages.B].some((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)) && (
           <Text style={styles.bad}>
             {`⚠ ${[languages.A, languages.B].filter((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)).map((c) => getLanguage(c).label).join(' et ')} : cette langue ne peut pas être parlée par OpenAI live. Choisissez-en une autre ci-dessous, ou repassez en « Classique ».`}
           </Text>
@@ -225,7 +229,7 @@ export default function SetupScreen({ settings, onDone }) {
         )}
 
         <Text style={styles.section}>Clés API</Text>
-        {SETUP_FIELDS.filter((f) => (live ? f.name === 'EXPO_PUBLIC_OPENAI_API_KEY' : true)).map((f) => (
+        {SETUP_FIELDS.filter((f) => (live ? f.name === liveKeyField : !['EXPO_PUBLIC_OPENAI_API_KEY', 'EXPO_PUBLIC_GEMINI_API_KEY'].includes(f.name))).map((f) => (
           <Fragment key={f.name}>
             <Text style={styles.label}>{f.label}</Text>
             <TextInput
@@ -236,7 +240,7 @@ export default function SetupScreen({ settings, onDone }) {
               autoCorrect={false}
               secureTextEntry={f.secret}
               placeholderTextColor="#55607F"
-              placeholder={f.name === 'EXPO_PUBLIC_OPENAI_API_KEY' ? 'sk-… (obligatoire pour OpenAI live)' : f.optional ? 'sk-or-… (laisser vide si inutilisé)' : f.secret ? '••••••••' : 'ex. 21m00Tcm4TlvDq8ikWAM'}
+              placeholder={f.name === 'EXPO_PUBLIC_OPENAI_API_KEY' ? 'sk-… (obligatoire pour OpenAI live)' : f.name === 'EXPO_PUBLIC_GEMINI_API_KEY' ? 'AIza… (obligatoire pour Gemini live)' : f.optional ? 'sk-or-… (laisser vide si inutilisé)' : f.secret ? '••••••••' : 'ex. 21m00Tcm4TlvDq8ikWAM'}
             />
           </Fragment>
         ))}
@@ -304,6 +308,11 @@ export default function SetupScreen({ settings, onDone }) {
             setTesting(true);
             setReport(null);
             const v = (name) => values[name]?.trim();
+            if (strategy === 'gemini') {
+              setReport({ gemini: await testGeminiKey(v('EXPO_PUBLIC_GEMINI_API_KEY'), { base: env.geminiBaseUrl }), voices: [] });
+              setTesting(false);
+              return;
+            }
             if (live) {
               setReport({ openai: await testOpenAiKey(v('EXPO_PUBLIC_OPENAI_API_KEY'), { base: env.openaiBaseUrl }), voices: [] });
               setTesting(false);
@@ -332,6 +341,7 @@ export default function SetupScreen({ settings, onDone }) {
         {report &&
           [
             ['OpenAI', report.openai],
+            ['Gemini', report.gemini],
             ['Deepgram', report.deepgram],
             ['DeepL', report.deepl],
             ['ElevenLabs', report.elevenlabs],

@@ -14,6 +14,8 @@ const PRICE_LABELS = {
   elevenPerThousandChars: 'ElevenLabs — $ par 1 000 caractères',
   openaiLivePerMin: 'OpenAI live — $ par minute d’audio envoyé',
   openaiTranscribePerMin: 'OpenAI live, transcription du texte source — $ par minute',
+  geminiInPerMin: 'Gemini live, audio envoyé — $ par minute',
+  geminiOutPerMin: 'Gemini live, voix traduite reçue — $ par minute',
 };
 
 /**
@@ -60,6 +62,7 @@ export default function UsageScreen({ visible, usage, prices, onPrices, onReset,
                 <Row label="DeepL (traduction)" value={`${formatCount(u.deeplChars)} car.`} money={cost.deepl} />
                 <Row label="ElevenLabs (voix)" value={`${formatCount(u.elevenChars)} car.`} money={cost.eleven} />
                 <Row label="OpenAI live (traduction + texte source)" value={formatDuration(u.oaiLiveSec || 0)} money={cost.openaiLive} />
+                <Row label="Gemini live (audio envoyé + voix reçue)" value={formatDuration((u.geminiInSec || 0) + (u.geminiOutSec || 0))} money={cost.geminiLive} />
                 <Row label="OpenRouter (comptes rendus)" value={`${formatCount(u.orTokens)} jetons`} money={cost.openrouter} />
                 <View style={styles.sep} />
                 <Row label="Estimation totale" value="" money={cost.total} bold />
