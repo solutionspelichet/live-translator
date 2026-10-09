@@ -54,7 +54,7 @@ export default class LiveGate {
   /**
    * @param {{minChars?: number, holdMs?: number, threshold?: number}} [opts]
    */
-  constructor({ minChars = 8, holdMs = 1500, threshold = 0.6 } = {}) {
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6 } = {}) {
     Object.assign(this, { minChars, holdMs, threshold });
     this.reset();
   }

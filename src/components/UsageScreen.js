@@ -13,6 +13,7 @@ const PRICE_LABELS = {
   deeplPerMillionChars: 'DeepL — $ par million de caractères',
   elevenPerThousandChars: 'ElevenLabs — $ par 1 000 caractères',
   openaiLivePerMin: 'OpenAI live — $ par minute d’audio envoyé',
+  openaiTranscribePerMin: 'OpenAI live, transcription du texte source — $ par minute',
 };
 
 /**
@@ -58,7 +59,7 @@ export default function UsageScreen({ visible, usage, prices, onPrices, onReset,
                 <Row label="Deepgram (écoute)" value={formatDuration(deepgramSeconds(u))} money={cost.deepgram} />
                 <Row label="DeepL (traduction)" value={`${formatCount(u.deeplChars)} car.`} money={cost.deepl} />
                 <Row label="ElevenLabs (voix)" value={`${formatCount(u.elevenChars)} car.`} money={cost.eleven} />
-                <Row label="OpenAI live (traduction directe)" value={formatDuration(u.oaiLiveSec || 0)} money={cost.openaiLive} />
+                <Row label="OpenAI live (traduction + texte source)" value={formatDuration(u.oaiLiveSec || 0)} money={cost.openaiLive} />
                 <Row label="OpenRouter (comptes rendus)" value={`${formatCount(u.orTokens)} jetons`} money={cost.openrouter} />
                 <View style={styles.sep} />
                 <Row label="Estimation totale" value="" money={cost.total} bold />

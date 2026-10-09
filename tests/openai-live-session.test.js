@@ -135,3 +135,13 @@ test('abort() stops everything and ignores late events', () => {
   assert.deepEqual(got.outText, []);
   assert.equal(sockets[0].closed, true);
 });
+
+test('transcribeInput asks for the source transcript (gpt-realtime-whisper) in the same session.update', () => {
+  const { session, sockets } = make({ transcribeInput: true });
+  session.connect();
+  sockets[0].open();
+  assert.deepEqual(sockets[0].sent[0], {
+    type: 'session.update',
+    session: { audio: { output: { language: 'es' }, input: { transcription: { model: 'gpt-realtime-whisper' } } } },
+  });
+});

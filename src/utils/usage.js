@@ -13,6 +13,7 @@ export const emptyUsage = () => ({
   orTokens: 0, // OpenRouter tokens (minutes)
   orCostUsd: 0, // OpenRouter cost, as reported by OpenRouter itself
   oaiLiveSec: 0, // OpenAI live translation: seconds of audio streamed (per session)
+  oaiTranscribeSec: 0, // OpenAI live: seconds of source speech transcribed (gpt-realtime-whisper)
 });
 
 export const USAGE_KEYS = Object.freeze(Object.keys(emptyUsage()));
@@ -84,6 +85,7 @@ export const DEFAULT_PRICES = Object.freeze({
   deeplPerMillionChars: 25,
   elevenPerThousandChars: 0.04,
   openaiLivePerMin: 0.034, // gpt-realtime-translate, per minute of audio sent
+  openaiTranscribePerMin: 0.017, // gpt-realtime-whisper (source transcript), per minute
 });
 
 /** Estimated cost per service and in total. `prices` overrides DEFAULT_PRICES key by key. */
@@ -95,7 +97,7 @@ export function estimateCost(rawUsage, prices = {}) {
   const deepl = (usage.deeplChars / 1e6) * p.deeplPerMillionChars;
   const eleven = (usage.elevenChars / 1000) * p.elevenPerThousandChars;
   const openrouter = usage.orCostUsd; // exact: reported by OpenRouter
-  const openaiLive = (usage.oaiLiveSec / 60) * p.openaiLivePerMin;
+  const openaiLive = (usage.oaiLiveSec / 60) * p.openaiLivePerMin + (usage.oaiTranscribeSec / 60) * p.openaiTranscribePerMin;
   return { deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, openaiLive, total: deepgram + deepgramPre + deepl + eleven + openrouter + openaiLive };
 }
 

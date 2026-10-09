@@ -16,6 +16,7 @@ const MAX_ATTEMPTS = 30;
  *
  * @param {object} opts
  * @param {string} opts.target  output language code (e.g. "es")
+ * @param {boolean} [opts.transcribeInput]  also transcribe the SOURCE speech (gpt-realtime-whisper, +0.017 $/min): needed for session.input_transcript.delta
  * @param {string} opts.apiKey
  * @param {string} opts.url  wss://api.openai.com/v1/realtime/translations
  * @param {(samples: Float32Array, sampleRate: number) => void} opts.onAudio
@@ -28,8 +29,8 @@ const MAX_ATTEMPTS = 30;
  * @param {Function} [opts.WebSocketImpl]
  */
 export default class OpenAiLiveSession {
-  constructor({ target, apiKey, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl }) {
-    Object.assign(this, { target, apiKey, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers });
+  constructor({ target, transcribeInput = false, apiKey, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl }) {
+    Object.assign(this, { target, transcribeInput, apiKey, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers });
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.ws = null;
     this.ready = false; // socket open and target language sent
@@ -61,7 +62,9 @@ export default class OpenAiLiveSession {
     this.ws = ws;
     ws.onopen = () => {
       if (this.ws !== ws) return;
-      this.send({ type: 'session.update', session: { audio: { output: { language: this.target } } } });
+      const audio = { output: { language: this.target } };
+      if (this.transcribeInput) audio.input = { transcription: { model: 'gpt-realtime-whisper' } };
+      this.send({ type: 'session.update', session: { audio } });
       this.ready = true;
       this.attempts = 0;
       this.setStatus('open');

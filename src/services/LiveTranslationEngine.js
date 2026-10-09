@@ -124,11 +124,14 @@ export default class LiveTranslationEngine {
     this.playingCount = 0;
     this.setState(STATE.STARTING);
 
-    for (const [from, to] of pairs) {
+    for (const [index, [from, to]] of pairs.entries()) {
       const d = { from, to, gate: auto ? new LiveGate(this.gateOptions) : null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 } };
       const label = `${from}→${to}`;
       d.session = this.createSession({
         target: liveOutputCode(this.languages[to]),
+        // The speech is the same for both directions: ONE transcription of it (shared below) is enough, and it is what lets
+        // the gate tell a translation from a repetition (without it both directions were played).
+        transcribeInput: index === 0,
         onAudio: (samples, rate) => this.onAudio(turn, d, samples, rate),
         onInputText: (text) => this.onText(turn, d, 'in', text),
         onOutputText: (text) => this.onText(turn, d, 'out', text),
@@ -153,7 +156,8 @@ export default class LiveTranslationEngine {
       const audio = toLiveAudio(pcm16, sampleRate, { silence: silent });
       for (const d of turn.dirs) d.session.sendAudio(audio);
       // The service bills the audio it receives, per session.
-      this.recordUsage({ oaiLiveSec: (pcm16.byteLength / 2 / sampleRate) * turn.dirs.length });
+      const seconds = pcm16.byteLength / 2 / sampleRate;
+      this.recordUsage({ oaiLiveSec: seconds * turn.dirs.length, oaiTranscribeSec: seconds });
       this.emit({ type: 'level', level });
     };
 
@@ -170,10 +174,19 @@ export default class LiveTranslationEngine {
     if (this.turnId !== turn.id) return;
     d.stats[kind === 'in' ? 'inChars' : 'outChars'] += delta.length;
     if (kind === 'in') {
-      d.inText += delta;
+      // The source transcript describes the speech, not one direction: every direction (and its gate) gets it.
       this.armIdleStop(turn);
-    } else d.outText += delta;
-    const released = d.gate ? d.gate.text(kind, delta) : [];
+      for (const x of turn.dirs) {
+        x.inText += delta;
+        const released = x.gate ? x.gate.text('in', delta) : [];
+        released.forEach((samples) => this.play(turn, x, samples));
+        this.armBurst(turn, x);
+        this.render(x);
+      }
+      return;
+    }
+    d.outText += delta;
+    const released = d.gate ? d.gate.text('out', delta) : [];
     released.forEach((samples) => this.play(turn, d, samples));
     this.armBurst(turn, d);
     this.render(d);

@@ -213,15 +213,16 @@ dire vos traductions avec **votre** voix (au lieu d'attribuer les voix par langu
 
 - **Classique** (défaut) : Deepgram → DeepL → ElevenLabs. Vos voix, 32 langues, trois clés.
 - **OpenAI live** : un seul service, `gpt-realtime-translate`, qui traduit la parole en parole en continu. Une seule clé
-  (`Clé OpenAI`, comme les autres : saisie dans l'app, jamais dans le build). Environ 0,034 $ la minute d'audio envoyé (le compteur 📊 a
-  une ligne dédiée, tarif modifiable) — le son part aussi pendant les silences, donc arrêt automatique après 5 min sans parole.
+  (`Clé OpenAI`, comme les autres : saisie dans l'app, jamais dans le build). Environ 0,034 $ la minute d'audio envoyé, plus 0,017 $ la minute pour la transcription du texte source (`gpt-realtime-whisper`, une seule fois
+  même en mains libres : le compteur 📊 a une ligne dédiée, tarifs modifiables) — le son part aussi pendant les silences, donc arrêt automatique après 5 min sans parole.
 - **Gemini live** : annoncé dans le sélecteur, pas encore construit.
 
 Fonctionnement (`src/services/LiveTranslationEngine.js`) : le micro est rééchantillonné en 24 kHz PCM16 base64 et envoyé en continu à une session
 dont la **langue cible est celle de l'autre personne**. Le service renvoie l'audio traduit (lu sur l'oreille du destinataire, même panoramique dur)
 et les transcriptions (écran, historique, réunions). Appui sur une zone = un sens ; appui = le service finit de vider ses dernières paroles.
 **Mains libres** = deux sessions sur le même micro (A→B et B→A). Celle dont la cible est la langue DÉJÀ parlée ne fait que la répéter : un
-`LiveGate` (`src/utils/live.js`) compare ses transcriptions entrée/sortie et coupe cet audio. Un appui en mains libres est un arrêt franc.
+`LiveGate` (`src/utils/live.js`) compare le texte source (transcrit une fois, partagé entre les deux sens ; sans lui les deux sens étaient lus et le chinois
+ressortait en chinois) au texte traduit de chaque sens et coupe l'audio de la répétition. Un appui en mains libres est un arrêt franc.
 
 À savoir : seules **13 langues** peuvent être *parlées* en sortie (en, fr, es, pt, de, it, ja, ko, zh, ru, hi, id, vi ; l'app refuse les autres avec un message) ;
 la voix est celle du service (pas d'ElevenLabs, donc ni voix choisies ni « voix liée à la personne qui parle ») ;

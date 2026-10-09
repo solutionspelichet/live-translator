@@ -119,6 +119,7 @@ test('hands-free: two sessions; the direction that only repeats the spoken langu
   const { engine, sessions, played, events, chunk, audioPiece } = setup();
   await engine.toggle(AUTO);
   assert.deepEqual(sessions.map((s) => s.opts.target), ['en', 'fr']);
+  assert.deepEqual(sessions.map((s) => s.opts.transcribeInput), [true, false], 'the speech is transcribed ONCE and shared');
   chunk();
   assert.equal(sessions[0].sent.length, 1);
   assert.equal(sessions[1].sent.length, 1);
@@ -127,7 +128,6 @@ test('hands-free: two sessions; the direction that only repeats the spoken langu
   sessions[0].opts.onAudio(audioPiece(), 24000);
   sessions[1].opts.onAudio(audioPiece(), 24000);
   sessions[0].opts.onInputText('je pense que ça ira');
-  sessions[1].opts.onInputText('je pense que ça ira');
   sessions[0].opts.onOutputText('i think it will be fine');
   sessions[1].opts.onOutputText('je pense que ça ira');
   await pause(15);
@@ -208,11 +208,28 @@ test('a passage is written to the journal, read or not', async () => {
   sessions[0].opts.onAudio(audioPiece(), 24000);
   sessions[0].opts.onInputText('je pense que ça ira');
   sessions[0].opts.onOutputText('i think it will be fine');
-  sessions[1].opts.onInputText('je pense que ça ira');
   sessions[1].opts.onOutputText('je pense que ça ira');
   await pause(200);
   const notes = events.filter((e) => e.type === 'note' && /^passage /.test(e.text)).map((e) => e.text);
   assert.ok(notes.some((t) => /^passage A→B lu : « je pense que ça ira » → « i think it will be fine »/.test(t)), notes.join('\n'));
   assert.ok(notes.some((t) => /^passage B→A non lu/.test(t)), notes.join('\n'));
+  engine.cancel();
+});
+
+test('the source transcript of the one transcribing session reaches every direction (gate and history)', async () => {
+  const { engine, sessions, events, chunk, audioPiece } = setup();
+  await engine.toggle(AUTO);
+  chunk();
+  // The speaker talks CHINESE: A→B (target zh) merely repeats, B→A (target fr) translates. Only session 0 transcribes.
+  engine.languages.B = 'zh';
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  sessions[1].opts.onAudio(audioPiece(), 24000);
+  sessions[0].opts.onInputText('我叫李英我来自北京');
+  sessions[0].opts.onOutputText('我叫李英我来自北京');
+  sessions[1].opts.onOutputText('je m’appelle Li Ying je viens de Pékin');
+  await pause(200);
+  const notes = events.filter((e) => e.type === 'note' && /^passage /.test(e.text)).map((e) => e.text);
+  assert.ok(notes.some((t) => /^passage A→B non lu/.test(t)), notes.join('\n'));
+  assert.ok(notes.some((t) => /^passage B→A lu : « 我叫李英我来自北京 » → « je m’appelle/.test(t)), notes.join('\n'));
   engine.cancel();
 });
