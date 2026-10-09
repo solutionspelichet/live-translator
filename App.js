@@ -76,6 +76,23 @@ export default function App() {
   );
 }
 
+/** Resolves when the app is in the foreground (at once if it already is; after 4 s at most, whatever happens). */
+function whenForeground() {
+  if (AppState.currentState === 'active') return Promise.resolve();
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      sub.remove();
+      BackgroundTimers.clearTimeout(timer);
+      resolve();
+    };
+    const sub = AppState.addEventListener('change', (next) => next === 'active' && finish());
+    const timer = BackgroundTimers.setTimeout(finish, 4000);
+  });
+}
+
 function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings }) {
   const languages = settings.languages;
   const engine = useMemo(() => {
@@ -111,6 +128,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     audio
       .init()
       .then(() => audio.selectInput(settings.input))
+      .then(whenForeground) // a recorder started while the app is still 'background' (launch flicker) can be silenced by Android
       .then(() => engine.warmUp())
       .then(() => micIdle.verifySoon()) // the recorder just started: make sure it delivers sound, not zeros
       .then(() => {
