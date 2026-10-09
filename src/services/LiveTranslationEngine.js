@@ -129,7 +129,7 @@ export default class LiveTranslationEngine {
     this.setState(STATE.STARTING);
 
     for (const [index, [from, to]] of pairs.entries()) {
-      const d = { from, to, gate: null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 } };
+      const d = { from, to, transcriber: index === 0, gate: null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 } };
       const label = `${from}→${to}`;
       d.session = this.createSession({
         target: this.profile.outputCode(this.languages[to]),
@@ -194,6 +194,9 @@ export default class LiveTranslationEngine {
 
   onText(turn, d, kind, delta) {
     if (this.turnId !== turn.id) return;
+    // ONE session transcribes the speech and shares it; a service that sends its transcript anyway (Gemini does, from every
+    // session) must not be counted twice: the history and the gate would get every piece doubled.
+    if (kind === 'in' && !d.transcriber) return;
     d.stats[kind === 'in' ? 'inChars' : 'outChars'] += delta.length;
     if (kind === 'in') {
       // The source transcript describes the speech, not one direction: every direction (and its gate) gets it.

@@ -296,8 +296,8 @@ test('a hard stop keeps the passage in progress (history segment), it is not los
 // ---- Gemini live: same engine, another profile ----
 import { GEMINI_LIVE } from '../src/services/liveProfiles.js';
 
-test('Gemini profile: 16 kHz audio in, Gemini codes out, no gate in hands-free (the service stays silent by itself)', async () => {
-  const { engine, sessions, played, events, chunk, audioPiece } = setup({ profile: GEMINI_LIVE, languages: { A: 'fr', B: 'zh' } });
+test('Gemini profile: 16 kHz audio in, Gemini codes out, the gate applies in hands-free', async () => {
+  const { engine, sessions, played, events, chunk, audioPiece } = setup({ profile: GEMINI_LIVE, languages: { A: 'fr', B: 'zh' }, gate: { minChars: 8, holdMs: 40 } });
   await engine.toggle(AUTO);
   assert.equal(sessions.length, 2);
   assert.deepEqual(sessions.map((s) => s.opts.target), ['zh-Hans', 'fr']);
@@ -306,10 +306,10 @@ test('Gemini profile: 16 kHz audio in, Gemini codes out, no gate in hands-free (
   // 100 ms of microphone at 16 kHz stays 1 600 samples = 3 200 bytes = 4 267 base64 characters
   assert.equal(Buffer.from(sessions[0].sent[0], 'base64').length, 3200);
 
-  // Only the real direction answers: no text to compare, no gate, the audio plays at once.
+  // Nothing to compare with: the direction speaks once the gate's hold time is over.
   sessions[0].opts.onOutputText('你好');
   sessions[0].opts.onAudio(audioPiece(), 24000);
-  await pause(15);
+  await pause(90);
   assert.equal(played.length, 1);
   assert.equal(played[0].pan, 1, 'Chinese = language B = right ear');
   engine.flushUsage();
@@ -327,5 +327,18 @@ test('Gemini profile: tap mode needs no gate either, and a Gemini-speakable lang
   assert.equal(sessions.length, 1);
   assert.equal(sessions[0].opts.target, 'nl');
   assert.ok(!events.some((e) => e.type === 'error'));
+  engine.cancel();
+});
+
+test('the source transcript is taken from the transcribing session only (Gemini sends it from every session)', async () => {
+  const { engine, sessions } = setup({ profile: GEMINI_LIVE, languages: { A: 'fr', B: 'zh' } });
+  await engine.toggle(AUTO);
+  sessions[0].opts.onInputText('bonjour');
+  sessions[1].opts.onInputText('bonjour'); // same words, from the other session: ignored
+  const [first, second] = engine.turn.dirs;
+  assert.equal(first.inText, 'bonjour', 'each piece counted once');
+  assert.equal(second.inText, 'bonjour');
+  assert.equal(first.stats.inChars, 7);
+  assert.equal(second.stats.inChars, 0, 'the second session transcribed nothing as far as the journal is concerned');
   engine.cancel();
 });

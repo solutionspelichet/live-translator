@@ -218,8 +218,8 @@ dire vos traductions avec **votre** voix (au lieu d'attribuer les voix par langu
 - **Gemini live (expérimental)** : un seul service, `gemini-3.5-live-translate-preview` (préversion chez Google), une seule clé (`Clé Gemini`, saisie dans l'app,
   jamais dans le build ; ⚙︎ → « Tester mes clés » la vérifie sans rien facturer). Environ 0,0053 $ la minute d'audio envoyé et 0,0315 $ la minute de voix traduite reçue
   (niveau gratuit chez Google ; deux lignes de tarif modifiables dans 📊). Toutes les langues de l'app sont acceptées en sortie. Le micro part en 16 kHz, la voix revient en 24 kHz.
-  En mains libres, les deux sessions (A→B et B→A) sont ouvertes avec `echoTargetLanguage: false` : **le modèle reste muet quand on parle déjà la langue cible**, il n'y a donc pas de
-  filtre de répétition (le `LiveGate` ne sert qu'à OpenAI). Si Gemini se trompe de langue détectée, la répétition réapparaît : le journal le montrera.
+  En mains libres, les deux sessions (A→B et B→A) sont ouvertes avec `echoTargetLanguage: false` : le modèle est **censé rester muet quand on parle déjà la langue cible**, mais un essai avec plusieurs langues mélangées a montré du chinois relu en chinois :
+  le même `LiveGate` que pour OpenAI s'applique donc. Gemini renvoie la transcription du texte source depuis chaque session : seule celle de la première est gardée (sinon chaque morceau était doublé).
   Code : `src/services/live/GeminiLiveSession.js` (même interface qu'OpenAI) ; le moteur est le même (`LiveTranslationEngine`) avec un « profil » (`src/services/liveProfiles.js`).
 
 Fonctionnement (`src/services/LiveTranslationEngine.js`) : le micro est rééchantillonné en 24 kHz PCM16 base64 et envoyé en continu à une session

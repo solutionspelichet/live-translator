@@ -2,7 +2,7 @@
 //   inputRate   : sample rate of the audio the service wants IN (the voice it sends back is 24 kHz for both)
 //   outputCode  : the language code to ask for, or null when the service cannot speak that language
 //   speakable   : the languages it can speak (for messages)
-//   gate        : needs the LiveGate (the service repeats a sentence already in the target language) — Gemini can be told to stay silent
+//   gate        : needs the LiveGate (the service repeats a sentence already in the target language); Gemini is told to stay silent but still does it sometimes
 //   usage       : counters of the billing screen: `send` = seconds of audio sent (per session), `receive` = seconds of voice received,
 //                 `transcribe` = seconds of source speech transcribed (billed apart)
 
@@ -24,7 +24,7 @@ export const GEMINI_LIVE = Object.freeze({
   inputRate: 16000,
   outputCode: geminiOutputCode,
   speakable: Object.freeze(Object.keys(LANGUAGES)),
-  gate: false,
+  gate: true, // echoTargetLanguage:false is not enough: in a mix of languages the Chinese side read Chinese back in Chinese
   usage: Object.freeze({ send: 'geminiInSec', receive: 'geminiOutSec' }),
 });
 
