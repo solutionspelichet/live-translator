@@ -241,14 +241,28 @@ export default class LiveTranslationEngine {
     if (!d.stream) {
       const stream = new TtsStream();
       stream.sampleRate = d.rate;
+      stream.pushed = 0;
       d.stream = stream;
       turn.streams.add(stream);
       this.playingCount++;
       // One voice at a time, in order: the next burst waits for this one to finish.
       this.playChain = this.playChain
-        .then(() => (this.turnId === turn.id ? this.audio.playStream(stream, PAN[d.to]) : null))
+        .then(async () => {
+          if (this.turnId !== turn.id) return null;
+          const state = this.audio.ctx?.state;
+          if (state && state !== 'running') {
+            // The audio engine of the phone can be suspended (another app took the sound): wake it up, and say so.
+            this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} : moteur audio « ${state} » → réveil` });
+            try {
+              await this.audio.ctx.resume?.();
+            } catch {}
+          }
+          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} démarrée (moteur audio : ${this.audio.ctx?.state ?? '?'})` });
+          return this.audio.playStream(stream, PAN[d.to]);
+        })
         .catch((error) => this.emit({ type: 'note', text: `lecture du flux live impossible : ${error?.message ?? error}` }))
         .then(() => {
+          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} terminée : ${(stream.pushed / stream.sampleRate).toFixed(1)} s de voix reçues` });
           turn.streams.delete(stream);
           this.playingCount = Math.max(0, this.playingCount - 1);
           turn.quietUntil = Date.now() + 600;
@@ -256,6 +270,7 @@ export default class LiveTranslationEngine {
         });
       this.syncState(turn);
     }
+    d.stream.pushed += samples.length;
     d.stream.push(samples);
   }
 
