@@ -39,6 +39,7 @@ test('sanitizeSettings keeps valid values', () => {
   });
   assert.deepEqual(s, {
     languages: { A: 'de', B: 'es' },
+    strategy: 'classic',
     autoStop: false,
     background: false,
     micGain: 16,
@@ -182,4 +183,11 @@ test('new settings (voice streaming, hands-free) default to off and survive sani
   assert.equal(s.handsFree, true);
   assert.equal(sanitize({ streamVoice: 'yes' }).streamVoice, false);
   assert.equal(sanitize(null).handsFree, false);
+});
+
+test('sanitizeSettings: strategy is one of the AVAILABLE ones', () => {
+  assert.equal(sanitizeSettings({ strategy: 'openai' }).strategy, 'openai');
+  assert.equal(sanitizeSettings({ strategy: 'gemini' }).strategy, 'classic'); // announced, not built
+  assert.equal(sanitizeSettings({ strategy: 'nonsense' }).strategy, 'classic');
+  assert.equal(sanitizeSettings({}).strategy, 'classic');
 });

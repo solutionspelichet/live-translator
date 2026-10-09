@@ -1,14 +1,14 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { currentValues, env, saveKeys, SETUP_FIELDS } from '../config/env';
-import { getLanguage, LANGUAGES } from '../config/languages';
+import { currentValues, env, requiredFields, saveKeys, SETUP_FIELDS } from '../config/env';
+import { getLanguage, LANGUAGES, LIVE_OUTPUT_LANGUAGES } from '../config/languages';
 import { saveSettings } from '../config/settings';
-import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
+import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, STRATEGIES, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 import { describeError } from '../utils/http';
-import { listVoices, testKeys, testLanguages } from '../utils/keyTest';
+import { listVoices, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
 
 /**
  * First-launch / settings form. API keys and preferences (languages, auto-send) are stored in
@@ -26,6 +26,8 @@ export default function SetupScreen({ settings, onDone }) {
   const [micSource, setMicSource] = useState(settings.micSource);
   const [micAgc, setMicAgc] = useState(settings.micAgc);
   const [inputs, setInputs] = useState([]);
+  const [strategy, setStrategy] = useState(settings.strategy);
+  const live = strategy === 'openai';
   const [streamVoice, setStreamVoice] = useState(settings.streamVoice);
   const [speed, setSpeed] = useState(settings.speed);
   const [voiceBySpeaker, setVoiceBySpeaker] = useState(settings.voiceBySpeaker);
@@ -39,7 +41,7 @@ export default function SetupScreen({ settings, onDone }) {
     audio.listInputs().then(setInputs);
   }, []);
   const [saving, setSaving] = useState(false);
-  const complete = SETUP_FIELDS.every((f) => f.optional || values[f.name]?.trim());
+  const complete = requiredFields(strategy).every((name) => values[name]?.trim());
 
   return (
     <SafeAreaView style={styles.root}>
@@ -48,6 +50,30 @@ export default function SetupScreen({ settings, onDone }) {
         <Text style={styles.hint}>
           Collez vos clés API. Elles restent dans le stockage sécurisé de ce téléphone, jamais dans le code.
         </Text>
+        <Text style={styles.section}>Stratégie de traduction</Text>
+        <View style={styles.chips}>
+          {Object.entries(STRATEGIES).map(([key, st]) => (
+            <Chip
+              key={key}
+              label={st.label}
+              on={strategy === key}
+              onPress={() => st.available !== false && setStrategy(key)}
+            />
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          {STRATEGIES[strategy].hint}.
+          {live
+            ? ` OpenAI traduit directement la parole en parole (modèle gpt-realtime-translate, environ 0,034 $ par minute d'audio envoyé, deux fois plus en mains libres). Langues parlées possibles : ${LIVE_OUTPUT_LANGUAGES.map((c) => getLanguage(c).label).join(', ')}. Vos voix ElevenLabs, DeepL et Deepgram ne servent pas dans ce mode. Fonction nouvelle : renvoyez-moi le journal si quelque chose cloche.`
+            : ''}
+        </Text>
+
+        {live && [languages.A, languages.B].some((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)) && (
+          <Text style={styles.bad}>
+            {`⚠ ${[languages.A, languages.B].filter((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)).map((c) => getLanguage(c).label).join(' et ')} : cette langue ne peut pas être parlée par OpenAI live. Choisissez-en une autre ci-dessous, ou repassez en « Classique ».`}
+          </Text>
+        )}
+
         <Text style={styles.section}>Langues</Text>
         <View style={styles.chips}>
           <Chip label="⇄ Inverser A et B" on={false} onPress={() => setLanguages((l) => ({ A: l.B, B: l.A }))} />
@@ -131,6 +157,7 @@ export default function SetupScreen({ settings, onDone }) {
           Amplifie la voix dans les écouteurs sans la déformer. Pensez aussi à monter le volume « média » du téléphone et des écouteurs.
         </Text>
 
+        {!live && (<>
         <Text style={styles.label}>Réactivité de la traduction</Text>
         <View style={styles.chips}>
           {Object.entries(SPEEDS).map(([key, v]) => (
@@ -141,6 +168,7 @@ export default function SetupScreen({ settings, onDone }) {
           « Rapide » lance la traduction après une pause plus courte et coupe les phrases plus tôt : la voix arrive plus vite, avec des
           morceaux de phrase plus courts (traduction un peu moins fluide). « Normale » attend des phrases plus naturelles.
         </Text>
+        </>)}
 
         <Text style={styles.label}>Mains libres : écho</Text>
         <Chip
@@ -153,6 +181,7 @@ export default function SetupScreen({ settings, onDone }) {
           contrepartie, ce que l'on dit pendant la lecture n'est pas traduit. À activer si des phrases fantômes reviennent.
         </Text>
 
+        {!live && (<>
         <Text style={styles.label}>Voix en flux (expérimental)</Text>
         <Chip
           label={streamVoice ? '✓ Commencer à parler avant la fin de la synthèse' : 'Voix en flux : non'}
@@ -164,6 +193,7 @@ export default function SetupScreen({ settings, onDone }) {
           baisse, surtout sur les longues phrases. Si la voix saute ou se coupe, désactivez-la (le mode classique reprend aussi tout seul
           si le flux ne marche pas).
         </Text>
+        </>)}
 
         <Text style={styles.section}>Arrière-plan</Text>
         <Pressable
@@ -195,7 +225,7 @@ export default function SetupScreen({ settings, onDone }) {
         )}
 
         <Text style={styles.section}>Clés API</Text>
-        {SETUP_FIELDS.map((f) => (
+        {SETUP_FIELDS.filter((f) => (live ? f.name === 'EXPO_PUBLIC_OPENAI_API_KEY' : true)).map((f) => (
           <Fragment key={f.name}>
             <Text style={styles.label}>{f.label}</Text>
             <TextInput
@@ -206,10 +236,11 @@ export default function SetupScreen({ settings, onDone }) {
               autoCorrect={false}
               secureTextEntry={f.secret}
               placeholderTextColor="#55607F"
-              placeholder={f.optional ? 'sk-or-… (laisser vide si inutilisé)' : f.secret ? '••••••••' : 'ex. 21m00Tcm4TlvDq8ikWAM'}
+              placeholder={f.name === 'EXPO_PUBLIC_OPENAI_API_KEY' ? 'sk-… (obligatoire pour OpenAI live)' : f.optional ? 'sk-or-… (laisser vide si inutilisé)' : f.secret ? '••••••••' : 'ex. 21m00Tcm4TlvDq8ikWAM'}
             />
           </Fragment>
         ))}
+        {!live && (<>
         <Text style={styles.label}>À qui appartient la voix ?</Text>
         <Chip
           label={voiceBySpeaker ? '✓ Voix liée à la personne qui parle' : 'Voix liée à la langue entendue (par défaut)'}
@@ -264,6 +295,8 @@ export default function SetupScreen({ settings, onDone }) {
           </>
         )}
 
+        </>)}
+
         <Pressable
           style={[styles.chip, { alignSelf: 'flex-start', marginTop: 20 }, testing && styles.disabled]}
           disabled={testing}
@@ -271,6 +304,11 @@ export default function SetupScreen({ settings, onDone }) {
             setTesting(true);
             setReport(null);
             const v = (name) => values[name]?.trim();
+            if (live) {
+              setReport({ openai: await testOpenAiKey(v('EXPO_PUBLIC_OPENAI_API_KEY'), { base: env.openaiBaseUrl }), voices: [] });
+              setTesting(false);
+              return;
+            }
             const chosen = [languages.A, languages.B].map((code) => ({ label: getLanguage(code).label, ...getLanguage(code) }));
             const [keysReport, languagesReport] = await Promise.all([
               testKeys(
@@ -293,11 +331,12 @@ export default function SetupScreen({ settings, onDone }) {
         </Pressable>
         {report &&
           [
+            ['OpenAI', report.openai],
             ['Deepgram', report.deepgram],
             ['DeepL', report.deepl],
             ['ElevenLabs', report.elevenlabs],
-            ['Voix A', report.voices[0]],
-            ['Voix B', report.voices[1]],
+            ['Voix A', report.voices?.[0]],
+            ['Voix B', report.voices?.[1]],
           ]
             .filter(([, r]) => r)
             .map(([name, r]) => (
@@ -317,7 +356,7 @@ export default function SetupScreen({ settings, onDone }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, voiceBySpeaker, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, voiceBySpeaker, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

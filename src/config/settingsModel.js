@@ -43,7 +43,20 @@ export function engineOptions(settings) {
   };
 }
 
+/**
+ * How speech becomes translated speech.
+ *  - classic : Deepgram (listen) → DeepL (translate) → ElevenLabs (voice) — three keys, own voices, 32 languages;
+ *  - openai  : OpenAI live translation, one service and one key — lower delay, but the service's voice and 13 spoken languages;
+ *  - gemini  : Gemini Live translation — announced, not built yet.
+ */
+export const STRATEGIES = Object.freeze({
+  classic: { label: 'Classique', hint: 'Deepgram → DeepL → ElevenLabs : vos voix, 32 langues, trois clés' },
+  openai: { label: 'OpenAI live (expérimental)', hint: 'un seul service et une seule clé, la voix d\'OpenAI, 13 langues parlées' },
+  gemini: { label: 'Gemini live (bientôt)', hint: 'pas encore disponible', available: false },
+});
+
 export const DEFAULT_SETTINGS = Object.freeze({
+  strategy: 'classic', // see STRATEGIES
   languages: Object.freeze({ A: 'fr', B: 'en' }),
   autoStop: true,
   background: true, // keep working with the screen off (Android foreground service)
@@ -72,7 +85,7 @@ function sanitizePairs(raw) {
     .slice(0, 4);
 }
 
-export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars']);
+export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin']);
 
 function sanitizePrices(raw) {
   const out = {};
@@ -107,6 +120,7 @@ export function sanitizeSettings(raw) {
 
   return {
     languages: { A: a, B: b },
+    strategy: STRATEGIES[input.strategy] && STRATEGIES[input.strategy].available !== false ? input.strategy : DEFAULT_SETTINGS.strategy,
     autoStop: typeof input.autoStop === 'boolean' ? input.autoStop : DEFAULT_SETTINGS.autoStop,
     background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,
     micGain: MIC_GAIN_CHOICES.includes(gain) ? gain : DEFAULT_SETTINGS.micGain,

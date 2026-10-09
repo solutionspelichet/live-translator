@@ -43,7 +43,7 @@ export default function App() {
   }, []);
 
   if (!ready) return <View style={styles.missing} />;
-  if (editing || missingEnv().length) {
+  if (editing || missingEnv(settings.strategy).length) {
     return (
       <SetupScreen
         settings={settings}
@@ -78,13 +78,13 @@ export default function App() {
 function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings }) {
   const languages = settings.languages;
   const engine = useMemo(() => {
-    const e = createEngine(languages, engineOptions(settings));
+    const e = createEngine(languages, engineOptions(settings), settings.strategy);
     e.autoStop = settings.autoStop;
     e.mic.setGain(settings.micGain);
     e.mic.configure({ source: settings.micSource, input: settings.input, agc: settings.micAgc });
     audio.setVoiceVolume(settings.voiceVolume);
     return e;
-  }, [languages.A, languages.B]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [languages.A, languages.B, settings.strategy]); // eslint-disable-line react-hooks/exhaustive-deps
   const [state, setState] = useState(STATE.IDLE);
   const [activeSide, setActiveSide] = useState(null);
   const [level, setLevel] = useState(0);
@@ -194,7 +194,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     const t = BackgroundTimers.setInterval(() => {
       const d = engine.diagnostics();
       EventLog.add(
-        `♥ ${AppState.currentState} · état ${d.state} · micro ${d.micRunning ? 'ouvert' : 'FERMÉ'} (${d.chunks} paquets, dernier il y a ${d.msSinceChunk ?? '—'} ms) · Deepgram ${d.stt ?? '—'} · veille ${BackgroundService.lockHeld ? 'verrou' : 'SANS verrou'} · batterie ${Power.isIgnoringBatteryOptimizations() ? 'sans limite' : 'LIMITÉE'}`,
+        `♥ ${AppState.currentState} · état ${d.state} · micro ${d.micRunning ? 'ouvert' : 'FERMÉ'} (${d.chunks} paquets, dernier il y a ${d.msSinceChunk ?? '—'} ms) · ${d.sttLabel ?? 'Deepgram'} ${d.stt ?? '—'} · veille ${BackgroundService.lockHeld ? 'verrou' : 'SANS verrou'} · batterie ${Power.isIgnoringBatteryOptimizations() ? 'sans limite' : 'LIMITÉE'}`,
       );
     }, 60000);
     return () => BackgroundTimers.clearInterval(t);

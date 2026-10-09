@@ -25,6 +25,8 @@ src/
   services/
     AudioRoutingService.js          lecture panoramique dur (react-native-audio-api)
     TranslationEngine.js            orchestration STT → NMT → TTS (state machine, annulation)
+    LiveTranslationEngine.js        stratégie « OpenAI live » : parole → parole dans un seul service
+    live/OpenAiLiveSession.js       WebSocket gpt-realtime-translate (une session par sens de traduction)
     createEngine.js                 injection des vrais services
     MicrophoneStreamer.js           micro → chunks PCM16
     stt/DeepgramSession.js          1 énoncé = 1 session WebSocket Nova-2
@@ -205,11 +207,33 @@ traductions. Pas d'audio gardé dans ce mode (donc pas de « transcription préc
 Une voix créée dans ElevenLabs (la vôtre) apparaît dans ⚙︎ → « Charger mes voix ». L'option **« Voix liée à la personne qui parle »** fait
 dire vos traductions avec **votre** voix (au lieu d'attribuer les voix par langue).
 
+## Stratégie de traduction : classique ou OpenAI live (expérimental)
+
+⚙︎ → **Stratégie de traduction**.
+
+- **Classique** (défaut) : Deepgram → DeepL → ElevenLabs. Vos voix, 32 langues, trois clés.
+- **OpenAI live** : un seul service, `gpt-realtime-translate`, qui traduit la parole en parole en continu. Une seule clé
+  (`Clé OpenAI`, comme les autres : saisie dans l'app, jamais dans le build). Environ 0,034 $ la minute d'audio envoyé, plus 0,017 $ la minute pour la transcription du texte source (`gpt-realtime-whisper`, une seule fois
+  même en mains libres : le compteur 📊 a une ligne dédiée, tarifs modifiables) — le son part aussi pendant les silences, donc arrêt automatique après 5 min sans parole.
+- **Gemini live** : annoncé dans le sélecteur, pas encore construit.
+
+Fonctionnement (`src/services/LiveTranslationEngine.js`) : le micro est rééchantillonné en 24 kHz PCM16 base64 et envoyé en continu à une session
+dont la **langue cible est celle de l'autre personne**. Le service renvoie l'audio traduit (lu sur l'oreille du destinataire, même panoramique dur)
+et les transcriptions (écran, historique, réunions). Appui sur une zone = un sens ; appui = le service finit de vider ses dernières paroles.
+**Mains libres** = deux sessions sur le même micro (A→B et B→A). Celle dont la cible est la langue DÉJÀ parlée ne fait que la répéter : un
+`LiveGate` (`src/utils/live.js`) compare le texte source (transcrit une fois, partagé entre les deux sens ; sans lui les deux sens étaient lus et le chinois
+ressortait en chinois) au texte traduit de chaque sens et coupe l'audio de la répétition. Il compare à ce qui a été dit dans les 12 dernières secondes (la voix traduite est en retard sur la parole : ses premiers mots répondent à une phrase entendue juste avant) et revérifie en continu pendant le passage, dans les deux sens (traduction → répétition ou répétition → traduction) : quand l'autre personne répond avant la fin de la traduction, le même sens peut changer de rôle au milieu d'un passage. Pendant une parole continue, un segment d'historique est coupé tous les ~220 caractères traduits. Quand le texte source manque ou ne permet pas de décider (il arrive clairsemé, ou faux : du français transcrit en chinois), les deux sens parlent : à deux, un écouteur chacun, la répétition n'arrive qu'à l'oreille de celui qui parle, alors qu'un silence à tort prive l'auditeur de la traduction. Un sens n'est coupé que si l'autre a été reconnu comme le vrai par comparaison de textes. Chaque sens joue sa voix indépendamment de l'autre. Un appui en mains libres est un arrêt franc.
+
+À savoir : seules **13 langues** peuvent être *parlées* en sortie (en, fr, es, pt, de, it, ja, ko, zh, ru, hi, id, vi ; l'app refuse les autres avec un message) ;
+la voix est celle du service (pas d'ElevenLabs, donc ni voix choisies ni « voix liée à la personne qui parle ») ;
+la voix de sortie est en 24 kHz (documenté ; un premier essai qui la déduisait de la taille des morceaux, 19 200 octets = 400 ms, l'avait prise pour du 48 kHz et jouée deux fois trop vite) ; le journal note chaque passage (« passage A→B lu : … → … ») et les événements inconnus du service.
+Écrit d'après la documentation d'OpenAI et des sources tierces, **sans pouvoir l'essayer ici** : les événements ignorés ou les erreurs apparaissent dans le journal.
+
 ## Consommation facturée
 
 Le bouton **📊** (minutes d'écoute du jour) ouvre l'écran « Consommation » : pour cette session, aujourd'hui, ce mois-ci et depuis le début,
 les **secondes d'audio envoyées à Deepgram** (comptées deux fois en mains libres : une reconnaissance par langue ; Nova-3 pour l'arabe),
-les **caractères envoyés à DeepL** (texte source) et les **caractères synthétisés par ElevenLabs**, avec une estimation en dollars.
+les **caractères envoyés à DeepL** (texte source), les **caractères synthétisés par ElevenLabs** et, en stratégie OpenAI live, les **minutes d'audio envoyées**, avec une estimation en dollars.
 Les volumes sont exacts côté app ; les tarifs (modifiables dans l'écran) sont indicatifs : certains n'ont pas pu être confirmés
 (tarif Nova-2, formules DeepL actuelles, crédits ElevenLabs). Les quotas réels de DeepL (`/v2/usage`) et d'ElevenLabs
 (`/v1/user/subscription`) sont lus en direct quand la clé le permet. Les compteurs sont gardés sur le téléphone (`src/services/UsageTracker.js`,

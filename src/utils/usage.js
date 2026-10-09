@@ -1,7 +1,8 @@
 // Billing counter (pure → unit-tested). What the three services charge for:
 //  - Deepgram   : seconds of audio streamed (Nova-2 and Nova-3 are priced differently);
 //  - DeepL      : characters of the SOURCE text sent for translation;
-//  - ElevenLabs : characters of the text turned into speech.
+//  - ElevenLabs : characters of the text turned into speech;
+//  - OpenAI live: minutes of audio sent (one session per direction).
 
 export const emptyUsage = () => ({
   dgNova2Sec: 0,
@@ -11,6 +12,8 @@ export const emptyUsage = () => ({
   elevenChars: 0,
   orTokens: 0, // OpenRouter tokens (minutes)
   orCostUsd: 0, // OpenRouter cost, as reported by OpenRouter itself
+  oaiLiveSec: 0, // OpenAI live translation: seconds of audio streamed (per session)
+  oaiTranscribeSec: 0, // OpenAI live: seconds of source speech transcribed (gpt-realtime-whisper)
 });
 
 export const USAGE_KEYS = Object.freeze(Object.keys(emptyUsage()));
@@ -81,6 +84,8 @@ export const DEFAULT_PRICES = Object.freeze({
   deepgramPrePerMin: 0.0043,
   deeplPerMillionChars: 25,
   elevenPerThousandChars: 0.04,
+  openaiLivePerMin: 0.034, // gpt-realtime-translate, per minute of audio sent
+  openaiTranscribePerMin: 0.017, // gpt-realtime-whisper (source transcript), per minute
 });
 
 /** Estimated cost per service and in total. `prices` overrides DEFAULT_PRICES key by key. */
@@ -92,7 +97,8 @@ export function estimateCost(rawUsage, prices = {}) {
   const deepl = (usage.deeplChars / 1e6) * p.deeplPerMillionChars;
   const eleven = (usage.elevenChars / 1000) * p.elevenPerThousandChars;
   const openrouter = usage.orCostUsd; // exact: reported by OpenRouter
-  return { deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, total: deepgram + deepgramPre + deepl + eleven + openrouter };
+  const openaiLive = (usage.oaiLiveSec / 60) * p.openaiLivePerMin + (usage.oaiTranscribeSec / 60) * p.openaiTranscribePerMin;
+  return { deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, openaiLive, total: deepgram + deepgramPre + deepl + eleven + openrouter + openaiLive };
 }
 
 export function formatDuration(seconds) {
