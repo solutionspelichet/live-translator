@@ -4,11 +4,13 @@ import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { getLanguage, SIDE } from '../config/languages';
 import { STATE } from '../services/TranslationEngine';
+import { palette, themedStyles } from '../theme';
 
-const COLORS = {
-  [SIDE.A]: { idle: '#16233B', active: '#2F6FED' },
-  [SIDE.B]: { idle: '#2A1B3D', active: '#C24CF6' },
-};
+const zoneColors = (c) => ({
+  [SIDE.A]: { idle: c.zoneA, active: c.zoneAActive },
+  [SIDE.B]: { idle: c.zoneB, active: c.zoneBActive },
+});
+const WHITE = '#FFFFFF'; // text on a live (coloured) zone, in both themes
 
 /**
  * Two big tap zones. Tap a zone to start recording in *its* language (the zone IS the
@@ -40,6 +42,7 @@ export default function SplitScreen({ languages, state, activeSide, texts, level
 
 function Zone({ side, flipped, languages, state, activeSide, texts, level, autoStop, handsFree, onPress }) {
   const lang = getLanguage(languages[side]);
+  const c = palette();
   const mine = activeSide === side || activeSide === 'auto'; // hands-free: both halves are "live"
   const recording = state === STATE.STARTING || state === STATE.LISTENING;
   const live = mine && state === STATE.LISTENING;
@@ -57,7 +60,7 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
     <Pressable
       style={[
         styles.zone,
-        { backgroundColor: live ? COLORS[side].active : COLORS[side].idle },
+        { backgroundColor: live ? zoneColors(c)[side].active : zoneColors(c)[side].idle },
         starting && styles.starting,
         recording && !mine && styles.dimmed,
         flipped && styles.flipped,
@@ -70,14 +73,14 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
       accessibilityLabel={`Parler en ${lang.label}`}
     >
       <Text style={styles.flag}>{lang.flag}</Text>
-      <Text style={styles.label}>{lang.label}</Text>
-      <Text style={styles.text} numberOfLines={6}>
+      <Text style={[styles.label, live && { color: WHITE }]}>{lang.label}</Text>
+      <Text style={[styles.text, live && { color: WHITE }]} numberOfLines={6}>
         {texts[side] || ' '}
       </Text>
       <View style={styles.meterRow}>
         {live && <RecDot />}
         <View style={styles.meterTrack}>
-          <View style={[styles.meterFill, { width: `${Math.round((live ? level : 0) * 100)}%` }]} />
+          <View style={[styles.meterFill, { width: `${Math.round((live ? level : 0) * 100)}%`, backgroundColor: live ? WHITE : c.zoneText }]} />
         </View>
       </View>
       <Text style={[styles.status, live && styles.statusLive]}>{status}</Text>
@@ -101,20 +104,20 @@ function RecDot() {
   return <Animated.View style={[styles.dot, { opacity }]} />;
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#000' },
+const styles = themedStyles((c) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.splitBg },
   zone: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   flipped: { transform: [{ rotate: '180deg' }] },
-  starting: { borderWidth: 4, borderColor: '#FFB020' },
+  starting: { borderWidth: 4, borderColor: c.warnStrong },
   dimmed: { opacity: 0.55 },
-  divider: { height: 2, backgroundColor: '#000' },
+  divider: { height: 2, backgroundColor: c.splitBg },
   flag: { fontSize: 44 },
-  label: { color: '#fff', fontSize: 22, fontWeight: '700', marginTop: 4 },
-  text: { color: '#E8ECF8', fontSize: 20, textAlign: 'center', marginVertical: 16, minHeight: 60 },
+  label: { color: c.zoneText, fontSize: 22, fontWeight: '700', marginTop: 4 },
+  text: { color: c.zoneTextSoft, fontSize: 20, textAlign: 'center', marginVertical: 16, minHeight: 60 },
   meterRow: { flexDirection: 'row', alignItems: 'center', height: 14, width: '70%', marginBottom: 12 },
-  meterTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#FFFFFF22', overflow: 'hidden' },
-  meterFill: { height: 6, backgroundColor: '#fff' },
-  dot: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#FF3B30', marginRight: 10 },
-  status: { color: '#9AA6C4', fontSize: 14, letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center' },
-  statusLive: { color: '#fff', fontWeight: '700' },
-});
+  meterTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: c.track, overflow: 'hidden' },
+  meterFill: { height: 6, backgroundColor: c.zoneText },
+  dot: { width: 14, height: 14, borderRadius: 7, backgroundColor: c.rec, marginRight: 10 },
+  status: { color: c.zoneStatus, fontSize: 14, letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center' },
+  statusLive: { color: WHITE, fontWeight: '700' },
+}));

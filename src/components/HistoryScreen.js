@@ -2,6 +2,7 @@ import { FlatList, Modal, Pressable, SafeAreaView, Share, StyleSheet, Text, View
 
 import { getLanguage } from '../config/languages';
 import { formatConversation } from '../utils/history';
+import { palette, themedStyles } from '../theme';
 
 /**
  * Everything translated since the app was opened, newest first: the original sentence and its
@@ -58,16 +59,16 @@ export default function HistoryScreen({ visible, items, languages, onClear, onCl
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0B0F1A' },
+const styles = themedStyles((c) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.bg },
   header: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 20, paddingTop: 40 },
-  title: { flex: 1, color: '#fff', fontSize: 24, fontWeight: '700' },
-  link: { color: '#6FA0FF', fontSize: 16 },
+  title: { flex: 1, color: c.text, fontSize: 24, fontWeight: '700' },
+  link: { color: c.link, fontSize: 16 },
   off: { opacity: 0.35 },
   list: { padding: 16, paddingTop: 0 },
-  empty: { color: '#9AA6C4', fontSize: 16, marginTop: 24 },
-  item: { backgroundColor: '#16233B', borderRadius: 12, padding: 14, marginBottom: 10 },
-  meta: { color: '#7C89AA', fontSize: 12, marginBottom: 6 },
-  source: { color: '#C9D2EA', fontSize: 16 },
-  translated: { color: '#fff', fontSize: 18, fontWeight: '600', marginTop: 6 },
-});
+  empty: { color: c.textMuted, fontSize: 16, marginTop: 24 },
+  item: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginBottom: 10 },
+  meta: { color: c.textFaint, fontSize: 12, marginBottom: 6 },
+  source: { color: c.textSoft, fontSize: 16 },
+  translated: { color: c.text, fontSize: 18, fontWeight: '600', marginTop: 6 },
+}));

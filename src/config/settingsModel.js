@@ -57,6 +57,7 @@ export const STRATEGIES = Object.freeze({
 
 export const DEFAULT_SETTINGS = Object.freeze({
   strategy: 'classic', // see STRATEGIES
+  theme: 'system', // 'system' (follows the phone) | 'light' | 'dark'
   languages: Object.freeze({ A: 'fr', B: 'en' }),
   autoStop: true,
   background: true, // keep working with the screen off (Android foreground service)
@@ -120,6 +121,7 @@ export function sanitizeSettings(raw) {
 
   return {
     languages: { A: a, B: b },
+    theme: ['system', 'light', 'dark'].includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
     strategy: STRATEGIES[input.strategy] && STRATEGIES[input.strategy].available !== false ? input.strategy : DEFAULT_SETTINGS.strategy,
     autoStop: typeof input.autoStop === 'boolean' ? input.autoStop : DEFAULT_SETTINGS.autoStop,
     background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,

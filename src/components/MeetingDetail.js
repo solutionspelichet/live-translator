@@ -13,6 +13,8 @@ import { MULTI } from '../utils/meeting';
 import { generateMinutes, pickDefaultModel, suggestModels, TEMPLATE_IDS, TEMPLATES } from '../utils/minutes';
 import { formatDuration } from '../utils/usage';
 import { wavMegabytes } from '../utils/wav';
+import { palette, themedStyles } from '../theme';
+import MarkdownText from './MarkdownText';
 
 const languageLabel = (code) => (code === MULTI ? 'Plusieurs langues' : getLanguage(code).label);
 
@@ -135,7 +137,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
           value={meeting.title}
           onChangeText={(t) => setMeeting({ ...meeting, title: t })}
           onEndEditing={() => update(meeting)}
-          placeholderTextColor="#55607F"
+          placeholderTextColor={palette().placeholder}
         />
         <Text style={styles.meta}>
           {`${dateText} · ${formatDuration(meeting.durationSec)} · ${languageLabel(meeting.language)} · ${translated ? 'enregistrée pendant la traduction' : `transcription ${meeting.source === 'precise' ? 'précise ✓' : 'en direct (provisoire)'}`}`}
@@ -144,7 +146,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
 
         {!!busy && (
           <View style={styles.busy}>
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={palette().text} />
             <Text style={styles.busyText}>{progress != null ? `${busy} ${Math.round(progress * 100)} %` : busy}</Text>
           </View>
         )}
@@ -178,7 +180,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
               onChangeText={setExtra}
               multiline
               placeholder={template === 'libre' ? 'Décrivez ce que vous voulez obtenir' : 'ex. insister sur le budget ; noms des clients en gras'}
-              placeholderTextColor="#55607F"
+              placeholderTextColor={palette().placeholder}
             />
             <Text style={styles.label}>Modèle OpenRouter</Text>
             <View style={styles.chips}>
@@ -193,7 +195,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
               autoCapitalize="none"
               autoCorrect={false}
               placeholder={chosenModel ? `par défaut : ${chosenModel}` : 'ex. anthropic/claude-sonnet-4.5'}
-              placeholderTextColor="#55607F"
+              placeholderTextColor={palette().placeholder}
             />
             <Text style={styles.hint}>
               Le texte de la transcription est envoyé à OpenRouter puis au fournisseur du modèle choisi. Le coût réel est affiché dans 📊.
@@ -206,9 +208,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
           <View key={n.id} style={styles.card}>
             <Text style={styles.cardTitle}>{`Compte rendu — ${n.language ? languageLabel(n.language) : ''} · ${TEMPLATES[n.template]?.label ?? n.template}`}</Text>
             <Text style={styles.metaSmall}>{`${new Date(n.createdAt).toLocaleString('fr-FR')} · ${n.model}`}</Text>
-            <Text style={styles.minutes} selectable>
-              {n.text}
-            </Text>
+            <MarkdownText text={n.text} />
             <View style={styles.actions}>
               <Btn label="Partager" onPress={() => Share.share({ title: meeting.title, message: n.text }).catch(() => {})} />
               <Btn
@@ -231,7 +231,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
                   style={[styles.input, { flex: 1 }]}
                   defaultValue={names[id] ?? ''}
                   placeholder={speakerName({}, id)}
-                  placeholderTextColor="#55607F"
+                  placeholderTextColor={palette().placeholder}
                   onEndEditing={(e) => rename(id, e.nativeEvent.text)}
                 />
               </View>
@@ -262,7 +262,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
 function Btn({ label, onPress, disabled, primary, danger }) {
   return (
     <Pressable style={[styles.btn, primary && styles.btnPrimary, danger && styles.btnDanger, disabled && styles.off]} onPress={onPress} disabled={disabled} accessibilityRole="button">
-      <Text style={styles.btnText}>{label}</Text>
+      <Text style={[styles.btnText, primary && styles.btnTextOnAccent]}>{label}</Text>
     </Pressable>
   );
 }
@@ -275,39 +275,40 @@ function Chip({ label, on, onPress }) {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0B0F1A' },
+const styles = themedStyles((c) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.bg },
   header: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingTop: 40 },
-  link: { color: '#6FA0FF', fontSize: 16 },
-  danger: { color: '#FF8A80', fontSize: 16 },
+  link: { color: c.link, fontSize: 16 },
+  danger: { color: c.danger, fontSize: 16 },
   content: { padding: 16, paddingTop: 0, paddingBottom: 60 },
-  title: { color: '#fff', fontSize: 22, fontWeight: '700', paddingVertical: 4 },
-  meta: { color: '#9AA6C4', fontSize: 13, marginBottom: 8 },
-  metaSmall: { color: '#7C89AA', fontSize: 12, marginBottom: 8 },
-  warn: { color: '#FFC46B', fontSize: 14, marginVertical: 8 },
-  busy: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#16233B', borderRadius: 12, padding: 14, marginVertical: 8 },
-  busyText: { color: '#fff', fontSize: 15 },
+  title: { color: c.text, fontSize: 22, fontWeight: '700', paddingVertical: 4 },
+  meta: { color: c.textMuted, fontSize: 13, marginBottom: 8 },
+  metaSmall: { color: c.textFaint, fontSize: 12, marginBottom: 8 },
+  warn: { color: c.warn, fontSize: 14, marginVertical: 8 },
+  busy: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginVertical: 8 },
+  busyText: { color: c.text, fontSize: 15 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginVertical: 10 },
-  btn: { backgroundColor: '#16233B', borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14 },
-  btnPrimary: { backgroundColor: '#2F6FED' },
-  btnDanger: { backgroundColor: '#3A1B1B' },
-  btnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  btn: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14 },
+  btnPrimary: { backgroundColor: c.accent },
+  btnDanger: { backgroundColor: c.dangerBg },
+  btnTextOnAccent: { color: c.onAccent },
+  btnText: { color: c.text, fontSize: 15, fontWeight: '600' },
   off: { opacity: 0.4 },
-  card: { backgroundColor: '#16233B', borderRadius: 12, padding: 14, marginBottom: 12 },
-  cardTitle: { color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 6 },
-  label: { color: '#C9D2EA', fontSize: 14, marginTop: 12, marginBottom: 6 },
-  hint: { color: '#9AA6C4', fontSize: 13, marginVertical: 8 },
+  card: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginBottom: 12 },
+  cardTitle: { color: c.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
+  label: { color: c.textSoft, fontSize: 14, marginTop: 12, marginBottom: 6 },
+  hint: { color: c.textMuted, fontSize: 13, marginVertical: 8 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { backgroundColor: '#0B0F1A', borderRadius: 18, paddingVertical: 8, paddingHorizontal: 12 },
-  chipOn: { backgroundColor: '#2F6FED' },
-  chipText: { color: '#fff', fontSize: 14 },
-  input: { backgroundColor: '#0B0F1A', color: '#fff', borderRadius: 10, padding: 12, fontSize: 15, marginTop: 6 },
-  minutes: { color: '#E8ECF8', fontSize: 15, lineHeight: 22 },
+  chip: { backgroundColor: c.bg, borderRadius: 18, paddingVertical: 8, paddingHorizontal: 12 },
+  chipOn: { backgroundColor: c.chipOn, borderColor: c.accent },
+  chipText: { color: c.text, fontSize: 14 },
+  input: { backgroundColor: c.bg, color: c.text, borderRadius: 10, padding: 12, fontSize: 15, marginTop: 6 },
+  minutes: { color: c.textBody, fontSize: 15, lineHeight: 22 },
   speakerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  speakerShare: { color: '#9AA6C4', width: 44, fontSize: 13 },
-  section: { color: '#fff', fontSize: 18, fontWeight: '700', marginTop: 12, marginBottom: 8 },
+  speakerShare: { color: c.textMuted, width: 44, fontSize: 13 },
+  section: { color: c.text, fontSize: 18, fontWeight: '700', marginTop: 12, marginBottom: 8 },
   segment: { marginBottom: 10 },
-  segHead: { color: '#6FA0FF', fontSize: 12, fontWeight: '600' },
-  segText: { color: '#E8ECF8', fontSize: 15, lineHeight: 21 },
-  segTrans: { color: '#9AA6C4', fontSize: 14, lineHeight: 20, fontStyle: 'italic' },
-});
+  segHead: { color: c.link, fontSize: 12, fontWeight: '600' },
+  segText: { color: c.textBody, fontSize: 15, lineHeight: 21 },
+  segTrans: { color: c.textMuted, fontSize: 14, lineHeight: 20, fontStyle: 'italic' },
+}));

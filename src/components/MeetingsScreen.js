@@ -11,6 +11,7 @@ import { defaultTitle, MULTI } from '../utils/meeting';
 import { formatDuration } from '../utils/usage';
 import { wavMegabytes } from '../utils/wav';
 import MeetingDetail from './MeetingDetail';
+import { palette, themedStyles } from '../theme';
 
 const langName = (code) => (code === MULTI ? 'Plusieurs langues' : LANGUAGES[code]?.label ?? code);
 
@@ -155,7 +156,7 @@ function NewMeeting({ settings, onCancel, onStarted }) {
       </View>
       <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
         <Text style={styles.label}>Titre</Text>
-        <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholderTextColor="#55607F" />
+        <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholderTextColor={palette().placeholder} />
         <Text style={styles.label}>Langue parlée</Text>
         <View style={styles.chips}>
           <Chip label="🌐 Plusieurs langues" on={language === MULTI} onPress={() => setLanguage(MULTI)} />
@@ -260,42 +261,42 @@ function Chip({ label, on, onPress }) {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0B0F1A' },
+const styles = themedStyles((c) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: c.bg },
   header: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 20, paddingTop: 40 },
-  title: { flex: 1, color: '#fff', fontSize: 24, fontWeight: '700' },
-  link: { color: '#6FA0FF', fontSize: 16 },
-  danger: { color: '#FF8A80', fontSize: 16 },
-  start: { backgroundColor: '#2F6FED', borderRadius: 14, padding: 16, alignItems: 'center', marginHorizontal: 16, marginVertical: 8 },
-  stop: { backgroundColor: '#C0392B', borderRadius: 14, padding: 18, alignItems: 'center', margin: 16 },
-  startText: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  title: { flex: 1, color: c.text, fontSize: 24, fontWeight: '700' },
+  link: { color: c.link, fontSize: 16 },
+  danger: { color: c.danger, fontSize: 16 },
+  start: { backgroundColor: c.accent, borderRadius: 14, padding: 16, alignItems: 'center', marginHorizontal: 16, marginVertical: 8 },
+  stop: { backgroundColor: c.dangerStrong, borderRadius: 14, padding: 18, alignItems: 'center', margin: 16 },
+  startText: { color: c.onAccent, fontSize: 17, fontWeight: '700' },
   off: { opacity: 0.4 },
   list: { padding: 16 },
-  empty: { color: '#9AA6C4', fontSize: 15, margin: 16 },
-  tip: { color: '#9AA6C4', fontSize: 13, marginHorizontal: 20, marginBottom: 4 },
-  item: { backgroundColor: '#16233B', borderRadius: 12, padding: 14, marginBottom: 10 },
-  itemTitle: { color: '#fff', fontSize: 17, fontWeight: '600' },
-  itemMeta: { color: '#9AA6C4', fontSize: 13, marginTop: 4 },
+  empty: { color: c.textMuted, fontSize: 15, margin: 16 },
+  tip: { color: c.textMuted, fontSize: 13, marginHorizontal: 20, marginBottom: 4 },
+  item: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginBottom: 10 },
+  itemTitle: { color: c.text, fontSize: 17, fontWeight: '600' },
+  itemMeta: { color: c.textMuted, fontSize: 13, marginTop: 4 },
   form: { padding: 16, paddingBottom: 60 },
-  label: { color: '#C9D2EA', fontSize: 14, marginTop: 16, marginBottom: 6 },
-  input: { backgroundColor: '#16233B', color: '#fff', borderRadius: 10, padding: 14, fontSize: 16 },
+  label: { color: c.textSoft, fontSize: 14, marginTop: 16, marginBottom: 6 },
+  input: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, color: c.text, borderRadius: 10, padding: 14, fontSize: 16 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { backgroundColor: '#16233B', borderRadius: 18, paddingVertical: 9, paddingHorizontal: 13 },
-  chipOn: { backgroundColor: '#2F6FED' },
-  chipText: { color: '#fff', fontSize: 14 },
-  hint: { color: '#9AA6C4', fontSize: 13, marginVertical: 10 },
-  consent: { backgroundColor: '#16233B', borderRadius: 12, padding: 14, marginTop: 14 },
-  consentOn: { backgroundColor: '#1F4E3A' },
-  consentText: { color: '#fff', fontSize: 15 },
+  chip: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 18, paddingVertical: 9, paddingHorizontal: 13 },
+  chipOn: { backgroundColor: c.chipOn, borderColor: c.accent },
+  chipText: { color: c.text, fontSize: 14 },
+  hint: { color: c.textMuted, fontSize: 13, marginVertical: 10 },
+  consent: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginTop: 14 },
+  consentOn: { backgroundColor: c.successBg },
+  consentText: { color: c.text, fontSize: 15 },
   rec: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20 },
-  dot: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#FF3B30' },
-  clock: { color: '#fff', fontSize: 34, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  meterTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: '#FFFFFF22', overflow: 'hidden' },
-  meterFill: { height: 8, backgroundColor: '#7CE0A3' },
-  meta: { color: '#9AA6C4', fontSize: 13, paddingHorizontal: 20, marginTop: 6 },
-  warn: { color: '#FFC46B', fontSize: 14, paddingHorizontal: 20, marginTop: 6 },
-  live: { flex: 1, backgroundColor: '#101A2E', marginTop: 10 },
-  segHead: { color: '#6FA0FF', fontSize: 12, fontWeight: '600' },
-  segText: { color: '#E8ECF8', fontSize: 16, lineHeight: 22 },
-  interim: { color: '#9AA6C4', fontStyle: 'italic' },
-});
+  dot: { width: 14, height: 14, borderRadius: 7, backgroundColor: c.rec },
+  clock: { color: c.text, fontSize: 34, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  meterTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: c.track, overflow: 'hidden' },
+  meterFill: { height: 8, backgroundColor: c.success },
+  meta: { color: c.textMuted, fontSize: 13, paddingHorizontal: 20, marginTop: 6 },
+  warn: { color: c.warn, fontSize: 14, paddingHorizontal: 20, marginTop: 6 },
+  live: { flex: 1, backgroundColor: c.panel, marginTop: 10 },
+  segHead: { color: c.link, fontSize: 12, fontWeight: '600' },
+  segText: { color: c.textBody, fontSize: 16, lineHeight: 22 },
+  interim: { color: c.textMuted, fontStyle: 'italic' },
+}));
