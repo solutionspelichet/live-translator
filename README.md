@@ -282,6 +282,14 @@ Les volumes sont exacts côté app ; les tarifs (modifiables dans l'écran) sont
 
 Réglages → Voix → **Cloner une voix** : donnez un nom, cochez la case de consentement, parlez environ une minute (30 s minimum, arrêt automatique à 2 min), puis « Créer la voix ». L'échantillon est enregistré dans le cache du téléphone, envoyé à ElevenLabs (`POST /v1/voices/add`) puis supprimé ; seule la voix créée reste, chez ElevenLabs. Elle apparaît aussitôt dans la liste des voix, à attribuer à la langue A ou B (ou à une personne, avec « Voix liée à la personne qui parle »). Le clonage instantané dépend de l'abonnement ElevenLabs ; l'application l'indique si le compte ne le permet pas. Ne clonez que votre propre voix, ou celle d'une personne qui vous y autorise.
 
+## Doubao live (BytePlus, expérimental)
+
+Stratégie « Doubao live » (⚙︎ → Traduction) : BytePlus Seed Speech, *Live Interpretation / AST 2.0*, de la parole vers la parole. Connexion directe depuis le téléphone, sans serveur intermédiaire : `wss://voice.ap-southeast-1.bytepluses.com/api/v4/ast/v2/translate`, en-têtes `X-Api-Key` (clé **Seed Speech**, pas une clé ModelArk) et `X-Api-Resource-Id: volc.service_type.1000025`. Messages en Protobuf binaire (`src/utils/protobuf.js`, `src/utils/doubao.js`) : StartSession (100) → SessionStarted (150) → audio PCM 16 bits 16 kHz par paquets de 100 ms (200) → FinishSession (102) → SessionFinished (152).
+
+À préparer dans la console BytePlus : activer *Live Interpretation 2.0* et *Voice Replication 2.0*, créer une clé API, enrôler une voix autorisée et copier son `speaker_id`. Les deux valeurs se saisissent dans l'application (clés API).
+
+Limites connues : la voix doit être **clonée** (`seed-icl-2.0`) ; une des deux langues doit être le chinois ou l'anglais ; seuls chinois ↔ français et chinois → anglais ont été éprouvés en parole à parole ; **la langue entendue est fixe pour chaque session**, donc en mains libres deux sessions tournent (A→B et B→A) et celle dont la langue n'est pas parlée ne comprend rien (aucun filtre de répétition : à observer dans le journal). Le prix n'est pas publié : à renseigner dans Consommation. Le protocole vient d'une intégration éprouvée sur Android, mais cette version React Native n'a pas encore été essayée : le journal dira si la connexion directe est acceptée.
+
 ## Points matériels à connaître
 
 - **Le micro ne doit pas passer par le Bluetooth.** Si le micro BT (profil HFP) est utilisé, la sortie bascule en mono basse qualité
