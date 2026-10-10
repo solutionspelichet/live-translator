@@ -278,6 +278,10 @@ Les volumes sont exacts côté app ; les tarifs (modifiables dans l'écran) sont
   ignorée (`src/utils/echo.js`, note « écho ignoré » dans le journal), ainsi que les transcriptions peu fiables (confiance < 0,5, ou < 0,7
   quand l'autre langue n'a rien reconnu) et les textes de moins de 3 caractères.
 
+## Cloner une voix (stratégie Classique)
+
+Réglages → Voix → **Cloner une voix** : donnez un nom, cochez la case de consentement, parlez environ une minute (30 s minimum, arrêt automatique à 2 min), puis « Créer la voix ». L'échantillon est enregistré dans le cache du téléphone, envoyé à ElevenLabs (`POST /v1/voices/add`) puis supprimé ; seule la voix créée reste, chez ElevenLabs. Elle apparaît aussitôt dans la liste des voix, à attribuer à la langue A ou B (ou à une personne, avec « Voix liée à la personne qui parle »). Le clonage instantané dépend de l'abonnement ElevenLabs ; l'application l'indique si le compte ne le permet pas. Ne clonez que votre propre voix, ou celle d'une personne qui vous y autorise.
+
 ## Points matériels à connaître
 
 - **Le micro ne doit pas passer par le Bluetooth.** Si le micro BT (profil HFP) est utilisé, la sortie bascule en mono basse qualité

@@ -8,6 +8,7 @@ import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, STRA
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 import { describeError } from '../utils/http';
+import VoiceCloneCard from './VoiceCloneCard';
 import { listVoices, testGeminiKey, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
 import { palette, THEME_CHOICES, themedStyles } from '../theme';
 
@@ -336,6 +337,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
             </Text>
           </>
         )}
+        <VoiceCloneCard
+          apiKey={values.EXPO_PUBLIC_ELEVENLABS_API_KEY}
+          settings={settings}
+          onCreated={(voice) => setVoices((cur) => [voice, ...(cur ?? []).filter((v) => v.id !== voice.id)])}
+        />
         </>)}
         </Section>
 
