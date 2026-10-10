@@ -103,7 +103,12 @@ export default class LiveTranslationEngine {
     const id = ++this.turnId;
     const auto = side === AUTO;
     const pairs = auto ? [[SIDE.A, SIDE.B], [SIDE.B, SIDE.A]] : [[side, other(side)]];
-    for (const [, to] of pairs) {
+    for (const [from, to] of pairs) {
+      const pairProblem = this.profile.pairProblem?.(this.profile.outputCode(this.languages[from]), this.profile.outputCode(this.languages[to]));
+      if (pairProblem) {
+        this.emit({ type: 'error', error: new Error(`${this.profile.label} : ${pairProblem}. Changez de langue ou de stratégie.`) });
+        return;
+      }
       if (!this.profile.outputCode(this.languages[to])) {
         this.emit({
           type: 'error',
@@ -134,6 +139,7 @@ export default class LiveTranslationEngine {
       const label = `${from}→${to}`;
       d.session = this.createSession({
         target: this.profile.outputCode(this.languages[to]),
+        source: this.profile.outputCode(this.languages[from]), // services whose source language is fixed per session (Doubao)
         // The speech is the same for both directions: ONE transcription of it (shared below) is enough, and it is what lets
         // the gate tell a translation from a repetition (without it both directions were played).
         transcribeInput: index === 0,

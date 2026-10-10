@@ -12,6 +12,8 @@ const FIELDS = [
   'EXPO_PUBLIC_OPENROUTER_API_KEY',
   'EXPO_PUBLIC_OPENAI_API_KEY',
   'EXPO_PUBLIC_GEMINI_API_KEY',
+  'EXPO_PUBLIC_BYTEPLUS_API_KEY',
+  'EXPO_PUBLIC_DOUBAO_SPEAKER_ID',
 ];
 
 const fromBuild = {
@@ -23,6 +25,8 @@ const fromBuild = {
   EXPO_PUBLIC_OPENROUTER_API_KEY: process.env.EXPO_PUBLIC_OPENROUTER_API_KEY,
   EXPO_PUBLIC_OPENAI_API_KEY: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
   EXPO_PUBLIC_GEMINI_API_KEY: process.env.EXPO_PUBLIC_GEMINI_API_KEY,
+  EXPO_PUBLIC_BYTEPLUS_API_KEY: process.env.EXPO_PUBLIC_BYTEPLUS_API_KEY,
+  EXPO_PUBLIC_DOUBAO_SPEAKER_ID: process.env.EXPO_PUBLIC_DOUBAO_SPEAKER_ID,
 };
 
 const urls = {
@@ -34,6 +38,8 @@ const urls = {
   geminiLiveWsUrl:
     process.env.EXPO_PUBLIC_GEMINI_LIVE_WS_URL ||
     'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent',
+  doubaoWsUrl: process.env.EXPO_PUBLIC_DOUBAO_WS_URL || 'wss://voice.ap-southeast-1.bytepluses.com/api/v4/ast/v2/translate',
+  doubaoResourceId: process.env.EXPO_PUBLIC_DOUBAO_RESOURCE_ID || 'volc.service_type.1000025',
   geminiBaseUrl: process.env.EXPO_PUBLIC_GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta',
   openaiBaseUrl: process.env.EXPO_PUBLIC_OPENAI_BASE_URL || 'https://api.openai.com/v1',
   deepgramHttpUrl: process.env.EXPO_PUBLIC_DEEPGRAM_HTTP_URL || 'https://api.deepgram.com/v1/listen',
@@ -51,6 +57,8 @@ function apply(values) {
   env.openRouterKey = values.EXPO_PUBLIC_OPENROUTER_API_KEY;
   env.openaiKey = values.EXPO_PUBLIC_OPENAI_API_KEY;
   env.geminiKey = values.EXPO_PUBLIC_GEMINI_API_KEY;
+  env.byteplusKey = values.EXPO_PUBLIC_BYTEPLUS_API_KEY;
+  env.doubaoSpeakerId = values.EXPO_PUBLIC_DOUBAO_SPEAKER_ID;
   // DeepL Free keys end in ":fx" and only work on api-free.deepl.com; Pro keys on api.deepl.com.
   if (!process.env.EXPO_PUBLIC_DEEPL_BASE_URL && env.deeplKey) {
     env.deeplBaseUrl = env.deeplKey.endsWith(':fx') ? 'https://api-free.deepl.com' : 'https://api.deepl.com';
@@ -82,6 +90,18 @@ export const SETUP_FIELDS = [
     secret: true,
     optional: true,
   },
+  {
+    name: 'EXPO_PUBLIC_BYTEPLUS_API_KEY',
+    label: 'Clé BytePlus Seed Speech (stratégie « Doubao live » seulement)',
+    secret: true,
+    optional: true,
+  },
+  {
+    name: 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID',
+    label: 'Identifiant de la voix clonée BytePlus (speaker_id)',
+    secret: false,
+    optional: true,
+  },
 ];
 
 /** Current values by field name (for pre-filling the setup form). */
@@ -95,6 +115,8 @@ export function currentValues() {
     EXPO_PUBLIC_OPENROUTER_API_KEY: env.openRouterKey,
     EXPO_PUBLIC_OPENAI_API_KEY: env.openaiKey,
     EXPO_PUBLIC_GEMINI_API_KEY: env.geminiKey,
+    EXPO_PUBLIC_BYTEPLUS_API_KEY: env.byteplusKey,
+    EXPO_PUBLIC_DOUBAO_SPEAKER_ID: env.doubaoSpeakerId,
   };
 }
 
@@ -125,6 +147,7 @@ export async function saveKeys(values) {
 export function requiredFields(strategy = 'classic') {
   if (strategy === 'openai') return ['EXPO_PUBLIC_OPENAI_API_KEY'];
   if (strategy === 'gemini') return ['EXPO_PUBLIC_GEMINI_API_KEY'];
+  if (strategy === 'doubao') return ['EXPO_PUBLIC_BYTEPLUS_API_KEY', 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID'];
   return SETUP_FIELDS.filter((f) => !f.optional).map((f) => f.name);
 }
 
