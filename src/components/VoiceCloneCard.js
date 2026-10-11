@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { env } from '../config/env';
 import VoiceSampleRecorder from '../services/VoiceSampleRecorder';
 import { describeError } from '../utils/http';
-import { CLONE_GOOD_SEC, CLONE_MIN_SEC, CONSENT_TEXT, sampleHint, sampleQuality } from '../utils/voiceClone';
+import { CLONE_GOOD_SEC, CLONE_MIN_SEC, CONSENT_TEXT, cloneErrorMessage, sampleHint, sampleQuality } from '../utils/voiceClone';
 import { palette, themedStyles } from '../theme';
 
 /**
@@ -66,7 +66,7 @@ export default function VoiceCloneCard({ apiKey, settings, onCreated }) {
       setSeconds(0);
       setPhase('idle');
     } catch (e) {
-      setError(describeError(e));
+      setError(cloneErrorMessage(e) ?? describeError(e));
       setPhase('recorded');
     }
   };

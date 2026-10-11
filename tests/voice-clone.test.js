@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { CLONE_GOOD_SEC, CLONE_MIN_SEC, cloneName, parseCloneResult, sampleHint, sampleQuality } from '../src/utils/voiceClone.js';
+import { CLONE_GOOD_SEC, CLONE_MIN_SEC, cloneErrorMessage, cloneName, parseCloneResult, sampleHint, sampleQuality } from '../src/utils/voiceClone.js';
 
 test('sample quality follows the minimum and the recommended length', () => {
   assert.equal(sampleQuality(CLONE_MIN_SEC - 1), 'short');
@@ -24,4 +24,17 @@ test('parseCloneResult explains a plan without cloning, and other errors', () =>
   assert.throws(() => parseCloneResult({ status: 401, body: '{"detail":{"status":"can_not_use_instant_voice_cloning","message":"x"}}' }), /abonnement/);
   assert.throws(() => parseCloneResult({ status: 422, body: '{"detail":"fichier trop court"}' }), /trop court/);
   assert.throws(() => parseCloneResult({ status: 500, body: 'oops' }), /oops/);
+});
+
+test('cloneErrorMessage shows the service reason for a 401/403 instead of "bad key"', () => {
+  let error;
+  try {
+    parseCloneResult({ status: 401, body: '{"detail":{"status":"missing_permissions","message":"The API key you used is missing the permission voices_write"}}' });
+  } catch (e) {
+    error = e;
+  }
+  const text = cloneErrorMessage(error);
+  assert.match(text, /missing_permissions/);
+  assert.match(text, /écriture des voix/);
+  assert.equal(cloneErrorMessage(new Error('x')), null);
 });

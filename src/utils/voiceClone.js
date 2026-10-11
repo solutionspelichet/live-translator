@@ -44,5 +44,20 @@ export function parseCloneResult({ status, body }) {
   if (/instant_voice_cloning|voice_limit|can_not_use/i.test(code) || /instant voice clon|voice limit|subscription/i.test(message)) {
     throw new ApiError('ElevenLabs', 402, "le clonage de voix n'est pas inclus dans votre abonnement ElevenLabs (ou la limite de voix est atteinte)");
   }
-  throw new ApiError('ElevenLabs', status || 502, message || 'réponse illisible');
+  throw new ApiError('ElevenLabs', status || 502, [code, message].filter(Boolean).join(' — ') || 'réponse illisible');
+}
+
+/**
+ * What to show when the clone could not be created. A 401/403 is NOT necessarily a bad key (the generic message says so):
+ * a key restricted to some features, or a plan without cloning, answer the same way — so the service's own reason is shown.
+ */
+export function cloneErrorMessage(error) {
+  if (error instanceof ApiError && error.service === 'ElevenLabs' && (error.status === 401 || error.status === 403)) {
+    const detail = error.detail || 'sans précision';
+    const hint = /missing_permissions|permission/i.test(detail)
+      ? " Votre clé n'a pas le droit de créer des voix : dans ElevenLabs → Developers → API Keys, ouvrez la clé et autorisez l'écriture des voix (ou créez une clé sans restriction), puis recopiez-la dans les réglages."
+      : ' Vérifiez que votre abonnement ElevenLabs inclut le clonage instantané de voix, et que la clé peut créer des voix.';
+    return `ElevenLabs a refusé la création de la voix (${error.status}) : ${detail}.${hint}`;
+  }
+  return null;
 }
