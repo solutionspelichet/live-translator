@@ -17,6 +17,7 @@ export const emptyUsage = () => ({
   oaiTranscribeSec: 0, // OpenAI live: seconds of source speech transcribed (gpt-realtime-whisper)
   geminiInSec: 0, // Gemini live: seconds of audio sent (per session)
   geminiOutSec: 0, // Gemini live: seconds of translated voice received
+  doubaoSec: 0, // Doubao live: seconds of audio sent (per session)
 });
 
 export const USAGE_KEYS = Object.freeze(Object.keys(emptyUsage()));
@@ -91,6 +92,7 @@ export const DEFAULT_PRICES = Object.freeze({
   openaiTranscribePerMin: 0.017, // gpt-realtime-whisper (source transcript), per minute
   geminiInPerMin: 0.0053, // gemini-3.5-live-translate-preview, audio in (25 tokens/s × $3.50 per million); a free tier exists
   geminiOutPerMin: 0.0315, // same, audio out ($21 per million tokens)
+  doubaoPerMin: 0, // BytePlus AST: price not published in what was found — fill it in from the BytePlus console
 });
 
 /** Estimated cost per service and in total. `prices` overrides DEFAULT_PRICES key by key. */
@@ -104,7 +106,8 @@ export function estimateCost(rawUsage, prices = {}) {
   const openrouter = usage.orCostUsd; // exact: reported by OpenRouter
   const openaiLive = (usage.oaiLiveSec / 60) * p.openaiLivePerMin + (usage.oaiTranscribeSec / 60) * p.openaiTranscribePerMin;
   const geminiLive = (usage.geminiInSec / 60) * p.geminiInPerMin + (usage.geminiOutSec / 60) * p.geminiOutPerMin;
-  return { deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, openaiLive, geminiLive, total: deepgram + deepgramPre + deepl + eleven + openrouter + openaiLive + geminiLive };
+  const doubaoLive = (usage.doubaoSec / 60) * p.doubaoPerMin;
+  return { deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, openaiLive, geminiLive, doubaoLive, total: deepgram + deepgramPre + deepl + eleven + openrouter + openaiLive + geminiLive + doubaoLive };
 }
 
 export function formatDuration(seconds) {

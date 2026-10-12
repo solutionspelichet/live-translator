@@ -7,7 +7,9 @@ import { saveSettings } from '../config/settings';
 import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, STRATEGIES, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
+import { doubaoCode, doubaoPairProblem } from '../utils/doubao';
 import { describeError } from '../utils/http';
+import VoiceCloneCard from './VoiceCloneCard';
 import { listVoices, testGeminiKey, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
 import { palette, THEME_CHOICES, themedStyles } from '../theme';
 
@@ -30,7 +32,8 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
   const [strategy, setStrategy] = useState(settings.strategy);
   const [theme, setThemeChoice] = useState(settings.theme);
   const live = strategy !== 'classic'; // one live-translation service (OpenAI or Gemini) instead of the Deepgram → DeepL → ElevenLabs chain
-  const liveKeyField = strategy === 'gemini' ? 'EXPO_PUBLIC_GEMINI_API_KEY' : 'EXPO_PUBLIC_OPENAI_API_KEY';
+  const LIVE_FIELDS = { openai: ['EXPO_PUBLIC_OPENAI_API_KEY'], gemini: ['EXPO_PUBLIC_GEMINI_API_KEY'], doubao: ['EXPO_PUBLIC_BYTEPLUS_API_KEY', 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID'] };
+  const OTHER_LIVE_FIELDS = Object.values(LIVE_FIELDS).flat();
   const [streamVoice, setStreamVoice] = useState(settings.streamVoice);
   const [speed, setSpeed] = useState(settings.speed);
   const [voiceBySpeaker, setVoiceBySpeaker] = useState(settings.voiceBySpeaker);
@@ -74,7 +77,9 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
         </View>
         <Text style={styles.hint}>
           {STRATEGIES[strategy].hint}.
-          {strategy === 'gemini'
+          {strategy === 'doubao'
+            ? ' Doubao (BytePlus Seed LiveInterpret 2.0) traduit directement la parole en parole avec une voix clonée que vous avez enrôlée dans la console BytePlus (identifiant « speaker_id »). Une des deux langues doit être le chinois ou l\'anglais ; seuls chinois ↔ français et chinois → anglais sont éprouvés. Chaque session entend une seule langue : en mains libres, deux sessions tournent (une par sens). Prix non publié : renseignez-le dans l\'écran Consommation. Fonction nouvelle : renvoyez-moi le journal si quelque chose cloche.'
+          : strategy === 'gemini'
             ? ' Gemini traduit directement la parole en parole (modèle gemini-3.5-live-translate-preview, environ 0,005 $ par minute d\'audio envoyé et 0,03 $ par minute de voix traduite, un niveau gratuit existe ; deux sessions en mains libres). Il est censé rester muet quand on parle déjà la langue cible ; un filtre coupe les répétitions qui restent. Vos voix ElevenLabs, DeepL et Deepgram ne servent pas dans ce mode. Fonction nouvelle, en préversion chez Google : renvoyez-moi le journal si quelque chose cloche.'
             : ''}
           {strategy === 'openai'
@@ -87,6 +92,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
             {`⚠ ${[languages.A, languages.B].filter((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)).map((c) => getLanguage(c).label).join(' et ')} : cette langue ne peut pas être parlée par OpenAI live. Choisissez-en une autre ci-dessous, ou repassez en « Classique ».`}
           </Text>
         )}
+        {strategy === 'doubao' && (() => {
+          const [a, b] = [doubaoCode(languages.A), doubaoCode(languages.B)];
+          const problem = !a || !b ? `${getLanguage(!a ? languages.A : languages.B).label} n'est pas prise en charge par Doubao` : doubaoPairProblem(a, b);
+          return problem ? <Text style={styles.bad}>{`⚠ ${problem}. Choisissez d'autres langues ci-dessous, ou changez de stratégie.`}</Text> : null;
+        })()}
         <View style={styles.chips}>
           <Chip label="⇄ Inverser A et B" on={false} onPress={() => setLanguages((l) => ({ A: l.B, B: l.A }))} />
           {settings.recentPairs
@@ -108,7 +118,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
         </Section>
 
         <Section title="Clés API" subtitle={complete ? '✓ complètes' : '⚠ à renseigner'} open={!!openSection.keys} onToggle={() => toggle('keys')}>
-        {SETUP_FIELDS.filter((f) => (live ? f.name === liveKeyField : !['EXPO_PUBLIC_OPENAI_API_KEY', 'EXPO_PUBLIC_GEMINI_API_KEY'].includes(f.name))).map((f) => (
+        {SETUP_FIELDS.filter((f) => (live ? LIVE_FIELDS[strategy].includes(f.name) : !OTHER_LIVE_FIELDS.includes(f.name))).map((f) => (
           <Fragment key={f.name}>
             <Text style={styles.label}>{f.label}</Text>
             <TextInput
@@ -119,7 +129,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
               autoCorrect={false}
               secureTextEntry={f.secret}
               placeholderTextColor={palette().placeholder}
-              placeholder={f.name === 'EXPO_PUBLIC_OPENAI_API_KEY' ? 'sk-… (obligatoire pour OpenAI live)' : f.name === 'EXPO_PUBLIC_GEMINI_API_KEY' ? 'AIza… (obligatoire pour Gemini live)' : f.optional ? 'sk-or-… (laisser vide si inutilisé)' : f.secret ? '••••••••' : 'ex. 21m00Tcm4TlvDq8ikWAM'}
+              placeholder={f.name === 'EXPO_PUBLIC_OPENAI_API_KEY' ? 'sk-… (obligatoire pour OpenAI live)' : f.name === 'EXPO_PUBLIC_GEMINI_API_KEY' ? 'AIza… (obligatoire pour Gemini live)' : f.name === 'EXPO_PUBLIC_BYTEPLUS_API_KEY' ? 'clé Seed Speech (pas une clé ModelArk)' : f.name === 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID' ? 'ex. S_xxxxxxxx (voix enrôlée dans la console)' : f.optional ? 'sk-or-… (laisser vide si inutilisé)' : f.secret ? '••••••••' : 'ex. 21m00Tcm4TlvDq8ikWAM'}
             />
           </Fragment>
         ))}
@@ -130,6 +140,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
             setTesting(true);
             setReport(null);
             const v = (name) => values[name]?.trim();
+            if (strategy === 'doubao') {
+              setReport({ doubao: { ok: !!(v('EXPO_PUBLIC_BYTEPLUS_API_KEY') && v('EXPO_PUBLIC_DOUBAO_SPEAKER_ID')), message: 'la clé ne peut se vérifier qu\'en ouvrant une session : lancez une traduction courte (chinois ↔ français ou anglais)' }, voices: [] });
+              setTesting(false);
+              return;
+            }
             if (strategy === 'gemini') {
               setReport({ gemini: await testGeminiKey(v('EXPO_PUBLIC_GEMINI_API_KEY'), { base: env.geminiBaseUrl }), voices: [] });
               setTesting(false);
@@ -164,6 +179,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           [
             ['OpenAI', report.openai],
             ['Gemini', report.gemini],
+            ['Doubao', report.doubao],
             ['Deepgram', report.deepgram],
             ['DeepL', report.deepl],
             ['ElevenLabs', report.elevenlabs],
@@ -336,6 +352,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
             </Text>
           </>
         )}
+        <VoiceCloneCard
+          apiKey={values.EXPO_PUBLIC_ELEVENLABS_API_KEY}
+          settings={settings}
+          onCreated={(voice) => setVoices((cur) => [voice, ...(cur ?? []).filter((v) => v.id !== voice.id)])}
+        />
         </>)}
         </Section>
 

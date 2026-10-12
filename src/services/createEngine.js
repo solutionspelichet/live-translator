@@ -9,7 +9,8 @@ import ElevenLabsClient from './tts/ElevenLabsClient';
 import LiveTranslationEngine from './LiveTranslationEngine';
 import GeminiLiveSession from './live/GeminiLiveSession';
 import OpenAiLiveSession from './live/OpenAiLiveSession';
-import { GEMINI_LIVE } from './liveProfiles';
+import DoubaoLiveSession from './live/DoubaoLiveSession';
+import { DOUBAO_LIVE, GEMINI_LIVE } from './liveProfiles';
 import TranslationEngine from './TranslationEngine';
 
 /**
@@ -36,6 +37,18 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       profile: GEMINI_LIVE,
       muteWhilePlaying: options.muteWhilePlaying,
       createSession: (opts) => new GeminiLiveSession({ ...opts, url: env.geminiLiveWsUrl, apiKey: env.geminiKey, timers: BackgroundTimers }),
+    });
+  }
+  if (strategy === 'doubao') {
+    return new LiveTranslationEngine({
+      languages,
+      mic: new MicrophoneStreamer(),
+      audio,
+      timers: BackgroundTimers,
+      profile: DOUBAO_LIVE,
+      muteWhilePlaying: options.muteWhilePlaying,
+      createSession: (opts) =>
+        new DoubaoLiveSession({ ...opts, url: env.doubaoWsUrl, apiKey: env.byteplusKey, resourceId: env.doubaoResourceId, speakerId: env.doubaoSpeakerId, timers: BackgroundTimers }),
     });
   }
   return new TranslationEngine({

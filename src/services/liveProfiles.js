@@ -7,6 +7,7 @@
 //                 `transcribe` = seconds of source speech transcribed (billed apart)
 
 import { geminiOutputCode, LANGUAGES, LIVE_OUTPUT_LANGUAGES, liveOutputCode } from '../config/languages.js';
+import { doubaoCode, doubaoPairProblem } from '../utils/doubao.js';
 
 export const OPENAI_LIVE = Object.freeze({
   id: 'openai',
@@ -28,4 +29,15 @@ export const GEMINI_LIVE = Object.freeze({
   usage: Object.freeze({ send: 'geminiInSec', receive: 'geminiOutSec' }),
 });
 
-export const LIVE_PROFILES = Object.freeze({ openai: OPENAI_LIVE, gemini: GEMINI_LIVE });
+export const DOUBAO_LIVE = Object.freeze({
+  id: 'doubao',
+  label: 'Doubao live',
+  inputRate: 16000,
+  outputCode: doubaoCode,
+  speakable: Object.freeze(Object.keys(LANGUAGES).filter((code) => doubaoCode(code))),
+  pairProblem: (from, to) => doubaoPairProblem(from, to),
+  gate: false, // each session has ONE fixed source language: the other language is not recognised, there is no repetition to filter
+  usage: Object.freeze({ send: 'doubaoSec' }),
+});
+
+export const LIVE_PROFILES = Object.freeze({ openai: OPENAI_LIVE, gemini: GEMINI_LIVE, doubao: DOUBAO_LIVE });
