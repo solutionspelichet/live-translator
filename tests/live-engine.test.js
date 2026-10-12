@@ -294,7 +294,7 @@ test('a hard stop keeps the passage in progress (history segment), it is not los
 });
 
 // ---- Gemini live: same engine, another profile ----
-import { GEMINI_LIVE } from '../src/services/liveProfiles.js';
+import { DOUBAO_LIVE, GEMINI_LIVE } from '../src/services/liveProfiles.js';
 
 test('Gemini profile: 16 kHz audio in, Gemini codes out, the gate applies in hands-free', async () => {
   const { engine, sessions, played, events, chunk, audioPiece } = setup({ profile: GEMINI_LIVE, languages: { A: 'fr', B: 'zh' }, gate: { minChars: 8, holdMs: 40 } });
@@ -366,5 +366,28 @@ test('a mic that delivers only digital zeros is restarted during the turn', asyn
   await pause(1300);
   assert.ok(restarted >= 1);
   assert.ok(events.some((e) => e.type === 'note' && /que des zéros/.test(e.text)));
+  engine.cancel();
+});
+
+test('Doubao profile: a session whose output only repeats what it heard (speaker echo) is silenced, in tap mode too', async () => {
+  const { engine, sessions, played, chunk, audioPiece } = setup({ profile: DOUBAO_LIVE, languages: { A: 'fr', B: 'en' }, gate: { minChars: 8, holdMs: 40 } });
+  await engine.toggle('A');
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].opts.source, 'fr');
+  assert.equal(sessions[0].opts.target, 'en');
+  chunk();
+  // A real translation: French heard, English spoken.
+  sessions[0].opts.onInputText('bonjour est-ce que tu me copies');
+  sessions[0].opts.onOutputText('hello are you copying me');
+  sessions[0].opts.onAudio(audioPiece(), 16000);
+  await pause(15);
+  assert.equal(played.length, 1);
+  await pause(120);
+  // The phone's speaker is heard again: English in, the same English out → nothing is played.
+  sessions[0].opts.onInputText('hello are you copying me');
+  sessions[0].opts.onOutputText('hello are you copying me');
+  sessions[0].opts.onAudio(audioPiece(), 16000);
+  await pause(120);
+  assert.equal(played.length, 1, 'the echo is not played');
   engine.cancel();
 });

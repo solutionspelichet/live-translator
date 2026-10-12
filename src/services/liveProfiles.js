@@ -36,7 +36,8 @@ export const DOUBAO_LIVE = Object.freeze({
   outputCode: doubaoCode,
   speakable: Object.freeze(Object.keys(LANGUAGES).filter((code) => doubaoCode(code))),
   pairProblem: (from, to) => doubaoPairProblem(from, to),
-  gate: false, // each session has ONE fixed source language: the other language is not recognised, there is no repetition to filter
+  gate: true, // without earphones the translated voice re-enters the mic and is translated again (same language in and out)
+  ownTranscript: true, // each session has ONE fixed source language and its own transcript: the gate compares a session with itself
   usage: Object.freeze({ send: 'doubaoSec' }),
 });
 

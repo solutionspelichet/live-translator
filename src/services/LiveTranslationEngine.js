@@ -150,7 +150,9 @@ export default class LiveTranslationEngine {
         onNote: (text) => this.emit({ type: 'note', text }),
         onError: (error) => this.fail(id, error),
       });
-      if (auto && this.profile.gate) {
+      // `ownTranscript` services (Doubao) hear ONE fixed language per session and give each session its own transcript, so the
+      // gate also works in tap mode: with the phone's speaker (no earphones) the translated voice goes back into the mic.
+      if ((auto || this.profile.ownTranscript) && this.profile.gate) {
         // Nothing to compare with (the source transcript can be sparse or wrong): a direction is silenced only when its sibling
         // was chosen on EVIDENCE as the real one. Otherwise both speak: in the intended use (two people, one earbud each) the
         // repetition only reaches the speaker's own ear, while a wrong silence kills the translation for the listener.
@@ -234,6 +236,17 @@ export default class LiveTranslationEngine {
     if (this.turnId !== turn.id) return;
     // ONE session transcribes the speech and shares it; a service that sends its transcript anyway (Gemini does, from every
     // session) must not be counted twice: the history and the gate would get every piece doubled.
+    if (kind === 'in' && this.profile.ownTranscript) {
+      // This session's own transcript of what IT heard (not shared: another session hears another language).
+      d.stats.inChars += delta.length;
+      this.armIdleStop(turn);
+      d.inText += delta;
+      const released = d.gate ? d.gate.text('in', delta) : [];
+      released.forEach((samples) => this.play(turn, d, samples));
+      this.armBurst(turn, d);
+      this.render(d);
+      return;
+    }
     if (kind === 'in' && !d.transcriber) return;
     d.stats[kind === 'in' ? 'inChars' : 'outChars'] += delta.length;
     if (kind === 'in') {
