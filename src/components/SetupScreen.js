@@ -259,7 +259,8 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
         />
         <Text style={styles.hint}>
           Coupe l'écoute pendant que la voix traduite est lue (et une demi-seconde après) : plus aucun risque que l'app se réécoute. En
-          contrepartie, ce que l'on dit pendant la lecture n'est pas traduit. À activer si des phrases fantômes reviennent.
+          contrepartie, ce que l'on dit pendant la lecture n'est pas traduit : avec quelqu'un qui parle sans s'arrêter (radio, exposé),
+          une grande partie des phrases est perdue. À n'activer que sans écouteurs, avec des interlocuteurs qui attendent la fin de la voix.
         </Text>
         </Section>
 

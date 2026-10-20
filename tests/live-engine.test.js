@@ -391,3 +391,23 @@ test('Doubao profile: a session whose output only repeats what it heard (speaker
   assert.equal(played.length, 1, 'the echo is not played');
   engine.cancel();
 });
+
+test('echo guard: what is not sent to the service is said in the journal (a continuous speaker loses it)', async () => {
+  const { engine, sessions, played, events, chunk, audioPiece } = setup({ muteWhilePlaying: true });
+  await engine.toggle(AUTO);
+  chunk();
+  sessions[0].opts.onInputText('je pense que ça ira');
+  sessions[0].opts.onOutputText('i think it will be fine');
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  await pause(15);
+  assert.equal(played.length, 1);
+  chunk(); // spoken while the translated voice plays: replaced by silence
+  assert.ok(sessions[0].sent.length === 2);
+  assert.ok(/^A+$/.test(sessions[0].sent[1].replace(/=+$/, '')), 'silence is sent instead of the voice');
+  assert.ok(events.some((e) => e.type === 'note' && /PAS envoyé/.test(e.text)));
+  await engine.toggle(AUTO);
+  await pause(120);
+  const stats = events.filter((e) => e.type === 'note' && /micro coupé pendant la lecture/.test(e.text));
+  assert.equal(stats.length, 1);
+  assert.match(stats[0].text, /0\.1 s sur 0\.2 s \(50 %\)/);
+});

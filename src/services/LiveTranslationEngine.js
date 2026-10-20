@@ -183,6 +183,15 @@ export default class LiveTranslationEngine {
       }
       // Optional echo guard: silence instead of the microphone while our own voice plays.
       const silent = this.muteWhilePlaying && (this.playingCount > 0 || Date.now() < turn.quietUntil);
+      // What the service did NOT hear because of the echo guard: the journal says how much (a continuous speaker loses it).
+      turn.heardSec = (turn.heardSec ?? 0) + pcm16.byteLength / 2 / sampleRate;
+      if (silent) {
+        turn.mutedSec = (turn.mutedSec ?? 0) + pcm16.byteLength / 2 / sampleRate;
+        if (!turn.mutedNoted) {
+          turn.mutedNoted = true;
+          this.emit({ type: 'note', text: 'option « couper le micro pendant la voix traduite » active : pendant la lecture, ce qui est dit n\'est PAS envoyé au service' });
+        }
+      }
       const audio = toLiveAudio(pcm16, sampleRate, { silence: silent, rate: this.profile.inputRate });
       for (const d of turn.dirs) d.session.sendAudio(audio);
       // The service bills the audio it receives, per session.
@@ -458,6 +467,10 @@ export default class LiveTranslationEngine {
     const m = this.mic.stats;
     if (m && turn?.live) {
       this.emit({ type: 'note', text: `micro : ${m.chunks} paquets au total, crête ${(m.peak ?? 0).toFixed(3)}, ${m.zeroChunks ?? 0} paquets à zéro (${m.backend ?? '—'})` });
+    }
+    if (this.muteWhilePlaying && turn?.heardSec) {
+      const share = Math.round(((turn.mutedSec ?? 0) / turn.heardSec) * 100);
+      this.emit({ type: 'note', text: `micro coupé pendant la lecture (option active) : ${(turn.mutedSec ?? 0).toFixed(1)} s sur ${turn.heardSec.toFixed(1)} s (${share} %) non envoyées au service` });
     }
     for (const d of turn?.dirs ?? []) {
       this.emit({

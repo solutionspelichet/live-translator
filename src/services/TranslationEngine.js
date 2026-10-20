@@ -227,6 +227,10 @@ export default class TranslationEngine {
       // Echo guard (hands-free): while the translated voice plays — and a moment after — the
       // recognizers get silence instead of what the microphone hears.
       const muted = this.muteWhilePlaying && auto && (turn.playing || Date.now() < turn.quietUntil);
+      if (muted && !turn.mutedNoted) {
+        turn.mutedNoted = true;
+        this.emit({ type: 'note', text: 'option « couper le micro pendant la voix traduite » active : pendant la lecture, ce qui est dit n\'est PAS envoyé à la reconnaissance' });
+      }
       turn.session.sendAudio(muted ? new ArrayBuffer(pcm16.byteLength) : pcm16);
       const seconds = pcm16.byteLength / 2 / sampleRate;
       if (auto) {
