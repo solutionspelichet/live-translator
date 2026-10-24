@@ -192,3 +192,24 @@ export const isModelRefusal = (error) => error instanceof ApiError && (error.sta
 
 /** A refusal that says the VOICE is the problem (try another one), not the key or the quota. */
 export const isVoiceRefusal = (error) => error instanceof ApiError && (error.status === 400 || error.status === 404 || error.status === 422) && /voice/i.test(error.detail ?? '');
+
+/**
+ * A speaker who never stops would never end a sentence: when the buffer holds more than `maxWords` words, cut at the last
+ * comma-like mark (if the head is long enough) or at `maxWords`. Returns { head, rest } or null when nothing needs cutting.
+ */
+export function cutLongClause(buffer, maxWords = 16, minHead = 5) {
+  const words = buffer.trim().split(/\s+/).filter(Boolean);
+  const cjk = /[぀-ヿ㐀-鿿가-힯]/u.test(buffer);
+  if (cjk ? buffer.trim().length <= maxWords * 2 : words.length <= maxWords) return null;
+  const text = buffer.trimStart();
+  const marks = [...text.matchAll(cjk ? /[，、；：]/g : /[,;:](\s|$)/g)];
+  for (let i = marks.length - 1; i >= 0; i--) {
+    const end = marks[i].index + 1;
+    const head = text.slice(0, end);
+    const count = cjk ? head.length : head.trim().split(/\s+/).length;
+    if (count >= (cjk ? 6 : minHead)) return { head: head.trim(), rest: text.slice(end) };
+  }
+  if (cjk) return { head: text.slice(0, maxWords * 2), rest: text.slice(maxWords * 2) };
+  const head = words.slice(0, maxWords).join(' ');
+  return { head, rest: words.slice(maxWords).join(' ') };
+}

@@ -4,8 +4,8 @@
  * and closes it, every session receives the sentences the hub routes to its direction (`source` → `target`).
  */
 export default class MistralLiveSession {
-  constructor({ target, source, transcribeInput = false, hub, onAudio, onInputText, onOutputText, onStatus, onNote, onError, onUsage }) {
-    Object.assign(this, { target, source, transcribeInput, hub, onAudio, onInputText, onOutputText, onStatus, onNote, onError, onUsage });
+  constructor({ target, source, transcribeInput = false, hub, onAudio, onInputText, onOutputText, onStatus, onNote, onError, onUsage, onTiming }) {
+    Object.assign(this, { target, source, transcribeInput, hub, onAudio, onInputText, onOutputText, onStatus, onNote, onError, onUsage, onTiming });
     this.status = 'connecting';
   }
 

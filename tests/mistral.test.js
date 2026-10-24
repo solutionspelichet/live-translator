@@ -83,3 +83,18 @@ test('voices: the neutral preset of the language comes first, the moods last', a
   const list = await listVoiceCandidates(async () => voices, 'en');
   assert.deepEqual(list.map((v) => v.id), ['b', 'd', 'a', 'c']);
 });
+
+test('cutLongClause cuts a run of words at the last comma, or at the word limit, and leaves short text alone', async () => {
+  const { cutLongClause } = await import('../src/utils/mistral.js');
+  assert.equal(cutLongClause('bonjour tout le monde'), null);
+  const long = 'je pense que nous devrions partir demain matin, parce que la route est longue et que le temps va changer ce soir';
+  const cut = cutLongClause(long);
+  assert.equal(cut.head, 'je pense que nous devrions partir demain matin,');
+  assert.equal(cut.rest.trim(), 'parce que la route est longue et que le temps va changer ce soir');
+  const noComma = Array.from({ length: 20 }, (_, i) => `mot${i}`).join(' ');
+  const cut2 = cutLongClause(noComma);
+  assert.equal(cut2.head.split(' ').length, 16);
+  assert.equal(cut2.rest.split(' ').length, 4);
+  const zh = cutLongClause('我觉得我们明天早上应该出发，因为路很长而且天气今晚会变化所以我们最好早一点走吧');
+  assert.equal(zh.head, '我觉得我们明天早上应该出发，');
+});

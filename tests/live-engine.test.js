@@ -428,3 +428,18 @@ test('Mistral profile: any app language is accepted, ONE transcription is billed
   assert.ok(events.some((e) => e.type === 'interim' && e.side === 'B' && /你好吗/.test(e.text)));
   engine.cancel();
 });
+
+test('a pipeline that measures its delay (Mistral) puts it in the history segment', async () => {
+  const { engine, sessions, events, chunk, audioPiece } = setup({ profile: MISTRAL_LIVE, languages: { A: 'fr', B: 'en' } });
+  await engine.toggle('A');
+  chunk();
+  sessions[0].opts.onInputText('bonjour tout le monde ');
+  sessions[0].opts.onOutputText('hello everyone ');
+  sessions[0].opts.onTiming(2400);
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  await pause(150);
+  const segment = events.find((e) => e.type === 'segment');
+  assert.equal(segment.delayMs, 2400);
+  assert.equal(segment.service, 'Mistral live');
+  engine.cancel();
+});

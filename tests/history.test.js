@@ -49,3 +49,9 @@ test('the service that produced an entry is kept and shown in the shared text', 
   const text = formatConversation(items, () => ({ label: 'X', flag: '' }));
   assert.match(text, /· Mistral live\nbonjour/);
 });
+
+test('the delay of a sentence is kept and shown next to the service', () => {
+  const items = parseHistory([{ id: 1, from: 'A', to: 'B', source: 'a', translated: 'b', at: 0, service: 'Mistral live', delayMs: 2900 }]);
+  assert.equal(items[0].delayMs, 2900);
+  assert.match(formatConversation(items, () => ({ label: 'X', flag: '' })), /· Mistral live · 2\.9 s\n/);
+});

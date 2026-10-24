@@ -1,11 +1,11 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { cutLongClause, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
 const MAX_ATTEMPTS = 8;
-const PAUSE_AFTER_SENTENCE_MS = 250; // the text already ends like a sentence: a short pause is enough
-const PAUSE_MID_SENTENCE_MS = 900; // no punctuation yet: wait for a real pause before cutting
+const PAUSE_AFTER_SENTENCE_MS = 200; // the text already ends like a sentence: a short pause is enough
+const PAUSE_MID_SENTENCE_MS = 650; // no punctuation yet: wait for a real pause before cutting
 const QUIET_MS = 1500;
 const decodeText = (data) => {
   if (typeof data === 'string') return data;
@@ -191,6 +191,11 @@ export default class MistralLiveHub {
     const { sentences, rest } = splitSentences(this.buffer);
     this.buffer = rest;
     sentences.forEach((s) => this.enqueue(s));
+    // Someone who never stops: cut the run of words (at a comma when there is one) instead of waiting for a full stop.
+    for (let cut = cutLongClause(this.buffer); cut; cut = cutLongClause(this.buffer)) {
+      this.enqueue(cut.head);
+      this.buffer = cut.rest;
+    }
     this.timers.clearTimeout(this.pauseTimer);
     if (this.buffer.trim()) {
       this.pauseTimer = this.timers.setTimeout(() => this.flushBuffer(), endsSentence(this.buffer) ? PAUSE_AFTER_SENTENCE_MS : PAUSE_MID_SENTENCE_MS);
@@ -287,7 +292,7 @@ export default class MistralLiveHub {
     const session = this.sessions.find((s) => s.source === (verdict.from === 'A' ? pair.a : pair.b));
     if (!session) return null; // one direction only (tap mode) and the sentence is in the language it already speaks
     this.recent.push({ at: this.now(), text: verdict.text });
-    const result = { session, input: text, output: verdict.text, samples: null, rate: 24000, llmMs, ttsMs: 0 };
+    const result = { session, input: text, output: verdict.text, samples: null, rate: 24000, llmMs, ttsMs: 0, startedAt: t0 };
     const language = mistralVoiceLanguage(session.target);
     if (!language) {
       if (!this.noVoiceNoted.has(session.target)) {
@@ -374,12 +379,14 @@ export default class MistralLiveHub {
     return res.json();
   }
 
-  deliver({ session, input, output, samples, rate, llmMs, ttsMs }) {
+  deliver({ session, input, output, samples, rate, llmMs, ttsMs, startedAt }) {
     if (this.dead) return;
     session.onInputText(`${input} `);
     session.onOutputText(`${output} `);
     if (samples?.length) session.onAudio(samples, rate);
-    this.note(`Mistral live : phrase ${session.source}→${session.target} (traduction ${llmMs} ms${samples ? `, voix ${ttsMs} ms` : ', sans voix'})`);
+    const totalMs = this.now() - startedAt; // from the finished sentence to its voice being handed over
+    session.onTiming?.(totalMs);
+    this.note(`Mistral live : phrase ${session.source}→${session.target} (traduction ${llmMs} ms${samples ? `, voix ${ttsMs} ms` : ', sans voix'}, ${totalMs} ms en tout depuis la phrase)`);
   }
 
   // ───────────── end ─────────────

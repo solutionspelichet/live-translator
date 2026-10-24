@@ -135,7 +135,7 @@ export default class LiveTranslationEngine {
     this.setState(STATE.STARTING);
 
     for (const [index, [from, to]] of pairs.entries()) {
-      const d = { from, to, transcriber: index === 0, gate: null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 } };
+      const d = { from, to, transcriber: index === 0, gate: null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 }, delays: [] };
       const label = `${from}→${to}`;
       d.session = this.createSession({
         target: this.profile.outputCode(this.languages[to]),
@@ -148,6 +148,7 @@ export default class LiveTranslationEngine {
         onOutputText: (text) => this.onText(turn, d, 'out', text),
         onStatus: (status) => status !== 'connecting' && this.emit({ type: 'note', text: `${this.profile.label} ${label} : ${status}` }),
         onNote: (text) => this.emit({ type: 'note', text }),
+        onTiming: (ms) => d.delays.push(ms), // pipelines that know how long a sentence took (Mistral): shown in the history
         onUsage: (delta) => this.recordUsage(delta), // services that bill by something else than audio seconds (Mistral voice: characters)
         onError: (error) => this.fail(id, error),
       });
@@ -390,8 +391,10 @@ export default class LiveTranslationEngine {
         translated,
         at: Date.now(),
         service: this.profile.label,
+        delayMs: d.delays.length ? Math.round(d.delays.reduce((a, b) => a + b, 0) / d.delays.length) : undefined,
       });
     }
+    d.delays = [];
     d.inText = '';
     d.outText = '';
     d.firstOutAt = null;
