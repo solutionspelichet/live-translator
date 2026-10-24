@@ -227,6 +227,10 @@ export default class TranslationEngine {
       // Echo guard (hands-free): while the translated voice plays — and a moment after — the
       // recognizers get silence instead of what the microphone hears.
       const muted = this.muteWhilePlaying && auto && (turn.playing || Date.now() < turn.quietUntil);
+      if (muted && !turn.mutedNoted) {
+        turn.mutedNoted = true;
+        this.emit({ type: 'note', text: 'option « couper le micro pendant la voix traduite » active : pendant la lecture, ce qui est dit n\'est PAS envoyé à la reconnaissance' });
+      }
       turn.session.sendAudio(muted ? new ArrayBuffer(pcm16.byteLength) : pcm16);
       const seconds = pcm16.byteLength / 2 / sampleRate;
       if (auto) {
@@ -522,7 +526,7 @@ export default class TranslationEngine {
       timing.translateMs = Date.now() - t0;
       turn.shown[targetSide][index] = translated;
       this.emit({ type: 'translation', side: targetSide, text: turn.shown[targetSide].filter(Boolean).join(' ') });
-      this.emit({ type: 'segment', from: side, to: targetSide, fromLang: language, toLang: targetLanguage, source: text, translated, at: Date.now() });
+      this.emit({ type: 'segment', from: side, to: targetSide, fromLang: language, toLang: targetLanguage, source: text, translated, at: Date.now(), service: 'Classique' });
       this.recentOutputs.push({ side: targetSide, text: translated, at: Date.now() });
       if (this.recentOutputs.length > 12) this.recentOutputs.shift();
       this.recordUsage({ elevenChars: translated.length });

@@ -179,7 +179,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       } else if (ev.type === 'segment') {
         TranslationMeetingService.add(ev);
         setHistory((h) =>
-          [...h, { id: ++historyId.current, from: ev.from, to: ev.to, fromLang: ev.fromLang, toLang: ev.toLang, source: ev.source, translated: ev.translated, at: ev.at }].slice(-300),
+          [...h, { id: ++historyId.current, from: ev.from, to: ev.to, fromLang: ev.fromLang, toLang: ev.toLang, source: ev.source, translated: ev.translated, at: ev.at, service: ev.service }].slice(-300),
         );
       } else if (ev.type === 'usage') {
         UsageTracker.add(ev.delta);

@@ -148,9 +148,12 @@ export default class LiveTranslationEngine {
         onOutputText: (text) => this.onText(turn, d, 'out', text),
         onStatus: (status) => status !== 'connecting' && this.emit({ type: 'note', text: `${this.profile.label} ${label} : ${status}` }),
         onNote: (text) => this.emit({ type: 'note', text }),
+        onUsage: (delta) => this.recordUsage(delta), // services that bill by something else than audio seconds (Mistral voice: characters)
         onError: (error) => this.fail(id, error),
       });
-      if (auto && this.profile.gate) {
+      // `ownTranscript` services (Doubao) hear ONE fixed language per session and give each session its own transcript, so the
+      // gate also works in tap mode: with the phone's speaker (no earphones) the translated voice goes back into the mic.
+      if ((auto || this.profile.ownTranscript) && this.profile.gate) {
         // Nothing to compare with (the source transcript can be sparse or wrong): a direction is silenced only when its sibling
         // was chosen on EVIDENCE as the real one. Otherwise both speak: in the intended use (two people, one earbud each) the
         // repetition only reaches the speaker's own ear, while a wrong silence kills the translation for the listener.
@@ -181,12 +184,21 @@ export default class LiveTranslationEngine {
       }
       // Optional echo guard: silence instead of the microphone while our own voice plays.
       const silent = this.muteWhilePlaying && (this.playingCount > 0 || Date.now() < turn.quietUntil);
+      // What the service did NOT hear because of the echo guard: the journal says how much (a continuous speaker loses it).
+      turn.heardSec = (turn.heardSec ?? 0) + pcm16.byteLength / 2 / sampleRate;
+      if (silent) {
+        turn.mutedSec = (turn.mutedSec ?? 0) + pcm16.byteLength / 2 / sampleRate;
+        if (!turn.mutedNoted) {
+          turn.mutedNoted = true;
+          this.emit({ type: 'note', text: 'option « couper le micro pendant la voix traduite » active : pendant la lecture, ce qui est dit n\'est PAS envoyé au service' });
+        }
+      }
       const audio = toLiveAudio(pcm16, sampleRate, { silence: silent, rate: this.profile.inputRate });
       for (const d of turn.dirs) d.session.sendAudio(audio);
       // The service bills the audio it receives, per session.
       const seconds = pcm16.byteLength / 2 / sampleRate;
       const { send, transcribe } = this.profile.usage;
-      this.recordUsage({ [send]: seconds * turn.dirs.length, ...(transcribe ? { [transcribe]: seconds } : {}) });
+      this.recordUsage({ [send]: seconds * (this.profile.usage.shared ? 1 : turn.dirs.length), ...(transcribe ? { [transcribe]: seconds } : {}) });
       this.emit({ type: 'level', level });
     };
 
@@ -234,6 +246,17 @@ export default class LiveTranslationEngine {
     if (this.turnId !== turn.id) return;
     // ONE session transcribes the speech and shares it; a service that sends its transcript anyway (Gemini does, from every
     // session) must not be counted twice: the history and the gate would get every piece doubled.
+    if (kind === 'in' && this.profile.ownTranscript) {
+      // This session's own transcript of what IT heard (not shared: another session hears another language).
+      d.stats.inChars += delta.length;
+      this.armIdleStop(turn);
+      d.inText += delta;
+      const released = d.gate ? d.gate.text('in', delta) : [];
+      released.forEach((samples) => this.play(turn, d, samples));
+      this.armBurst(turn, d);
+      this.render(d);
+      return;
+    }
     if (kind === 'in' && !d.transcriber) return;
     d.stats[kind === 'in' ? 'inChars' : 'outChars'] += delta.length;
     if (kind === 'in') {
@@ -366,6 +389,7 @@ export default class LiveTranslationEngine {
         source,
         translated,
         at: Date.now(),
+        service: this.profile.label,
       });
     }
     d.inText = '';
@@ -445,6 +469,10 @@ export default class LiveTranslationEngine {
     const m = this.mic.stats;
     if (m && turn?.live) {
       this.emit({ type: 'note', text: `micro : ${m.chunks} paquets au total, crête ${(m.peak ?? 0).toFixed(3)}, ${m.zeroChunks ?? 0} paquets à zéro (${m.backend ?? '—'})` });
+    }
+    if (this.muteWhilePlaying && turn?.heardSec) {
+      const share = Math.round(((turn.mutedSec ?? 0) / turn.heardSec) * 100);
+      this.emit({ type: 'note', text: `micro coupé pendant la lecture (option active) : ${(turn.mutedSec ?? 0).toFixed(1)} s sur ${turn.heardSec.toFixed(1)} s (${share} %) non envoyées au service` });
     }
     for (const d of turn?.dirs ?? []) {
       this.emit({

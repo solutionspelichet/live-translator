@@ -1,5 +1,5 @@
 import { env } from '../config/env';
-import { SIDE } from '../config/languages';
+import { getLanguage, SIDE } from '../config/languages';
 import audio from './AudioRoutingService';
 import BackgroundTimers from './BackgroundTimers';
 import MicrophoneStreamer from './MicrophoneStreamer';
@@ -10,7 +10,9 @@ import LiveTranslationEngine from './LiveTranslationEngine';
 import GeminiLiveSession from './live/GeminiLiveSession';
 import OpenAiLiveSession from './live/OpenAiLiveSession';
 import DoubaoLiveSession from './live/DoubaoLiveSession';
-import { DOUBAO_LIVE, GEMINI_LIVE } from './liveProfiles';
+import MistralLiveHub from './live/MistralLiveHub';
+import MistralLiveSession from './live/MistralLiveSession';
+import { DOUBAO_LIVE, GEMINI_LIVE, MISTRAL_LIVE } from './liveProfiles';
 import TranslationEngine from './TranslationEngine';
 
 /**
@@ -37,6 +39,23 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       profile: GEMINI_LIVE,
       muteWhilePlaying: options.muteWhilePlaying,
       createSession: (opts) => new GeminiLiveSession({ ...opts, url: env.geminiLiveWsUrl, apiKey: env.geminiKey, timers: BackgroundTimers }),
+    });
+  }
+  if (strategy === 'mistral') {
+    let hub = null; // one pipeline per turn, shared by the two directions (the first session of a turn creates it)
+    return new LiveTranslationEngine({
+      languages,
+      mic: new MicrophoneStreamer(),
+      audio,
+      timers: BackgroundTimers,
+      profile: MISTRAL_LIVE,
+      muteWhilePlaying: options.muteWhilePlaying,
+      createSession: (opts) => {
+        if (opts.transcribeInput || !hub) {
+          hub = new MistralLiveHub({ apiKey: env.mistralKey, baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl, languageName: (code) => getLanguage(code).label, timers: BackgroundTimers });
+        }
+        return new MistralLiveSession({ ...opts, hub });
+      },
     });
   }
   if (strategy === 'doubao') {
