@@ -41,4 +41,15 @@ export const DOUBAO_LIVE = Object.freeze({
   usage: Object.freeze({ send: 'doubaoSec' }),
 });
 
-export const LIVE_PROFILES = Object.freeze({ openai: OPENAI_LIVE, gemini: GEMINI_LIVE, doubao: DOUBAO_LIVE });
+export const MISTRAL_LIVE = Object.freeze({
+  id: 'mistral',
+  label: 'Mistral live',
+  inputRate: 16000,
+  outputCode: (code) => (LANGUAGES[code] ? code : null), // any language of the app: the voice exists in 9, the others are shown as text
+  speakable: Object.freeze(Object.keys(LANGUAGES)),
+  gate: false, // the shared pipeline routes each sentence by its language and ignores our own voice coming back (utils/mistral.js)
+  ownTranscript: true, // each direction receives the sentences routed to it
+  usage: Object.freeze({ send: 'mistralSttSec', shared: true }), // ONE transcription for both directions
+});
+
+export const LIVE_PROFILES = Object.freeze({ openai: OPENAI_LIVE, gemini: GEMINI_LIVE, doubao: DOUBAO_LIVE, mistral: MISTRAL_LIVE });

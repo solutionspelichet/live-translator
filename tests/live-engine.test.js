@@ -294,7 +294,7 @@ test('a hard stop keeps the passage in progress (history segment), it is not los
 });
 
 // ---- Gemini live: same engine, another profile ----
-import { DOUBAO_LIVE, GEMINI_LIVE } from '../src/services/liveProfiles.js';
+import { DOUBAO_LIVE, GEMINI_LIVE, MISTRAL_LIVE } from '../src/services/liveProfiles.js';
 
 test('Gemini profile: 16 kHz audio in, Gemini codes out, the gate applies in hands-free', async () => {
   const { engine, sessions, played, events, chunk, audioPiece } = setup({ profile: GEMINI_LIVE, languages: { A: 'fr', B: 'zh' }, gate: { minChars: 8, holdMs: 40 } });
@@ -410,4 +410,21 @@ test('echo guard: what is not sent to the service is said in the journal (a cont
   const stats = events.filter((e) => e.type === 'note' && /micro coupé pendant la lecture/.test(e.text));
   assert.equal(stats.length, 1);
   assert.match(stats[0].text, /0\.1 s sur 0\.2 s \(50 %\)/);
+});
+
+test('Mistral profile: any app language is accepted, ONE transcription is billed for both directions, sessions get source and target', async () => {
+  const { engine, sessions, events, chunk } = setup({ profile: MISTRAL_LIVE, languages: { A: 'fr', B: 'zh' } });
+  await engine.toggle(AUTO);
+  assert.equal(sessions.length, 2);
+  assert.deepEqual(sessions.map((s) => [s.opts.source, s.opts.target]), [['fr', 'zh'], ['zh', 'fr']]);
+  assert.deepEqual(sessions.map((s) => !!s.opts.transcribeInput), [true, false]);
+  chunk();
+  engine.flushUsage();
+  const sent = events.filter((e) => e.type === 'usage').reduce((sum, e) => sum + (e.delta.mistralSttSec ?? 0), 0);
+  assert.ok(Math.abs(sent - 0.1) < 1e-9, `0.1 s once (not per direction), got ${sent}`);
+  // the transcript of each direction is its own
+  sessions[1].opts.onInputText('你好吗');
+  sessions[1].opts.onOutputText('ça va ?');
+  assert.ok(events.some((e) => e.type === 'interim' && e.side === 'B' && /你好吗/.test(e.text)));
+  engine.cancel();
 });

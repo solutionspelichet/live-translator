@@ -1,0 +1,347 @@
+import { ApiError, fetchWithRetry } from '../../utils/http.js';
+import { MISTRAL_INPUT_RATE, MISTRAL_LLM_MODEL, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, interpreterMessages, isEchoOfOutput, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { defaultTimers } from '../../utils/timers.js';
+
+const MAX_PENDING = 100;
+const MAX_ATTEMPTS = 8;
+const PAUSE_AFTER_SENTENCE_MS = 250; // the text already ends like a sentence: a short pause is enough
+const PAUSE_MID_SENTENCE_MS = 900; // no punctuation yet: wait for a real pause before cutting
+const QUIET_MS = 1500;
+const decodeText = (data) => (typeof data === 'string' ? data : new TextDecoder('utf-8').decode(data instanceof ArrayBuffer ? new Uint8Array(data) : data));
+
+/**
+ * ONE Mistral pipeline per turn, shared by the two direction sessions (A→B and B→A) of the engine:
+ *   microphone → Voxtral realtime transcription (a single WebSocket) → sentences
+ *   → Mistral Small: which language is it (A or B) and its translation (one JSON answer)
+ *   → the session of that direction gets the texts, and Voxtral TTS speaks the translation.
+ * Sentences are processed concurrently but delivered in order. Our own voice coming back into the microphone (no earphones)
+ * is recognised by its text and ignored.
+ *
+ * @param {object} opts
+ * @param {string} opts.apiKey
+ * @param {string} opts.baseUrl  https://api.mistral.ai
+ * @param {string} opts.wsUrl  wss://api.mistral.ai/v1/audio/transcriptions/realtime
+ * @param {(code: string) => string} opts.languageName
+ */
+export default class MistralLiveHub {
+  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now }) {
+    Object.assign(this, { apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now });
+    this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
+    this.fetchImpl = fetchImpl ?? ((...args) => fetch(...args));
+    this.sessions = [];
+    this.ws = null;
+    this.ready = false;
+    this.pending = [];
+    this.buffer = '';
+    this.pauseTimer = null;
+    this.tail = Promise.resolve();
+    this.recent = []; // what we spoke lately: { at, text }
+    this.voices = new Map(); // language → Promise<voice id | null>
+    this.noVoiceNoted = new Set();
+    this.closing = false;
+    this.dead = false;
+    this.attempts = 0;
+    this.lastMessageAt = 0;
+    this.sawText = 0;
+  }
+
+  addSession(session) {
+    if (!this.sessions.includes(session)) this.sessions.push(session);
+  }
+
+  get lead() {
+    return this.sessions[0];
+  }
+
+  note(text) {
+    this.lead?.onNote?.(text);
+  }
+
+  setStatus(status) {
+    this.status = status;
+    this.sessions.forEach((s) => (s.status = status));
+    this.lead?.onStatus?.(status);
+  }
+
+  // ───────────── transcription ─────────────
+
+  connect() {
+    if (this.dead || this.ws) return;
+    let ws;
+    try {
+      ws = new this.WebSocketImpl(`${this.wsUrl}?model=${encodeURIComponent(MISTRAL_STT_MODEL)}`, undefined, { headers: { Authorization: `Bearer ${this.apiKey}` } });
+      ws.binaryType = 'arraybuffer';
+    } catch (error) {
+      return this.lost(String(error?.message ?? error).replace(this.apiKey ?? '', '…'));
+    }
+    this.ws = ws;
+    ws.onopen = () => {};
+    ws.onmessage = (e) => {
+      if (this.ws !== ws) return;
+      this.lastMessageAt = Date.now();
+      let msg;
+      try {
+        msg = JSON.parse(decodeText(e.data));
+      } catch {
+        return;
+      }
+      this.onEvent(msg);
+    };
+    ws.onerror = () => {};
+    ws.onclose = (e) => {
+      if (this.ws !== ws) return;
+      this.ws = null;
+      this.ready = false;
+      if (this.closing || this.dead) return this.finishClose();
+      const reason = String(e?.reason ?? '').replace(this.apiKey ?? '', '…');
+      if (e?.code === 1008 || e?.code === 4001 || e?.code === 4003) return this.fail(new ApiError('Mistral', 401, reason || 'clé refusée'));
+      this.lost(`${e?.code ?? ''} ${reason}`.trim());
+    };
+  }
+
+  send(message) {
+    try {
+      this.ws?.send(JSON.stringify(message));
+    } catch {}
+  }
+
+  onEvent(msg) {
+    switch (msg.type) {
+      case 'session.created':
+        this.ready = true;
+        this.attempts = 0;
+        this.send({ type: 'session.update', session: { audio_format: { encoding: 'pcm_s16le', sample_rate: MISTRAL_INPUT_RATE } } });
+        this.setStatus('open');
+        this.pending.splice(0).forEach((audio) => this.send({ type: 'input_audio.append', audio }));
+        return;
+      case 'transcription.text.delta':
+        if (typeof msg.text === 'string' && msg.text) this.onDelta(msg.text);
+        return;
+      case 'transcription.done':
+        this.flushBuffer();
+        if (this.closing) this.finishClose();
+        return;
+      case 'error': {
+        const detail = msg.error?.message ?? msg.message ?? JSON.stringify(msg).slice(0, 200);
+        this.fail(new ApiError('Mistral', /unauthori|api key|credential|forbidden|invalid.*key/i.test(String(detail)) ? 401 : 500, String(detail)));
+        return;
+      }
+      case 'session.updated':
+      case 'transcription.language':
+      case 'transcription.segment':
+        return;
+      default:
+        this.note(`Mistral live : événement « ${msg.type} » ${JSON.stringify(msg).slice(0, 140)}`);
+    }
+  }
+
+  onDelta(text) {
+    if (this.sawText++ < 3) this.note(`Mistral live : texte reçu « ${text.replace(/\n/g, ' ').slice(0, 60)} »`);
+    this.buffer += text;
+    const { sentences, rest } = splitSentences(this.buffer);
+    this.buffer = rest;
+    sentences.forEach((s) => this.enqueue(s));
+    this.timers.clearTimeout(this.pauseTimer);
+    if (this.buffer.trim()) {
+      this.pauseTimer = this.timers.setTimeout(() => this.flushBuffer(), endsSentence(this.buffer) ? PAUSE_AFTER_SENTENCE_MS : PAUSE_MID_SENTENCE_MS);
+    }
+  }
+
+  flushBuffer() {
+    this.timers.clearTimeout(this.pauseTimer);
+    const text = this.buffer.trim();
+    this.buffer = '';
+    if (text.length >= 2) this.enqueue(text);
+  }
+
+  /** @param {string} base64Pcm16  16 kHz mono PCM16 */
+  sendAudio(base64Pcm16) {
+    if (this.dead || this.closing) return;
+    if (!this.ready) {
+      this.pending.push(base64Pcm16);
+      if (this.pending.length > MAX_PENDING) this.pending.shift();
+      return;
+    }
+    this.send({ type: 'input_audio.append', audio: base64Pcm16 });
+  }
+
+  lost(reason) {
+    if (this.dead || this.closing) return;
+    if (++this.attempts > MAX_ATTEMPTS) return this.fail(new ApiError('Mistral', 0, `connexion perdue (${reason})`));
+    this.setStatus(`reconnecting (${reason || 'perdue'})`);
+    this.timers.setTimeout(() => this.connect(), Math.min(5000, 400 * this.attempts));
+  }
+
+  fail(error) {
+    if (this.dead) return;
+    this.dead = true;
+    this.setStatus('failed');
+    this.abort();
+    this.lead?.onError?.(error);
+  }
+
+  // ───────────── sentences: language, translation, voice ─────────────
+
+  /** The pair of the conversation: A = what the first direction hears, B = what it speaks. */
+  get pair() {
+    const first = this.sessions[0];
+    return first ? { a: first.source, b: first.target } : null;
+  }
+
+  enqueue(text) {
+    if (this.dead) return;
+    const job = this.process(text).catch((error) => {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) this.fail(error);
+      else this.note(`Mistral live : phrase abandonnée (${error?.message ?? error})`);
+      return null;
+    });
+    this.tail = this.tail.then(() => job).then((result) => result && this.deliver(result));
+  }
+
+  async post(path, body) {
+    const res = await fetchWithRetry(
+      'Mistral',
+      () => this.fetchImpl(`${this.baseUrl}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+      { retries: 1 },
+    );
+    return res.json();
+  }
+
+  async process(text) {
+    const pair = this.pair;
+    if (!pair) return null;
+    if (isEchoOfOutput(text, this.recent, this.now())) {
+      this.note(`Mistral live : écho de la voix traduite ignoré (« ${text.slice(0, 50)} »)`);
+      return null;
+    }
+    const t0 = this.now();
+    const chat = await this.post('/v1/chat/completions', {
+      model: MISTRAL_LLM_MODEL,
+      temperature: 0,
+      max_tokens: 500,
+      response_format: { type: 'json_object' },
+      messages: interpreterMessages({ a: this.languageName(pair.a), b: this.languageName(pair.b), text }),
+    });
+    const verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
+    const llmMs = this.now() - t0;
+    if (verdict.from === 'other') {
+      this.note(`Mistral live : phrase ignorée (ni ${pair.a} ni ${pair.b}, ou pas de la parole) « ${text.slice(0, 50)} »`);
+      return null;
+    }
+    const session = this.sessions.find((s) => s.source === (verdict.from === 'A' ? pair.a : pair.b));
+    if (!session) return null; // one direction only (tap mode) and the sentence is in the language it already speaks
+    this.recent.push({ at: this.now(), text: verdict.text });
+    const result = { session, input: text, output: verdict.text, samples: null, rate: 24000, llmMs, ttsMs: 0 };
+    const language = mistralVoiceLanguage(session.target);
+    if (!language) {
+      if (!this.noVoiceNoted.has(session.target)) {
+        this.noVoiceNoted.add(session.target);
+        this.note(`Mistral live : pas de voix en « ${session.target} » (9 langues seulement) : traduction affichée sans voix`);
+      }
+      return result;
+    }
+    const t1 = this.now();
+    try {
+      const voiceId = await this.voiceFor(language);
+      if (!voiceId) {
+        this.note(`Mistral live : aucune voix trouvée pour « ${language} » : texte seulement`);
+        return result;
+      }
+      const speech = await this.post('/v1/audio/speech', { model: MISTRAL_TTS_MODEL, input: verdict.text, voice_id: voiceId, response_format: 'wav', stream: false });
+      const bytes = base64ToBytes(String(speech?.audio_data ?? ''));
+      const decoded = decodeSpeech(bytes);
+      result.samples = decoded.samples;
+      result.rate = decoded.sampleRate;
+      session.onUsage?.({ mistralTtsChars: verdict.text.length });
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
+      this.note(`Mistral live : voix indisponible pour cette phrase (${error?.message ?? error})`);
+    }
+    result.ttsMs = this.now() - t1;
+    return result;
+  }
+
+  voiceFor(language) {
+    if (!this.voices.has(language)) this.voices.set(language, this.findVoice(language).catch(() => null));
+    return this.voices.get(language);
+  }
+
+  async findVoice(language) {
+    const get = async (path) => {
+      const res = await fetchWithRetry('Mistral', () => this.fetchImpl(`${this.baseUrl}${path}`, { headers: { Authorization: `Bearer ${this.apiKey}` } }), { retries: 1 });
+      return res.json();
+    };
+    let list;
+    try {
+      list = (await get(`/v2/audio/voices?type=preset&language=${encodeURIComponent(language)}&page_size=50`))?.data;
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
+      list = (await get('/v1/audio/voices?type=preset&limit=100'))?.items;
+    }
+    const voice = (list ?? []).find((v) => (v.languages ?? []).some((l) => String(l).split(/[-_]/)[0].toLowerCase() === language)) ?? (list ?? [])[0];
+    if (voice) this.note(`Mistral live : voix « ${voice.name ?? voice.id} » pour « ${language} »`);
+    return voice?.id ?? null;
+  }
+
+  deliver({ session, input, output, samples, rate, llmMs, ttsMs }) {
+    if (this.dead) return;
+    session.onInputText(`${input} `);
+    session.onOutputText(`${output} `);
+    if (samples?.length) session.onAudio(samples, rate);
+    this.note(`Mistral live : phrase ${session.source}→${session.target} (traduction ${llmMs} ms${samples ? `, voix ${ttsMs} ms` : ', sans voix'})`);
+  }
+
+  // ───────────── end ─────────────
+
+  /** End of the stream: flush the transcription, let the sentences in progress finish, close. */
+  close(timeoutMs = 9000) {
+    if (this.dead && !this.ws) return this.tail.catch(() => {});
+    if (this.closing) return this.closed;
+    this.closing = true;
+    this.closed = new Promise((resolve) => {
+      this.resolveClosed = resolve;
+      if (!this.ready) return this.finishClose();
+      this.send({ type: 'input_audio.flush' });
+      this.send({ type: 'input_audio.end' });
+      this.lastMessageAt = Date.now();
+      const startedAt = Date.now();
+      const step = Math.max(20, Math.min(250, this.quietMs / 2));
+      const check = () => {
+        if (this.dead || !this.ws) return;
+        const now = Date.now();
+        if (now - this.lastMessageAt >= this.quietMs || now - startedAt >= timeoutMs) return this.finishClose();
+        this.closeTimer = this.timers.setTimeout(check, step);
+      };
+      this.closeTimer = this.timers.setTimeout(check, step);
+    }).then(async () => {
+      this.flushBuffer();
+      await Promise.race([this.tail.catch(() => {}), new Promise((r) => this.timers.setTimeout(r, timeoutMs))]);
+    });
+    return this.closed;
+  }
+
+  finishClose() {
+    this.timers.clearTimeout(this.closeTimer);
+    this.setStatus('closed');
+    const ws = this.ws;
+    this.ws = null;
+    try {
+      ws?.close();
+    } catch {}
+    this.resolveClosed?.();
+  }
+
+  abort() {
+    this.dead = true;
+    this.closing = true;
+    this.pending = [];
+    this.timers.clearTimeout(this.closeTimer);
+    this.timers.clearTimeout(this.pauseTimer);
+    const ws = this.ws;
+    this.ws = null;
+    try {
+      ws?.close();
+    } catch {}
+    this.resolveClosed?.();
+  }
+}

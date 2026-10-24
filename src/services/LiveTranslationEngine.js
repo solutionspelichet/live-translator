@@ -148,6 +148,7 @@ export default class LiveTranslationEngine {
         onOutputText: (text) => this.onText(turn, d, 'out', text),
         onStatus: (status) => status !== 'connecting' && this.emit({ type: 'note', text: `${this.profile.label} ${label} : ${status}` }),
         onNote: (text) => this.emit({ type: 'note', text }),
+        onUsage: (delta) => this.recordUsage(delta), // services that bill by something else than audio seconds (Mistral voice: characters)
         onError: (error) => this.fail(id, error),
       });
       // `ownTranscript` services (Doubao) hear ONE fixed language per session and give each session its own transcript, so the
@@ -197,7 +198,7 @@ export default class LiveTranslationEngine {
       // The service bills the audio it receives, per session.
       const seconds = pcm16.byteLength / 2 / sampleRate;
       const { send, transcribe } = this.profile.usage;
-      this.recordUsage({ [send]: seconds * turn.dirs.length, ...(transcribe ? { [transcribe]: seconds } : {}) });
+      this.recordUsage({ [send]: seconds * (this.profile.usage.shared ? 1 : turn.dirs.length), ...(transcribe ? { [transcribe]: seconds } : {}) });
       this.emit({ type: 'level', level });
     };
 

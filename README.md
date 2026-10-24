@@ -290,6 +290,16 @@ Stratégie « Doubao live » (⚙︎ → Traduction) : BytePlus Seed Speech, *Li
 
 Limites connues : la voix doit être **clonée** (`seed-icl-2.0`) ; une des deux langues doit être le chinois ou l'anglais ; seuls chinois ↔ français et chinois → anglais ont été éprouvés en parole à parole ; **la langue entendue est fixe pour chaque session**, donc en mains libres deux sessions tournent (A→B et B→A) et celle dont la langue n'est pas parlée ne comprend rien ; un filtre anti-écho compare chaque session avec ce qu'elle a entendu elle-même et coupe une traduction qui répète la même langue (sans écouteurs, la voix traduite rentre dans le micro ; la ligne « filtre » du journal donne la raison). Avec des écouteurs, ou avec l'option « couper le micro pendant la lecture », il n'y a pas d'écho du tout. Le prix n'est pas publié : à renseigner dans Consommation. Le protocole vient d'une intégration éprouvée sur Android, mais cette version React Native n'a pas encore été essayée : le journal dira si la connexion directe est acceptée.
 
+## Mistral live (Voxtral, expérimental)
+
+Stratégie « Mistral live » (⚙︎ → Traduction) : une chaîne **à une seule clé Mistral**, hébergée en Europe, pour toutes les langues de l'application. Ce n'est pas un traducteur de parole à parole : une transcription en direct (`voxtral-mini-transcribe-realtime-2602`, WebSocket `wss://api.mistral.ai/v1/audio/transcriptions/realtime`) coupe la parole en phrases ; Mistral Small (`mistral-small-latest`) dit **dans quelle langue est chaque phrase** (A ou B) et la traduit en une seule réponse JSON ; la voix Voxtral (`voxtral-mini-tts-latest`, `POST /v1/audio/speech`) lit la traduction dans l'oreille de l'interlocuteur. Un seul flux audio part vers Mistral, quel que soit le nombre de sens (mains libres comprises).
+
+- **Voix** : anglais, français, espagnol, allemand, néerlandais, portugais, italien, hindi et arabe. Pour toute autre langue (chinois, polonais…) la traduction s'affiche **sans voix** (une ligne du journal le dit). La voix est choisie automatiquement parmi les voix prédéfinies de la langue.
+- **Écho** : sans écouteurs, la voix traduite rentre dans le micro ; son texte est reconnu et ignoré (ligne « écho de la voix traduite ignoré » dans le journal), sans couper le micro.
+- **Coût** : environ 0,008 $ par minute de parole entendue + 0,016 $ pour 1 000 caractères de voix (la traduction par Mistral Small est négligeable) — voir Consommation.
+- **Délai** attendu : de l'ordre de 2 s après la fin d'une phrase (transcription → traduction → voix, tout en une fois par phrase). Les lignes « Mistral live : phrase A→B (traduction X ms, voix Y ms) » du journal donnent les mesures réelles.
+- **Non vérifié** : le protocole a été reconstitué à partir des kits officiels de Mistral, sans essai avec une vraie clé. Si la connexion échoue, le message du service apparaît dans le journal.
+
 ## Points matériels à connaître
 
 - **Le micro ne doit pas passer par le Bluetooth.** Si le micro BT (profil HFP) est utilisé, la sortie bascule en mono basse qualité
