@@ -389,6 +389,7 @@ export default class LiveTranslationEngine {
         source,
         translated,
         at: Date.now(),
+        service: this.profile.label,
       });
     }
     d.inText = '';

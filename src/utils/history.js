@@ -23,6 +23,7 @@ export function parseHistory(raw) {
         source: i.source,
         translated: i.translated,
         at: Number(i.at) || 0,
+        service: typeof i.service === 'string' ? i.service : undefined, // which service produced it (Classique, Mistral live…)
       }))
       .slice(-MAX_HISTORY);
   } catch {
@@ -43,7 +44,7 @@ export function formatConversation(items, describe) {
     .map((i) => {
       const from = describe(i, 'from');
       const to = describe(i, 'to');
-      return `[${clock(i.at)}] ${from.flag} ${from.label} → ${to.flag} ${to.label}\n${i.source}\n${i.translated}`;
+      return `[${clock(i.at)}] ${from.flag} ${from.label} → ${to.flag} ${to.label}${i.service ? ` · ${i.service}` : ''}\n${i.source}\n${i.translated}`;
     })
     .join('\n\n');
 }

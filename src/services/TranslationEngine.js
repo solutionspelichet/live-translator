@@ -526,7 +526,7 @@ export default class TranslationEngine {
       timing.translateMs = Date.now() - t0;
       turn.shown[targetSide][index] = translated;
       this.emit({ type: 'translation', side: targetSide, text: turn.shown[targetSide].filter(Boolean).join(' ') });
-      this.emit({ type: 'segment', from: side, to: targetSide, fromLang: language, toLang: targetLanguage, source: text, translated, at: Date.now() });
+      this.emit({ type: 'segment', from: side, to: targetSide, fromLang: language, toLang: targetLanguage, source: text, translated, at: Date.now(), service: 'Classique' });
       this.recentOutputs.push({ side: targetSide, text: translated, at: Date.now() });
       if (this.recentOutputs.length > 12) this.recentOutputs.shift();
       this.recordUsage({ elevenChars: translated.length });
