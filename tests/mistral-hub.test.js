@@ -50,7 +50,10 @@ async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices =
     calls.push({ url, body: init.body ? JSON.parse(init.body) : null, headers: init.headers });
     const json = (value) => ({ ok: true, status: 200, json: async () => value, text: async () => JSON.stringify(value) });
     if (url.includes('/v1/client/sessions')) return typeof mint === 'function' ? mint() : json({ client_secret: { value: 'rt_test', expires_at: 1 } });
-    if (url.includes('/v1/chat/completions') && chatFail) return chatFail(url);
+    if (url.includes('/v1/chat/completions') && chatFail) {
+      const r = chatFail(url, init.body ? JSON.parse(init.body) : null, json);
+      if (r) return r;
+    }
     if (url.includes('/v1/chat/completions')) return json({ choices: [{ message: { content: JSON.stringify(typeof answer === 'function' ? answer() : answer) } }] });
     if (url.includes('/v2/audio/voices')) return json(voices);
     if (url.includes('/v1/audio/speech') && speech) return speech(init.body ? JSON.parse(init.body) : null, json);
@@ -250,3 +253,24 @@ test('three sentences in a row that cannot be translated stop the turn with the 
   assert.ok(got.notes.filter((n) => /phrase abandonnée/.test(n)).length >= 3);
   assert.equal(got.errors.length, 1);
 }).timeout?.(10000);
+
+test('a model that is rate-limited for the account is replaced by the next one, which is then kept', async () => {
+  const asked = [];
+  const { sockets, got } = await setup({
+    chatFail: (url, body, json) => {
+      asked.push(body.model);
+      if (body.model === 'mistral-small-latest') return { ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } };
+      return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hello everyone.' }) } }] });
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(2500);
+  assert.equal(got.outText.length, 1);
+  assert.ok(asked.includes('ministral-8b-latest'));
+  assert.ok(got.notes.some((n) => /traduction avec le modèle « ministral-8b-latest »/.test(n)));
+  const before = asked.length;
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Merci beaucoup. ' });
+  await pause(100);
+  assert.deepEqual(asked.slice(before), ['ministral-8b-latest'], 'the working model is used directly next time');
+});

@@ -2,7 +2,7 @@
 // one fails and what the service answered. Pure with injected fetch / WebSocket → unit-tested.
 import { ApiError } from './http.js';
 import { bufferToBase64 } from './live.js';
-import { isVoiceRefusal, listVoiceCandidates, MISTRAL_LLM_MODEL, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, handshakeRefusal, interpreterMessages, mintRealtimeToken, parseInterpretation } from './mistral.js';
+import { isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, handshakeRefusal, interpreterMessages, mintRealtimeToken, parseInterpretation } from './mistral.js';
 
 const detail = (error) => (error instanceof ApiError ? `${error.status || 'réseau'}${error.detail ? ` : ${String(error.detail).slice(0, 160)}` : ''}` : String(error?.message ?? error).slice(0, 160));
 
@@ -87,17 +87,32 @@ export async function checkMistral({ apiKey, baseUrl, wsUrl, WebSocketImpl = glo
     };
   }));
 
-  // 3. the translation (language + translation in one JSON answer)
-  try {
+  // 3. the translation (language + translation in one JSON answer); a model refused for this account is replaced by the next one
+  {
     const t0 = Date.now();
-    const chat = await call('/v1/chat/completions', {
-      method: 'POST',
-      body: JSON.stringify({ model: MISTRAL_LLM_MODEL, temperature: 0, max_tokens: 200, response_format: { type: 'json_object' }, messages: interpreterMessages({ a: 'Français', b: 'English', text: 'Bonjour, comment allez-vous ?' }) }),
-    });
-    const verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
-    add('Traduction', verdict.from === 'A' && !!verdict.text, `« ${verdict.text || String(chat?.choices?.[0]?.message?.content ?? '').slice(0, 80)} » (${Date.now() - t0} ms)`);
-  } catch (error) {
-    add('Traduction', false, `${detail(error)}${error?.status === 429 ? ' — limite de débit de votre formule Mistral (console.mistral.ai → Limites)' : ''}`);
+    const notes = [];
+    let done = false;
+    for (const model of MISTRAL_LLM_MODELS) {
+      try {
+        const chat = await call('/v1/chat/completions', {
+          method: 'POST',
+          body: JSON.stringify({ model, temperature: 0, max_tokens: 200, response_format: { type: 'json_object' }, messages: interpreterMessages({ a: 'Français', b: 'English', text: 'Bonjour, comment allez-vous ?' }) }),
+        });
+        const verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
+        add('Traduction', verdict.from === 'A' && !!verdict.text, `${model} : « ${verdict.text || String(chat?.choices?.[0]?.message?.content ?? '').slice(0, 80)} » (${Date.now() - t0} ms)${notes.length ? ` · avant : ${notes.join(' ; ')}` : ''}`);
+        done = true;
+        break;
+      } catch (error) {
+        if (!isModelRefusal(error)) {
+          add('Traduction', false, detail(error));
+          done = true;
+          break;
+        }
+        notes.push(`${model} ${error.status}`);
+        await new Promise((r) => setTimeout(r, error.status === 429 ? 1200 : 0));
+      }
+    }
+    if (!done) add('Traduction', false, `tous les modèles refusés : ${notes.join(' ; ')} — limite de débit de votre formule Mistral (console.mistral.ai → Limites), ou clé partagée avec un autre outil`);
   }
 
   // 4. the voice (the voices of the two lists are tried until the speech endpoint accepts one)

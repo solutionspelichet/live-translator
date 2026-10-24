@@ -5,6 +5,8 @@ import { isPassthrough } from './live.js';
 
 export const MISTRAL_STT_MODEL = 'voxtral-mini-transcribe-realtime-2602';
 export const MISTRAL_LLM_MODEL = 'mistral-small-latest';
+// Rate limits are per model: when the first is limited (429) or unknown for the account, the next one is tried.
+export const MISTRAL_LLM_MODELS = Object.freeze(['mistral-small-latest', 'ministral-8b-latest', 'open-mistral-nemo', 'mistral-medium-latest']);
 export const MISTRAL_TTS_MODEL = 'voxtral-mini-tts-latest';
 export const MISTRAL_INPUT_RATE = 16000; // PCM 16-bit mono in
 export const MISTRAL_TTS_LANGUAGES = Object.freeze(['en', 'fr', 'de', 'es', 'nl', 'pt', 'it', 'hi', 'ar']);
@@ -179,8 +181,14 @@ export async function listVoiceCandidates(getJson, language) {
     if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
   }
   const speaks = (v) => (v.languages ?? []).some((l) => String(l).split(/[-_]/)[0].toLowerCase() === language);
-  return [...found.filter(speaks), ...found.filter((v) => !speaks(v))];
+  // The presets come in moods ("Paul - Sad", "Paul - Happy"): the neutral one first, then the ones with no mood in their name.
+  const MOODS = /sad|happy|angry|excited|frustrated|cheerful|curious|confident|whisper|shout|sleepy|scared|calm|serious/i;
+  const rank = (v) => (speaks(v) ? 0 : 10) + (/neutral/i.test(v.name ?? '') ? 0 : MOODS.test(v.name ?? '') ? 2 : 1);
+  return found.map((v, i) => ({ v, i })).sort((x, y) => rank(x.v) - rank(y.v) || x.i - y.i).map((x) => x.v);
 }
+
+/** A refusal that says the MODEL is the problem for this account (rate-limited, unknown, not allowed): try another one. */
+export const isModelRefusal = (error) => error instanceof ApiError && (error.status === 429 || error.status === 404 || ((error.status === 400 || error.status === 403) && /model/i.test(error.detail ?? '')));
 
 /** A refusal that says the VOICE is the problem (try another one), not the key or the quota. */
 export const isVoiceRefusal = (error) => error instanceof ApiError && (error.status === 400 || error.status === 404 || error.status === 422) && /voice/i.test(error.detail ?? '');

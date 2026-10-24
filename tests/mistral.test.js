@@ -69,3 +69,17 @@ test('decodeSpeech reads a PCM16 WAV, a float32 WAV and raw float32', () => {
   assert.deepEqual([...raw.samples], [0.5]);
   assert.equal(raw.sampleRate, 24000);
 });
+
+test('voices: the neutral preset of the language comes first, the moods last', async () => {
+  const { listVoiceCandidates } = await import('../src/utils/mistral.js');
+  const voices = {
+    items: [
+      { id: 'a', name: 'Paul - Sad', languages: ['en'] },
+      { id: 'b', name: 'Paul - Neutral', languages: ['en'] },
+      { id: 'c', name: 'Marie - Neutral', languages: ['fr'] },
+      { id: 'd', name: 'Jane', languages: ['en'] },
+    ],
+  };
+  const list = await listVoiceCandidates(async () => voices, 'en');
+  assert.deepEqual(list.map((v) => v.id), ['b', 'd', 'a', 'c']);
+});

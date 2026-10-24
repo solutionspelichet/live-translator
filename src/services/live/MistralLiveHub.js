@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODEL, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -47,6 +47,7 @@ export default class MistralLiveHub {
     this.voices = new Map(); // language → Promise<candidate voices>
     this.goodVoice = new Map(); // language → the voice id that worked
     this.failures = 0; // sentences in a row that could not be translated
+    this.llmIndex = 0; // which model of MISTRAL_LLM_MODELS translates
     this.noVoiceNoted = new Set();
     this.closing = false;
     this.dead = false;
@@ -259,11 +260,11 @@ export default class MistralLiveHub {
     this.tail = this.tail.then(() => job).then((result) => result && this.deliver(result));
   }
 
-  async post(path, body) {
+  async post(path, body, { retries = 2 } = {}) {
     const res = await fetchWithRetry(
       'Mistral',
       () => this.fetchImpl(`${this.baseUrl}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-      { retries: 2, baseDelayMs: 1000 }, // the plans have per-second limits: wait a second before asking again
+      { retries, baseDelayMs: 1000 }, // the plans have per-second limits: wait a second before asking again
     );
     return res.json();
   }
@@ -276,13 +277,7 @@ export default class MistralLiveHub {
       return null;
     }
     const t0 = this.now();
-    const chat = await this.post('/v1/chat/completions', {
-      model: MISTRAL_LLM_MODEL,
-      temperature: 0,
-      max_tokens: 500,
-      response_format: { type: 'json_object' },
-      messages: interpreterMessages({ a: this.languageName(pair.a), b: this.languageName(pair.b), text }),
-    });
+    const chat = await this.interpret(interpreterMessages({ a: this.languageName(pair.a), b: this.languageName(pair.b), text }));
     const verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
     const llmMs = this.now() - t0;
     if (verdict.from === 'other') {
@@ -318,6 +313,27 @@ export default class MistralLiveHub {
     }
     result.ttsMs = this.now() - t1;
     return result;
+  }
+
+  /** The translation call; a model that is rate-limited or refused for this account is replaced by the next one (and remembered). */
+  async interpret(messages) {
+    let refusal = null;
+    for (let i = 0; i < MISTRAL_LLM_MODELS.length; i++) {
+      const index = (this.llmIndex + i) % MISTRAL_LLM_MODELS.length;
+      const model = MISTRAL_LLM_MODELS[index];
+      try {
+        const chat = await this.post('/v1/chat/completions', { model, temperature: 0, max_tokens: 500, response_format: { type: 'json_object' }, messages }, { retries: 1 });
+        if (index !== this.llmIndex) {
+          this.llmIndex = index;
+          this.note(`Mistral live : traduction avec le modèle « ${model} » (le précédent est refusé ou limité pour ce compte)`);
+        }
+        return chat;
+      } catch (error) {
+        if (!isModelRefusal(error)) throw error;
+        refusal = error;
+      }
+    }
+    throw refusal;
   }
 
   /** Voxtral speaks `text`: the voice that worked is remembered; when a voice is refused the next candidate is tried. */
