@@ -2,7 +2,7 @@
 // one fails and what the service answered. Pure with injected fetch / WebSocket → unit-tested.
 import { ApiError } from './http.js';
 import { bufferToBase64 } from './live.js';
-import { MISTRAL_LLM_MODEL, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, handshakeRefusal, interpreterMessages, mintRealtimeToken, parseInterpretation } from './mistral.js';
+import { isVoiceRefusal, listVoiceCandidates, MISTRAL_LLM_MODEL, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, handshakeRefusal, interpreterMessages, mintRealtimeToken, parseInterpretation } from './mistral.js';
 
 const detail = (error) => (error instanceof ApiError ? `${error.status || 'réseau'}${error.detail ? ` : ${String(error.detail).slice(0, 160)}` : ''}` : String(error?.message ?? error).slice(0, 160));
 
@@ -97,23 +97,29 @@ export async function checkMistral({ apiKey, baseUrl, wsUrl, WebSocketImpl = glo
     const verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
     add('Traduction', verdict.from === 'A' && !!verdict.text, `« ${verdict.text || String(chat?.choices?.[0]?.message?.content ?? '').slice(0, 80)} » (${Date.now() - t0} ms)`);
   } catch (error) {
-    add('Traduction', false, detail(error));
+    add('Traduction', false, `${detail(error)}${error?.status === 429 ? ' — limite de débit de votre formule Mistral (console.mistral.ai → Limites)' : ''}`);
   }
 
-  // 4. the voice
+  // 4. the voice (the voices of the two lists are tried until the speech endpoint accepts one)
   try {
-    let list;
-    try {
-      list = (await call('/v2/audio/voices?type=preset&language=en&page_size=20'))?.data;
-    } catch {
-      list = (await call('/v1/audio/voices?type=preset&limit=50'))?.items;
+    const candidates = await listVoiceCandidates((path) => call(path), 'en');
+    if (!candidates.length) throw new Error('aucune voix prédéfinie trouvée');
+    let refusal = null;
+    let ok = null;
+    for (const voice of candidates.slice(0, 5)) {
+      const t0 = Date.now();
+      try {
+        const speech = await call('/v1/audio/speech', { method: 'POST', body: JSON.stringify({ model: MISTRAL_TTS_MODEL, input: 'Hello, can you hear me?', voice_id: voice.id, response_format: 'wav', stream: false }) });
+        const decoded = decodeSpeech(base64ToBytes(String(speech?.audio_data ?? '')));
+        ok = `« ${voice.name ?? voice.id} » : ${(decoded.samples.length / decoded.sampleRate).toFixed(1)} s à ${decoded.sampleRate} Hz (${Date.now() - t0} ms)`;
+        break;
+      } catch (error) {
+        if (!isVoiceRefusal(error)) throw error;
+        refusal = `${voice.name ?? voice.id} refusée`;
+      }
     }
-    const voice = (list ?? []).find((v) => (v.languages ?? []).some((l) => String(l).toLowerCase().startsWith('en'))) ?? (list ?? [])[0];
-    if (!voice) throw new Error('aucune voix prédéfinie trouvée');
-    const t0 = Date.now();
-    const speech = await call('/v1/audio/speech', { method: 'POST', body: JSON.stringify({ model: MISTRAL_TTS_MODEL, input: 'Hello, can you hear me?', voice_id: voice.id, response_format: 'wav', stream: false }) });
-    const decoded = decodeSpeech(base64ToBytes(String(speech?.audio_data ?? '')));
-    add('Voix', decoded.samples.length > 0, `« ${voice.name ?? voice.id} » : ${(decoded.samples.length / decoded.sampleRate).toFixed(1)} s à ${decoded.sampleRate} Hz (${Date.now() - t0} ms)`);
+    if (ok) add('Voix', true, ok);
+    else add('Voix', false, `aucune des ${Math.min(5, candidates.length)} premières voix n'est acceptée (${refusal})`);
   } catch (error) {
     add('Voix', false, detail(error));
   }

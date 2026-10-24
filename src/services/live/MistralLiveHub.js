@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { MISTRAL_INPUT_RATE, MISTRAL_LLM_MODEL, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODEL, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -44,7 +44,9 @@ export default class MistralLiveHub {
     this.pauseTimer = null;
     this.tail = Promise.resolve();
     this.recent = []; // what we spoke lately: { at, text }
-    this.voices = new Map(); // language → Promise<voice id | null>
+    this.voices = new Map(); // language → Promise<candidate voices>
+    this.goodVoice = new Map(); // language → the voice id that worked
+    this.failures = 0; // sentences in a row that could not be translated
     this.noVoiceNoted = new Set();
     this.closing = false;
     this.dead = false;
@@ -242,9 +244,16 @@ export default class MistralLiveHub {
 
   enqueue(text) {
     if (this.dead) return;
-    const job = this.process(text).catch((error) => {
+    const job = this.process(text).then((result) => {
+      if (result) this.failures = 0;
+      return result;
+    }).catch((error) => {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) this.fail(error);
-      else this.note(`Mistral live : phrase abandonnée (${error?.message ?? error})`);
+      else {
+        this.note(`Mistral live : phrase abandonnée (${error?.message ?? error})`);
+        // Several in a row: the user must be told (a silent screen looks like a broken app), not left waiting.
+        if (++this.failures >= 3) this.fail(new ApiError('Mistral', error?.status || 0, `${error?.detail || error?.message || error}${error?.status === 429 ? ' — limite de débit de votre formule Mistral : vérifiez vos limites sur console.mistral.ai (la formule gratuite est très limitée)' : ''}`));
+      }
       return null;
     });
     this.tail = this.tail.then(() => job).then((result) => result && this.deliver(result));
@@ -254,7 +263,7 @@ export default class MistralLiveHub {
     const res = await fetchWithRetry(
       'Mistral',
       () => this.fetchImpl(`${this.baseUrl}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-      { retries: 1 },
+      { retries: 2, baseDelayMs: 1000 }, // the plans have per-second limits: wait a second before asking again
     );
     return res.json();
   }
@@ -294,14 +303,12 @@ export default class MistralLiveHub {
     }
     const t1 = this.now();
     try {
-      const voiceId = await this.voiceFor(language);
-      if (!voiceId) {
-        this.note(`Mistral live : aucune voix trouvée pour « ${language} » : texte seulement`);
+      const speech = await this.speak(language, verdict.text);
+      if (!speech) {
+        this.note(`Mistral live : aucune voix utilisable pour « ${language} » : texte seulement`);
         return result;
       }
-      const speech = await this.post('/v1/audio/speech', { model: MISTRAL_TTS_MODEL, input: verdict.text, voice_id: voiceId, response_format: 'wav', stream: false });
-      const bytes = base64ToBytes(String(speech?.audio_data ?? ''));
-      const decoded = decodeSpeech(bytes);
+      const decoded = decodeSpeech(base64ToBytes(String(speech.audio_data ?? '')));
       result.samples = decoded.samples;
       result.rate = decoded.sampleRate;
       session.onUsage?.({ mistralTtsChars: verdict.text.length });
@@ -313,26 +320,42 @@ export default class MistralLiveHub {
     return result;
   }
 
-  voiceFor(language) {
-    if (!this.voices.has(language)) this.voices.set(language, this.findVoice(language).catch(() => null));
-    return this.voices.get(language);
+  /** Voxtral speaks `text`: the voice that worked is remembered; when a voice is refused the next candidate is tried. */
+  async speak(language, text) {
+    if (!this.voices.has(language)) {
+      this.voices.set(
+        language,
+        listVoiceCandidates((path) => this.get(path), language).catch((error) => {
+          if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
+          return [];
+        }),
+      );
+    }
+    const candidates = await this.voices.get(language);
+    const tried = this.goodVoice.get(language) ? [this.goodVoice.get(language)] : candidates.slice(0, 5).map((v) => v.id);
+    let refusal = null;
+    for (const id of tried) {
+      try {
+        const speech = await this.post('/v1/audio/speech', { model: MISTRAL_TTS_MODEL, input: text, voice_id: id, response_format: 'wav', stream: false });
+        if (!this.goodVoice.has(language)) {
+          this.goodVoice.set(language, id);
+          const voice = candidates.find((v) => v.id === id);
+          this.note(`Mistral live : voix « ${voice?.name ?? id} » pour « ${language} »`);
+        }
+        return speech;
+      } catch (error) {
+        if (!isVoiceRefusal(error)) throw error;
+        refusal = error;
+        this.goodVoice.delete(language);
+      }
+    }
+    if (refusal) throw refusal;
+    return null;
   }
 
-  async findVoice(language) {
-    const get = async (path) => {
-      const res = await fetchWithRetry('Mistral', () => this.fetchImpl(`${this.baseUrl}${path}`, { headers: { Authorization: `Bearer ${this.apiKey}` } }), { retries: 1 });
-      return res.json();
-    };
-    let list;
-    try {
-      list = (await get(`/v2/audio/voices?type=preset&language=${encodeURIComponent(language)}&page_size=50`))?.data;
-    } catch (error) {
-      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
-      list = (await get('/v1/audio/voices?type=preset&limit=100'))?.items;
-    }
-    const voice = (list ?? []).find((v) => (v.languages ?? []).some((l) => String(l).split(/[-_]/)[0].toLowerCase() === language)) ?? (list ?? [])[0];
-    if (voice) this.note(`Mistral live : voix « ${voice.name ?? voice.id} » pour « ${language} »`);
-    return voice?.id ?? null;
+  async get(path) {
+    const res = await fetchWithRetry('Mistral', () => this.fetchImpl(`${this.baseUrl}${path}`, { headers: { Authorization: `Bearer ${this.apiKey}` } }), { retries: 2, baseDelayMs: 1000 });
+    return res.json();
   }
 
   deliver({ session, input, output, samples, rate, llmMs, ttsMs }) {

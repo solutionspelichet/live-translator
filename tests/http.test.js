@@ -176,3 +176,15 @@ test('fetchQuotas reads the exact quotas and tolerates a service that refuses', 
   const none = await fetchQuotas({}, { fetchImpl });
   assert.deepEqual(none, { deepl: null, elevenlabs: null });
 });
+
+test('fetchWithRetry waits as long as a 429 asks (Retry-After)', async () => {
+  const waits = [];
+  let n = 0;
+  const r = await fetchWithRetry(
+    'Mistral',
+    async () => (n++ === 0 ? { ok: false, status: 429, headers: { get: () => '2' }, text: async () => 'slow down' } : { ok: true, status: 200 }),
+    { sleep: async (ms) => waits.push(ms) },
+  );
+  assert.equal(r.status, 200);
+  assert.deepEqual(waits, [2000]);
+});

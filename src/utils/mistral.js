@@ -155,3 +155,32 @@ export function handshakeRefusal(reason) {
   const m = String(reason ?? '').match(/HTTP 101 response but was '?(\d{3})/i);
   return m ? { status: Number(m[1]) } : null;
 }
+
+/**
+ * The preset voices that may speak `language`, best first. The API has two lists (v1 and v2) and a voice of one is not always
+ * accepted by `/v1/audio/speech` ("voice is not supported for speech v1"): both are collected, v1 first, so the caller can
+ * try the next one.
+ * @param {(path: string) => Promise<any>} getJson
+ * @returns {Promise<{id: string, name?: string, languages?: string[]}[]>}
+ */
+export async function listVoiceCandidates(getJson, language) {
+  const found = [];
+  const add = (list) => {
+    for (const v of list ?? []) if (v?.id && !found.some((f) => f.id === v.id)) found.push(v);
+  };
+  try {
+    add((await getJson('/v1/audio/voices?type=preset&limit=100'))?.items);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
+  }
+  try {
+    add((await getJson(`/v2/audio/voices?type=preset&language=${encodeURIComponent(language)}&page_size=50`))?.data);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
+  }
+  const speaks = (v) => (v.languages ?? []).some((l) => String(l).split(/[-_]/)[0].toLowerCase() === language);
+  return [...found.filter(speaks), ...found.filter((v) => !speaks(v))];
+}
+
+/** A refusal that says the VOICE is the problem (try another one), not the key or the quota. */
+export const isVoiceRefusal = (error) => error instanceof ApiError && (error.status === 400 || error.status === 404 || error.status === 422) && /voice/i.test(error.detail ?? '');

@@ -27,13 +27,17 @@ const RETRYABLE = (status) => status === 429 || (status >= 500 && status <= 599)
  */
 export async function fetchWithRetry(service, request, { retries = 2, baseDelayMs = 350, sleep = defaultSleep } = {}) {
   let last;
+  let wait = 0; // what the service asked for (Retry-After), when it did
   for (let attempt = 0; attempt <= retries; attempt++) {
-    if (attempt > 0) await sleep(baseDelayMs * attempt);
+    if (attempt > 0) await sleep(wait || baseDelayMs * attempt);
+    wait = 0;
     try {
       const res = await request();
       if (res.ok) return res;
       last = new ApiError(service, res.status, (await res.text().catch(() => '')).slice(0, 300));
       if (!RETRYABLE(res.status)) throw last;
+      const asked = Number(res.headers?.get?.('retry-after'));
+      if (Number.isFinite(asked) && asked > 0) wait = Math.min(asked, 5) * 1000;
     } catch (err) {
       if (err instanceof ApiError && !RETRYABLE(err.status)) throw err;
       last = err instanceof ApiError ? err : new ApiError(service, 0, String(err?.message ?? err));

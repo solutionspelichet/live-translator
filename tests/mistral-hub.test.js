@@ -28,7 +28,7 @@ function wavBytes(samples, rate = 24000) {
   return bytes;
 }
 
-async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null } = {}) {
+async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null, speech = null, chatFail = null } = {}) {
   const sockets = [];
   class FakeSocket {
     constructor(url, protocols, options) {
@@ -50,8 +50,10 @@ async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices =
     calls.push({ url, body: init.body ? JSON.parse(init.body) : null, headers: init.headers });
     const json = (value) => ({ ok: true, status: 200, json: async () => value, text: async () => JSON.stringify(value) });
     if (url.includes('/v1/client/sessions')) return typeof mint === 'function' ? mint() : json({ client_secret: { value: 'rt_test', expires_at: 1 } });
+    if (url.includes('/v1/chat/completions') && chatFail) return chatFail(url);
     if (url.includes('/v1/chat/completions')) return json({ choices: [{ message: { content: JSON.stringify(typeof answer === 'function' ? answer() : answer) } }] });
     if (url.includes('/v2/audio/voices')) return json(voices);
+    if (url.includes('/v1/audio/speech') && speech) return speech(init.body ? JSON.parse(init.body) : null, json);
     if (url.includes('/v1/audio/speech')) return json({ audio_data: Buffer.from(wavBytes([1000, 2000, 3000])).toString('base64') });
     return { ok: false, status: 404, text: async () => 'nope' };
   };
@@ -218,3 +220,33 @@ test('the journal says when audio goes in and nothing comes back', async () => {
   assert.ok(got.notes.some((n) => /aucun texte reçu après 8 s/.test(n)));
   assert.ok(got.notes.some((n) => /reçu \{"type":"session.created"/.test(n)));
 });
+
+test('a voice the speech endpoint refuses is skipped: the next one is tried and remembered', async () => {
+  const tried = [];
+  const { sockets, got, calls } = await setup({
+    voices: { data: [{ id: 'voice-bad', name: 'Bad', languages: ['en'] }, { id: 'voice-ok', name: 'Good', languages: ['en'] }] },
+    speech: (body, json) => {
+      tried.push(body.voice_id);
+      if (body.voice_id === 'voice-bad') return { ok: false, status: 400, text: async () => '{"message":"voice is not supported for speech v1","code":"3051"}' };
+      return json({ audio_data: Buffer.from(wavBytes([1000, 2000])).toString('base64') });
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(80);
+  assert.deepEqual(tried, ['voice-bad', 'voice-ok']);
+  assert.equal(got.audio.length, 1);
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Merci beaucoup. ' });
+  await pause(80);
+  assert.deepEqual(tried.slice(2), ['voice-ok'], 'the good voice is used directly next time');
+  assert.ok(calls.some((c) => c.url.includes('/v1/audio/voices')), 'the v1 list is asked first');
+});
+
+test('three sentences in a row that cannot be translated stop the turn with the reason (a silent screen looks broken)', async () => {
+  const { sockets, got } = await setup({ chatFail: () => ({ ok: false, status: 500, text: async () => 'boom', headers: { get: () => null } }) });
+  sockets[0].serve({ type: 'session.created' });
+  for (const t of ['Un. ', 'Deux. ', 'Trois. ']) sockets[0].serve({ type: 'transcription.text.delta', text: `${t}` });
+  await pause(4000);
+  assert.ok(got.notes.filter((n) => /phrase abandonnée/.test(n)).length >= 3);
+  assert.equal(got.errors.length, 1);
+}).timeout?.(10000);
