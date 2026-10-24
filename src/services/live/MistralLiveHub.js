@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { MISTRAL_INPUT_RATE, MISTRAL_LLM_MODEL, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, interpreterMessages, isEchoOfOutput, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { MISTRAL_INPUT_RATE, MISTRAL_LLM_MODEL, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -7,7 +7,15 @@ const MAX_ATTEMPTS = 8;
 const PAUSE_AFTER_SENTENCE_MS = 250; // the text already ends like a sentence: a short pause is enough
 const PAUSE_MID_SENTENCE_MS = 900; // no punctuation yet: wait for a real pause before cutting
 const QUIET_MS = 1500;
-const decodeText = (data) => (typeof data === 'string' ? data : new TextDecoder('utf-8').decode(data instanceof ArrayBuffer ? new Uint8Array(data) : data));
+const decodeText = (data) => {
+  if (typeof data === 'string') return data;
+  const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+  if (typeof TextDecoder !== 'undefined') return new TextDecoder('utf-8').decode(bytes);
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return s;
+};
+const NO_TEXT_AFTER_SEC = 8; // audio sent without a single word back: say so in the journal
 
 /**
  * ONE Mistral pipeline per turn, shared by the two direction sessions (A→B and B→A) of the engine:
@@ -43,6 +51,11 @@ export default class MistralLiveHub {
     this.attempts = 0;
     this.lastMessageAt = 0;
     this.sawText = 0;
+    this.events = 0; // events received (the first ones are copied to the journal)
+    this.sentBytes = 0;
+    this.silentNoted = false;
+    this.mode = 'token'; // how the socket authenticates: a short-lived token (documented), or the key as a header
+    this.connecting = false;
   }
 
   addSession(session) {
@@ -65,35 +78,69 @@ export default class MistralLiveHub {
 
   // ───────────── transcription ─────────────
 
-  connect() {
+  async connect() {
+    if (this.dead || this.ws || this.connecting) return;
+    this.connecting = true;
+    let token = null;
+    if (this.mode === 'token') {
+      try {
+        token = await mintRealtimeToken({ baseUrl: this.baseUrl, apiKey: this.apiKey, fetchImpl: this.fetchImpl });
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          this.connecting = false;
+          return this.fail(error);
+        }
+        this.note(`Mistral live : jeton temps réel indisponible (${error?.message ?? error}) → connexion avec la clé`);
+        this.mode = 'header';
+      }
+    }
+    this.connecting = false;
     if (this.dead || this.ws) return;
     let ws;
     try {
-      ws = new this.WebSocketImpl(`${this.wsUrl}?model=${encodeURIComponent(MISTRAL_STT_MODEL)}`, undefined, { headers: { Authorization: `Bearer ${this.apiKey}` } });
+      const url = `${this.wsUrl}?model=${encodeURIComponent(MISTRAL_STT_MODEL)}`;
+      ws = token ? new this.WebSocketImpl(url, ['realtime', token]) : new this.WebSocketImpl(url, undefined, { headers: { Authorization: `Bearer ${this.apiKey}` } });
       ws.binaryType = 'arraybuffer';
     } catch (error) {
       return this.lost(String(error?.message ?? error).replace(this.apiKey ?? '', '…'));
     }
     this.ws = ws;
-    ws.onopen = () => {};
+    ws.onopen = () => this.note(`Mistral live : socket ouvert (${token ? 'jeton' : 'clé en en-tête'})`);
     ws.onmessage = (e) => {
       if (this.ws !== ws) return;
       this.lastMessageAt = Date.now();
+      let raw;
       let msg;
       try {
-        msg = JSON.parse(decodeText(e.data));
+        raw = decodeText(e.data);
+        msg = JSON.parse(raw);
       } catch {
+        this.note(`Mistral live : message illisible « ${String(raw ?? '').slice(0, 100)} »`);
         return;
       }
+      if (this.events++ < 4 && msg.type !== 'transcription.text.delta') this.note(`Mistral live : reçu ${JSON.stringify(msg).slice(0, 160)}`);
       this.onEvent(msg);
     };
-    ws.onerror = () => {};
+    ws.onerror = (e) => {
+      if (this.ws === ws && e?.message) this.note(`Mistral live : erreur socket « ${String(e.message).replace(this.apiKey ?? '', '…').slice(0, 140)} »`);
+    };
     ws.onclose = (e) => {
       if (this.ws !== ws) return;
       this.ws = null;
       this.ready = false;
       if (this.closing || this.dead) return this.finishClose();
       const reason = String(e?.reason ?? '').replace(this.apiKey ?? '', '…');
+      this.note(`Mistral live : socket fermé (${e?.code ?? '?'} ${reason})`);
+      const refused = handshakeRefusal(reason);
+      if (refused) {
+        // The server refused the handshake: retrying the same thing cannot help. A refused token is tried once with the key itself.
+        if (token && this.mode === 'token') {
+          this.mode = 'header';
+          this.note(`Mistral live : connexion refusée avec le jeton (${refused.status}) → essai avec la clé en en-tête`);
+          return this.connect();
+        }
+        return this.fail(new ApiError('Mistral', refused.status, `transcription refusée (${reason})`));
+      }
       if (e?.code === 1008 || e?.code === 4001 || e?.code === 4003) return this.fail(new ApiError('Mistral', 401, reason || 'clé refusée'));
       this.lost(`${e?.code ?? ''} ${reason}`.trim());
     };
@@ -157,6 +204,11 @@ export default class MistralLiveHub {
   /** @param {string} base64Pcm16  16 kHz mono PCM16 */
   sendAudio(base64Pcm16) {
     if (this.dead || this.closing) return;
+    this.sentBytes += (base64Pcm16.length * 3) / 4;
+    if (!this.silentNoted && this.sawText === 0 && this.ready && this.sentBytes / 32000 >= NO_TEXT_AFTER_SEC) {
+      this.silentNoted = true;
+      this.note(`Mistral live : aucun texte reçu après ${NO_TEXT_AFTER_SEC} s d'audio envoyé (la transcription ne répond pas : parole trop faible, ou événement non reconnu — voir les lignes « reçu »)`);
+    }
     if (!this.ready) {
       this.pending.push(base64Pcm16);
       if (this.pending.length > MAX_PENDING) this.pending.shift();

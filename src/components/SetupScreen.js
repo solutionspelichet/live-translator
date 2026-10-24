@@ -9,9 +9,10 @@ import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 import { doubaoCode, doubaoPairProblem } from '../utils/doubao';
 import { mistralVoiceLanguage } from '../utils/mistral';
+import { checkMistral } from '../utils/mistralCheck';
 import { describeError } from '../utils/http';
 import VoiceCloneCard from './VoiceCloneCard';
-import { listVoices, testGeminiKey, testMistralKey, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
+import { listVoices, testGeminiKey, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
 import { palette, THEME_CHOICES, themedStyles } from '../theme';
 
 /**
@@ -149,7 +150,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
             setReport(null);
             const v = (name) => values[name]?.trim();
             if (strategy === 'mistral') {
-              setReport({ mistral: await testMistralKey(v('EXPO_PUBLIC_MISTRAL_API_KEY'), { base: env.mistralBaseUrl }), voices: [] });
+              setReport({ steps: await checkMistral({ apiKey: v('EXPO_PUBLIC_MISTRAL_API_KEY'), baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl }), voices: [] });
               setTesting(false);
               return;
             }
@@ -206,6 +207,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
                 {`${r.ok ? '✓' : '✗'} ${name} : ${r.message}`}
               </Text>
             ))}
+        {report?.steps?.map((s) => (
+          <Text key={s.name} style={s.ok ? styles.good : styles.bad}>
+            {`${s.ok ? '✓' : '✗'} ${s.name} : ${s.message}`}
+          </Text>
+        ))}
         {report?.languages?.map((l) => (
           <Text key={l.label} style={l.deepgram.ok && l.deepl.ok ? styles.good : styles.bad}>
             {`${l.deepgram.ok && l.deepl.ok ? '✓' : '✗'} ${l.label} — Deepgram : ${l.deepgram.message} · DeepL : ${l.deepl.message}`}

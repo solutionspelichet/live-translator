@@ -298,7 +298,7 @@ Stratégie « Mistral live » (⚙︎ → Traduction) : une chaîne **à une seu
 - **Écho** : sans écouteurs, la voix traduite rentre dans le micro ; son texte est reconnu et ignoré (ligne « écho de la voix traduite ignoré » dans le journal), sans couper le micro.
 - **Coût** : environ 0,008 $ par minute de parole entendue + 0,016 $ pour 1 000 caractères de voix (la traduction par Mistral Small est négligeable) — voir Consommation.
 - **Délai** attendu : de l'ordre de 2 s après la fin d'une phrase (transcription → traduction → voix, tout en une fois par phrase). Les lignes « Mistral live : phrase A→B (traduction X ms, voix Y ms) » du journal donnent les mesures réelles.
-- **Non vérifié** : le protocole a été reconstitué à partir des kits officiels de Mistral, sans essai avec une vraie clé. Si la connexion échoue, le message du service apparaît dans le journal.
+- **Non vérifié** : le protocole a été reconstitué à partir des kits officiels de Mistral, sans essai avec une vraie clé. La connexion utilise le jeton temps réel documenté (`POST /v1/client/sessions`, puis sous-protocole `["realtime", jeton]`), avec la clé en en-tête en secours. **« Tester mes clés »** passe chaque étape en revue (clé, jeton, socket de transcription, traduction, voix) et affiche ce que le service répond ; le journal copie les premiers événements reçus (« Mistral live : reçu … ») et dit si de l'audio part sans qu'aucun texte revienne.
 
 ## Points matériels à connaître
 

@@ -1,5 +1,6 @@
 // Mistral (Voxtral) cascade — pure helpers, unit-tested. Pipeline: realtime transcription → Mistral Small (language + translation,
 // one JSON answer) → Voxtral TTS. The voice exists in 9 languages only; any other language is shown as text.
+import { ApiError, fetchWithRetry } from './http.js';
 import { isPassthrough } from './live.js';
 
 export const MISTRAL_STT_MODEL = 'voxtral-mini-transcribe-realtime-2602';
@@ -131,4 +132,26 @@ export function base64ToBytes(b64) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
+}
+
+/**
+ * Short-lived realtime token (documented way to open the transcription socket): the API key stays on this call, the socket
+ * gets the token as its sub-protocol (`["realtime", token]`). @throws {ApiError}
+ */
+export async function mintRealtimeToken({ baseUrl, apiKey, fetchImpl = (...a) => fetch(...a) }) {
+  const res = await fetchWithRetry(
+    'Mistral',
+    () => fetchImpl(`${baseUrl}/v1/client/sessions`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ purpose: 'realtime', model: MISTRAL_STT_MODEL }) }),
+    { retries: 1 },
+  );
+  const json = await res.json();
+  const token = json?.client_secret?.value;
+  if (!token) throw new ApiError('Mistral', 502, 'réponse sans jeton temps réel');
+  return token;
+}
+
+/** What React Native reports when the WebSocket handshake is refused ("Expected HTTP 101 response but was '401 Unauthorized'") → { status } or null. */
+export function handshakeRefusal(reason) {
+  const m = String(reason ?? '').match(/HTTP 101 response but was '?(\d{3})/i);
+  return m ? { status: Number(m[1]) } : null;
 }
