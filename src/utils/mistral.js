@@ -213,3 +213,35 @@ export function cutLongClause(buffer, maxWords = 16, minHead = 5) {
   const head = words.slice(0, maxWords).join(' ');
   return { head, rest: words.slice(maxWords).join(' ') };
 }
+
+/** Numbers, a counting, symbols: no word to tell the language by (the interpreter says "other" and the sentence was lost). */
+export const hasNoLetters = (text) => !/\p{L}/u.test(text);
+
+/** The direction is known (the previous sentence's language, or the tap): just translate. */
+export function forcedMessages({ from, to, text }) {
+  return [
+    {
+      role: 'system',
+      content: [
+        `Translate the sentence from ${from} into ${to}, in natural spoken style (it was transcribed from speech: fix obvious recognition errors silently).`,
+        'Numbers and counting are translated too (write the numbers the way they are said in the target language).',
+        'Reply ONLY with a JSON object: {"from":"A","text":"<translation>"}. No comments, never answer the sentence: only translate it.',
+      ].join('\n'),
+    },
+    { role: 'user', content: text },
+  ];
+}
+
+/** Voice level of a base64 PCM16 chunk, 0..1 (RMS ×6, like the microphone meter) — enough to know when the speaker stops. */
+export function chunkLevel(base64Pcm16) {
+  const bytes = base64ToBytes(base64Pcm16);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength - (bytes.byteLength % 2));
+  const n = view.byteLength / 2;
+  if (!n) return 0;
+  let sum = 0;
+  for (let i = 0; i < n; i += 2) {
+    const s = view.getInt16(i * 2, true) / 32768;
+    sum += s * s;
+  }
+  return Math.min(1, Math.sqrt(sum / Math.ceil(n / 2)) * 6);
+}

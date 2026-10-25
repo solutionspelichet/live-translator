@@ -274,3 +274,33 @@ test('a model that is rate-limited for the account is replaced by the next one, 
   await pause(100);
   assert.deepEqual(asked.slice(before), ['ministral-8b-latest'], 'the working model is used directly next time');
 });
+
+test('a counting (numbers have no language) is translated in the direction of the previous sentence instead of being dropped', async () => {
+  const { sockets, got, calls } = await setup({
+    chatFail: (url, body, json) => {
+      if (body.messages[0].content.includes('Translate the sentence from')) return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'One, two, three, four.' }) } }] });
+      if (body.messages[1].content.startsWith('1,')) return json({ choices: [{ message: { content: JSON.stringify({ from: 'other', text: '' }) } }] });
+      return null;
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(80);
+  sockets[0].serve({ type: 'transcription.text.delta', text: '1, 2, 3, 4. ' });
+  await pause(80);
+  assert.deepEqual(got.outText.map((o) => o.t.trim()), ['Hello everyone.', 'One, two, three, four.']);
+  assert.ok(calls.some((c) => c.body?.messages?.[0]?.content?.includes('from Français into English') || c.body?.messages?.[0]?.content?.includes('from fr into en')));
+});
+
+test('the voice lists are fetched as soon as the session opens, and the delay after the last word is measured', async () => {
+  const { sockets, got, calls, ab } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  await pause(20);
+  assert.ok(calls.some((c) => c.url.includes('/audio/voices')), 'warm-up before the first sentence');
+  const loud = Buffer.from(new Int16Array(1600).fill(12000).buffer).toString('base64');
+  ab.sendAudio(loud); // the speaker is heard...
+  await pause(300); // ...then stops
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(100);
+  assert.ok(got.notes.some((n) => /ms après le dernier mot/.test(n)));
+});

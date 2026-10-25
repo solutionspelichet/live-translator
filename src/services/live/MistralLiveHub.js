@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { cutLongClause, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -48,6 +48,8 @@ export default class MistralLiveHub {
     this.goodVoice = new Map(); // language → the voice id that worked
     this.failures = 0; // sentences in a row that could not be translated
     this.llmIndex = 0; // which model of MISTRAL_LLM_MODELS translates
+    this.lastVoiceAt = 0; // last microphone chunk that held a voice (to measure the delay after the last word)
+    this.lastFrom = 'A'; // language of the previous sentence (numbers have none of their own)
     this.noVoiceNoted = new Set();
     this.closing = false;
     this.dead = false;
@@ -163,6 +165,7 @@ export default class MistralLiveHub {
         this.send({ type: 'session.update', session: { audio_format: { encoding: 'pcm_s16le', sample_rate: MISTRAL_INPUT_RATE } } });
         this.setStatus('open');
         this.pending.splice(0).forEach((audio) => this.send({ type: 'input_audio.append', audio }));
+        this.warmVoices();
         return;
       case 'transcription.text.delta':
         if (typeof msg.text === 'string' && msg.text) this.onDelta(msg.text);
@@ -213,6 +216,7 @@ export default class MistralLiveHub {
   sendAudio(base64Pcm16) {
     if (this.dead || this.closing) return;
     this.sentBytes += (base64Pcm16.length * 3) / 4;
+    if (chunkLevel(base64Pcm16) > 0.08) this.lastVoiceAt = this.now();
     if (!this.silentNoted && this.sawText === 0 && this.ready && this.sentBytes / 32000 >= NO_TEXT_AFTER_SEC) {
       this.silentNoted = true;
       this.note(`Mistral live : aucun texte reçu après ${NO_TEXT_AFTER_SEC} s d'audio envoyé (la transcription ne répond pas : parole trop faible, ou événement non reconnu — voir les lignes « reçu »)`);
@@ -250,7 +254,10 @@ export default class MistralLiveHub {
 
   enqueue(text) {
     if (this.dead) return;
-    const job = this.process(text).then((result) => {
+    // Is the speaker silent as the sentence becomes ready? Then the delay AFTER THE LAST WORD can be measured.
+    const readyAt = this.now();
+    const meta = { speechEnd: this.lastVoiceAt && readyAt - this.lastVoiceAt >= 250 ? this.lastVoiceAt : null };
+    const job = this.process(text, meta).then((result) => {
       if (result) this.failures = 0;
       return result;
     }).catch((error) => {
@@ -274,7 +281,7 @@ export default class MistralLiveHub {
     return res.json();
   }
 
-  async process(text) {
+  async process(text, meta = {}) {
     const pair = this.pair;
     if (!pair) return null;
     if (isEchoOfOutput(text, this.recent, this.now())) {
@@ -283,8 +290,17 @@ export default class MistralLiveHub {
     }
     const t0 = this.now();
     const chat = await this.interpret(interpreterMessages({ a: this.languageName(pair.a), b: this.languageName(pair.b), text }));
-    const verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
+    let verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
+    if (verdict.from === 'other' && hasNoLetters(text)) {
+      // A counting, a number: no word tells the language, so it is the one of the previous sentence (the same speaker goes on).
+      const from = this.lastFrom === 'B' ? pair.b : pair.a;
+      const to = this.lastFrom === 'B' ? pair.a : pair.b;
+      const forced = await this.interpret(forcedMessages({ from: this.languageName(from), to: this.languageName(to), text }));
+      const answer = parseInterpretation(forced?.choices?.[0]?.message?.content);
+      if (answer.text) verdict = { from: this.lastFrom, text: answer.text };
+    }
     const llmMs = this.now() - t0;
+    if (verdict.from !== 'other') this.lastFrom = verdict.from;
     if (verdict.from === 'other') {
       this.note(`Mistral live : phrase ignorée (ni ${pair.a} ni ${pair.b}, ou pas de la parole) « ${text.slice(0, 50)} »`);
       return null;
@@ -292,7 +308,7 @@ export default class MistralLiveHub {
     const session = this.sessions.find((s) => s.source === (verdict.from === 'A' ? pair.a : pair.b));
     if (!session) return null; // one direction only (tap mode) and the sentence is in the language it already speaks
     this.recent.push({ at: this.now(), text: verdict.text });
-    const result = { session, input: text, output: verdict.text, samples: null, rate: 24000, llmMs, ttsMs: 0, startedAt: t0 };
+    const result = { session, input: text, output: verdict.text, samples: null, rate: 24000, llmMs, ttsMs: 0, startedAt: t0, speechEnd: meta.speechEnd };
     const language = mistralVoiceLanguage(session.target);
     if (!language) {
       if (!this.noVoiceNoted.has(session.target)) {
@@ -341,17 +357,24 @@ export default class MistralLiveHub {
     throw refusal;
   }
 
+  /** The voice lists are asked while the user starts to speak, not at the first sentence (it cost over a second). */
+  warmVoices() {
+    for (const session of this.sessions) {
+      const language = mistralVoiceLanguage(session.target);
+      if (language && !this.voices.has(language)) this.voices.set(language, this.loadVoices(language));
+    }
+  }
+
+  loadVoices(language) {
+    return listVoiceCandidates((path) => this.get(path), language).catch((error) => {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
+      return [];
+    });
+  }
+
   /** Voxtral speaks `text`: the voice that worked is remembered; when a voice is refused the next candidate is tried. */
   async speak(language, text) {
-    if (!this.voices.has(language)) {
-      this.voices.set(
-        language,
-        listVoiceCandidates((path) => this.get(path), language).catch((error) => {
-          if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
-          return [];
-        }),
-      );
-    }
+    if (!this.voices.has(language)) this.voices.set(language, this.loadVoices(language));
     const candidates = await this.voices.get(language);
     const tried = this.goodVoice.get(language) ? [this.goodVoice.get(language)] : candidates.slice(0, 5).map((v) => v.id);
     let refusal = null;
@@ -379,14 +402,16 @@ export default class MistralLiveHub {
     return res.json();
   }
 
-  deliver({ session, input, output, samples, rate, llmMs, ttsMs, startedAt }) {
+  deliver({ session, input, output, samples, rate, llmMs, ttsMs, startedAt, speechEnd }) {
     if (this.dead) return;
     session.onInputText(`${input} `);
     session.onOutputText(`${output} `);
     if (samples?.length) session.onAudio(samples, rate);
-    const totalMs = this.now() - startedAt; // from the finished sentence to its voice being handed over
-    session.onTiming?.(totalMs);
-    this.note(`Mistral live : phrase ${session.source}→${session.target} (traduction ${llmMs} ms${samples ? `, voix ${ttsMs} ms` : ', sans voix'}, ${totalMs} ms en tout depuis la phrase)`);
+    const now = this.now();
+    const totalMs = now - startedAt; // from the finished sentence to its voice being handed over
+    const afterLastWord = speechEnd ? now - speechEnd : null; // transcription + cut + translation + voice, when the speaker had stopped
+    session.onTiming?.(afterLastWord ?? totalMs);
+    this.note(`Mistral live : phrase ${session.source}→${session.target} (traduction ${llmMs} ms${samples ? `, voix ${ttsMs} ms` : ', sans voix'}, ${totalMs} ms depuis la phrase${afterLastWord != null ? `, ${afterLastWord} ms après le dernier mot` : ''})`);
   }
 
   // ───────────── end ─────────────
