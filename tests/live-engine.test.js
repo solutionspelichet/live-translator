@@ -294,7 +294,7 @@ test('a hard stop keeps the passage in progress (history segment), it is not los
 });
 
 // ---- Gemini live: same engine, another profile ----
-import { GEMINI_LIVE } from '../src/services/liveProfiles.js';
+import { DOUBAO_LIVE, GEMINI_LIVE, MISTRAL_LIVE } from '../src/services/liveProfiles.js';
 
 test('Gemini profile: 16 kHz audio in, Gemini codes out, the gate applies in hands-free', async () => {
   const { engine, sessions, played, events, chunk, audioPiece } = setup({ profile: GEMINI_LIVE, languages: { A: 'fr', B: 'zh' }, gate: { minChars: 8, holdMs: 40 } });
@@ -366,5 +366,80 @@ test('a mic that delivers only digital zeros is restarted during the turn', asyn
   await pause(1300);
   assert.ok(restarted >= 1);
   assert.ok(events.some((e) => e.type === 'note' && /que des zéros/.test(e.text)));
+  engine.cancel();
+});
+
+test('Doubao profile: a session whose output only repeats what it heard (speaker echo) is silenced, in tap mode too', async () => {
+  const { engine, sessions, played, chunk, audioPiece } = setup({ profile: DOUBAO_LIVE, languages: { A: 'fr', B: 'en' }, gate: { minChars: 8, holdMs: 40 } });
+  await engine.toggle('A');
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].opts.source, 'fr');
+  assert.equal(sessions[0].opts.target, 'en');
+  chunk();
+  // A real translation: French heard, English spoken.
+  sessions[0].opts.onInputText('bonjour est-ce que tu me copies');
+  sessions[0].opts.onOutputText('hello are you copying me');
+  sessions[0].opts.onAudio(audioPiece(), 16000);
+  await pause(15);
+  assert.equal(played.length, 1);
+  await pause(120);
+  // The phone's speaker is heard again: English in, the same English out → nothing is played.
+  sessions[0].opts.onInputText('hello are you copying me');
+  sessions[0].opts.onOutputText('hello are you copying me');
+  sessions[0].opts.onAudio(audioPiece(), 16000);
+  await pause(120);
+  assert.equal(played.length, 1, 'the echo is not played');
+  engine.cancel();
+});
+
+test('echo guard: what is not sent to the service is said in the journal (a continuous speaker loses it)', async () => {
+  const { engine, sessions, played, events, chunk, audioPiece } = setup({ muteWhilePlaying: true });
+  await engine.toggle(AUTO);
+  chunk();
+  sessions[0].opts.onInputText('je pense que ça ira');
+  sessions[0].opts.onOutputText('i think it will be fine');
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  await pause(15);
+  assert.equal(played.length, 1);
+  chunk(); // spoken while the translated voice plays: replaced by silence
+  assert.ok(sessions[0].sent.length === 2);
+  assert.ok(/^A+$/.test(sessions[0].sent[1].replace(/=+$/, '')), 'silence is sent instead of the voice');
+  assert.ok(events.some((e) => e.type === 'note' && /PAS envoyé/.test(e.text)));
+  await engine.toggle(AUTO);
+  await pause(120);
+  const stats = events.filter((e) => e.type === 'note' && /micro coupé pendant la lecture/.test(e.text));
+  assert.equal(stats.length, 1);
+  assert.match(stats[0].text, /0\.1 s sur 0\.2 s \(50 %\)/);
+});
+
+test('Mistral profile: any app language is accepted, ONE transcription is billed for both directions, sessions get source and target', async () => {
+  const { engine, sessions, events, chunk } = setup({ profile: MISTRAL_LIVE, languages: { A: 'fr', B: 'zh' } });
+  await engine.toggle(AUTO);
+  assert.equal(sessions.length, 2);
+  assert.deepEqual(sessions.map((s) => [s.opts.source, s.opts.target]), [['fr', 'zh'], ['zh', 'fr']]);
+  assert.deepEqual(sessions.map((s) => !!s.opts.transcribeInput), [true, false]);
+  chunk();
+  engine.flushUsage();
+  const sent = events.filter((e) => e.type === 'usage').reduce((sum, e) => sum + (e.delta.mistralSttSec ?? 0), 0);
+  assert.ok(Math.abs(sent - 0.1) < 1e-9, `0.1 s once (not per direction), got ${sent}`);
+  // the transcript of each direction is its own
+  sessions[1].opts.onInputText('你好吗');
+  sessions[1].opts.onOutputText('ça va ?');
+  assert.ok(events.some((e) => e.type === 'interim' && e.side === 'B' && /你好吗/.test(e.text)));
+  engine.cancel();
+});
+
+test('a pipeline that measures its delay (Mistral) puts it in the history segment', async () => {
+  const { engine, sessions, events, chunk, audioPiece } = setup({ profile: MISTRAL_LIVE, languages: { A: 'fr', B: 'en' } });
+  await engine.toggle('A');
+  chunk();
+  sessions[0].opts.onInputText('bonjour tout le monde ');
+  sessions[0].opts.onOutputText('hello everyone ');
+  sessions[0].opts.onTiming(2400);
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  await pause(150);
+  const segment = events.find((e) => e.type === 'segment');
+  assert.equal(segment.delayMs, 2400);
+  assert.equal(segment.service, 'Mistral live');
   engine.cancel();
 });

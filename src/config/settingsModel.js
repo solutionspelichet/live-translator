@@ -48,11 +48,13 @@ export function engineOptions(settings) {
  *  - classic : Deepgram (listen) → DeepL (translate) → ElevenLabs (voice) — three keys, own voices, 32 languages;
  *  - openai  : OpenAI live translation, one service and one key — lower delay, but the service's voice and 13 spoken languages;
  *  - gemini  : Gemini Live translation, one key, 70+ languages;
+ *  - mistral : Mistral Voxtral cascade (realtime transcription → Mistral Small → Voxtral voice), one key, any language (voice in 9);
  *  - doubao  : BytePlus Doubao live interpretation, one key + one CLONED voice, Chinese/English with 18 other languages.
  */
 export const STRATEGIES = Object.freeze({
   classic: { label: 'Classique', hint: 'Deepgram → DeepL → ElevenLabs : vos voix, 32 langues, trois clés' },
   openai: { label: 'OpenAI live (expérimental)', hint: 'un seul service et une seule clé, la voix d\'OpenAI, 13 langues parlées' },
+  mistral: { label: 'Mistral live (expérimental)', hint: 'Voxtral : une seule clé, hébergé en Europe ; voix en 9 langues (français, anglais, espagnol…), les autres langues s\'affichent en texte' },
   doubao: { label: 'Doubao live (expérimental)', hint: 'BytePlus : une clé et une voix clonée, le chinois ou l\'anglais d\'un côté ; un seul sens par session (deux en mains libres)' },
   gemini: { label: 'Gemini live (expérimental)', hint: 'un seul service et une seule clé, la voix de Gemini, toutes les langues de l\'app, un filtre coupe les répétitions' },
 });
@@ -88,7 +90,7 @@ function sanitizePairs(raw) {
     .slice(0, 4);
 }
 
-export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin', 'geminiInPerMin', 'geminiOutPerMin', 'doubaoPerMin']);
+export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin', 'geminiInPerMin', 'geminiOutPerMin', 'doubaoPerMin', 'mistralSttPerMin', 'mistralTtsPerKChars']);
 
 function sanitizePrices(raw) {
   const out = {};

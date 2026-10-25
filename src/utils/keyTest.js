@@ -101,6 +101,20 @@ export async function testGeminiKey(key, { fetchImpl = fetch, base = 'https://ge
   }
 }
 
+/** Mistral key for the live strategy: valid? and can it list the Voxtral voices? (read-only calls, nothing is billed) */
+export async function testMistralKey(key, { fetchImpl = fetch, base = 'https://api.mistral.ai' } = {}) {
+  if (!key) return { ok: false, message: 'clé non renseignée' };
+  const headers = { Authorization: `Bearer ${key}` };
+  const valid = await check('Mistral', () => get('Mistral', `${base}/v1/models`, headers, fetchImpl).then(() => 'clé valide'));
+  if (!valid.ok) return valid;
+  try {
+    const voices = await get('Mistral', `${base}/v2/audio/voices?type=preset&page_size=1`, headers, fetchImpl);
+    return { ok: true, message: `clé valide · voix Voxtral disponibles${voices?.data?.length ? '' : ' (liste vide)'}` };
+  } catch {
+    return { ok: true, message: 'clé valide (voix Voxtral non vérifiables : essayez une traduction courte)' };
+  }
+}
+
 /** The voices available on the account: [{ id, name, hint }]. Throws an ApiError. */
 export async function listVoices(apiKey, { fetchImpl = fetch, elevenLabsBase = 'https://api.elevenlabs.io' } = {}) {
   const json = await get('ElevenLabs', `${elevenLabsBase}/v1/voices`, { 'xi-api-key': apiKey }, fetchImpl);
