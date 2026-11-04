@@ -48,7 +48,8 @@ export function isPassthrough(input, output, threshold = 0.6) {
   for (const t of inn) if (outSet.has(t)) sharedIn++;
   // Either the output is contained in what was said (the usual case), or — the source transcript is often a few words
   // while the voice already produced a whole sentence — what was said is contained in the output.
-  const bigEnough = inn.size >= (cjk ? 5 : 3);
+  // (an output much longer than the source is not that source handed back: three names inside a Chinese sentence are not it)
+  const bigEnough = inn.size >= (cjk ? 5 : 3) && out.length <= inn.size * 3;
   const ratio = Math.max(sharedOut / out.length, bigEnough ? sharedIn / inn.size : 0);
   return ratio >= threshold && Math.max(sharedOut, sharedIn) >= (cjk ? 3 : 2);
 }
@@ -157,7 +158,7 @@ export default class LiveGate {
       if (share !== null) {
         const outCjk = CJK.test(output);
         const pct = Math.round(share * 100);
-        if (share >= 0.7) {
+        if (share >= 0.45) {
           this.why = `texte dit à ${pct} % en CJK`;
           return outCjk; // said in Chinese: a Chinese output repeats it
         }
@@ -170,6 +171,14 @@ export default class LiveGate {
           }
           this.why = `texte dit à ${pct} % en CJK`;
           return !outCjk; // said in French: a French output repeats it
+        }
+        // Mixed (a Chinese sentence full of Latin names: « Samsung », « Email », « Feishu »): a good amount of Chinese heard lately
+        // means a Chinese output only hands it back, so it is silenced; a few Chinese words in French speech do not count.
+        const recent = this.reference(now, this.shortWindowMs) || ref;
+        const cjkChars = [...recent].filter((c) => CJK.test(c)).length;
+        if (cjkChars >= 8 && CJK.test(output)) {
+          this.why = `écritures mélangées (${pct} % CJK, ${cjkChars} caractères chinois) : le chinois répète`;
+          return true;
         }
         this.why = `écritures mélangées (${pct} % CJK)`;
         return false;

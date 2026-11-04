@@ -207,3 +207,23 @@ test('LiveGate foreignRule: English heard in a French↔Chinese pair is translat
   fr.text('out', '这不难受、不碍事', 1100);
   assert.equal(fr.audio([1], 1200).length, 1);
 });
+
+test('LiveGate: Chinese full of Latin names is still Chinese — the Chinese output only repeats it', () => {
+  const said = '我设置了 Samsung 的 Email 提醒，然后 Feishu 也连上了';
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', said, 1000);
+  g.text('out', '我设定了三星的邮件提醒，然后飞书也连接上了', 1100);
+  assert.equal(g.audio([1], 1200).length, 0);
+  assert.equal(g.mode, 'mute');
+  const fr = new LiveGate({ scriptRule: true });
+  fr.text('in', said, 1000);
+  fr.text('out', "J'ai réglé le rappel par e-mail de Samsung et Feishu est connecté", 1100);
+  assert.equal(fr.audio([1], 1200).length, 1);
+});
+
+test('LiveGate: a few Chinese words inside French speech do not silence the Chinese translation', () => {
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', "il m'a dit 你好 puis nous avons parlé du projet et de la réunion de demain matin", 1000);
+  g.text('out', '他对我说你好，然后我们谈了项目和明天早上的会议', 1100);
+  assert.equal(g.audio([1], 1200).length, 1);
+});
