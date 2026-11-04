@@ -300,6 +300,16 @@ Stratégie « Mistral live » (⚙︎ → Traduction) : une chaîne **à une seu
 - **Délai** attendu : de l'ordre de 2 s après la fin d'une phrase (transcription → traduction → voix, tout en une fois par phrase). Les lignes « Mistral live : phrase A→B (traduction X ms, voix Y ms) » du journal donnent les mesures réelles.
 - **Non vérifié** : le protocole a été reconstitué à partir des kits officiels de Mistral, sans essai avec une vraie clé. La connexion utilise le jeton temps réel documenté (`POST /v1/client/sessions`, puis sous-protocole `["realtime", jeton]`), avec la clé en en-tête en secours. **« Tester mes clés »** passe chaque étape en revue (clé, jeton, socket de transcription, traduction, voix) et affiche ce que le service répond ; le journal copie les premiers événements reçus (« Mistral live : reçu … ») et dit si de l'audio part sans qu'aucun texte revienne.
 
+## Casque + haut-parleur (« Où entendre chaque langue »)
+
+Réglages → Voix → **Où entendre chaque langue** :
+- **Casque : A à gauche, B à droite** (par défaut) : tout sort au même endroit, une langue par oreille.
+- **Moi dans le casque · l'interlocuteur sur le haut-parleur** : la langue A est la vôtre, la langue B celle de la personne en face. Ce que dit l'interlocuteur, traduit dans votre langue, arrive dans le **casque** ; ce que vous dites, traduit dans sa langue, sort sur le **haut-parleur du téléphone** (par exemple vous en français dans le casque, lui en chinois sur le haut-parleur). Fonctionne avec tous les services (Classique, OpenAI, Gemini, Doubao, Mistral).
+
+Techniquement, le flux destiné à l'interlocuteur passe par un `AudioTrack` natif (`modules/dualcast-power`, `speakerOpen/Write/Drain/Stop`) dirigé vers le haut-parleur intégré (`setPreferredDevice`), pendant que le reste de l'audio suit la route du casque. Sans casque connecté les deux voix sortent du haut-parleur ; sur iOS ou avec un module natif ancien, le mode stéréo habituel est conservé.
+
+**Écho** : le haut-parleur reparle dans le micro du téléphone. OpenAI, Gemini et Doubao n'ont pas de filtre sur le texte, donc le micro est **coupé pendant la lecture du haut-parleur** (une ligne du journal le dit) ; Mistral et le mode Classique reconnaissent le texte déjà lu et l'ignorent, sans couper le micro. Gardez le micro du téléphone (un micro de casque Bluetooth dégrade le son) et posez le téléphone entre vous deux.
+
 ## Points matériels à connaître
 
 - **Le micro ne doit pas passer par le Bluetooth.** Si le micro BT (profil HFP) est utilisé, la sortie bascule en mono basse qualité

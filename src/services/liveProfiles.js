@@ -16,6 +16,7 @@ export const OPENAI_LIVE = Object.freeze({
   outputCode: liveOutputCode,
   speakable: LIVE_OUTPUT_LANGUAGES,
   gate: true,
+  muteOnSpeaker: true, // no text echo filter: the mic is silenced while the phone speaker plays (outputMode 'split')
   usage: Object.freeze({ send: 'oaiLiveSec', transcribe: 'oaiTranscribeSec' }),
 });
 
@@ -26,6 +27,7 @@ export const GEMINI_LIVE = Object.freeze({
   outputCode: geminiOutputCode,
   speakable: Object.freeze(Object.keys(LANGUAGES)),
   gate: true, // echoTargetLanguage:false is not enough: in a mix of languages the Chinese side read Chinese back in Chinese
+  muteOnSpeaker: true,
   usage: Object.freeze({ send: 'geminiInSec', receive: 'geminiOutSec' }),
 });
 
@@ -38,6 +40,7 @@ export const DOUBAO_LIVE = Object.freeze({
   pairProblem: (from, to) => doubaoPairProblem(from, to),
   gate: true, // without earphones the translated voice re-enters the mic and is translated again (same language in and out)
   ownTranscript: true, // each session has ONE fixed source language and its own transcript: the gate compares a session with itself
+  muteOnSpeaker: true, // the Chinese voice heard again would be translated into French for the headset: silence the mic while the speaker plays
   usage: Object.freeze({ send: 'doubaoSec' }),
 });
 

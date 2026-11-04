@@ -8,6 +8,7 @@ import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, STRA
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 import { doubaoCode, doubaoPairProblem } from '../utils/doubao';
+import { OUTPUT_MODES } from '../utils/outputRoute';
 import { mistralVoiceLanguage } from '../utils/mistral';
 import { checkMistral } from '../utils/mistralCheck';
 import { describeError } from '../utils/http';
@@ -40,6 +41,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
   const [speed, setSpeed] = useState(settings.speed);
   const [voiceBySpeaker, setVoiceBySpeaker] = useState(settings.voiceBySpeaker);
   const [muteWhilePlaying, setMuteWhilePlaying] = useState(settings.muteWhilePlaying);
+  const [outputMode, setOutputMode] = useState(settings.outputMode);
   const [report, setReport] = useState(null); // result of « Tester mes clés »
   const [testing, setTesting] = useState(false);
   const [voices, setVoices] = useState(null); // voices of the ElevenLabs account
@@ -271,6 +273,19 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           Auto amplifie fortement la voix faible ou lointaine (jusqu'à ×60) sans amplifier le bruit. Évitez les gains fixes élevés (×16, ×32) : ils font saturer la voix dès qu'elle monte, ce qui fait rater des mots.
           La barre de volume s'affiche pendant l'enregistrement.
         </Text>
+        <Text style={styles.label}>Où entendre chaque langue</Text>
+        <View style={styles.chips}>
+          {Object.entries(OUTPUT_MODES).map(([key, m]) => (
+            <Chip key={key} label={m.label} on={outputMode === key} onPress={() => setOutputMode(key)} />
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          {OUTPUT_MODES[outputMode].hint}.
+          {outputMode === 'split'
+            ? ' Langue A = vous (casque), langue B = la personne en face (haut-parleur). Posez le téléphone entre vous deux et gardez le micro du téléphone. Le haut-parleur reparle dans le micro : avec OpenAI, Gemini et Doubao le micro est coupé pendant sa lecture ; avec Mistral et le mode Classique le texte déjà lu est reconnu et ignoré. Sans casque, les deux voix sortent sur le haut-parleur.'
+            : ''}
+        </Text>
+
         <Text style={styles.label}>Mains libres : écho</Text>
         <Chip
           label={muteWwp(muteWhilePlaying)}
@@ -434,7 +449,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

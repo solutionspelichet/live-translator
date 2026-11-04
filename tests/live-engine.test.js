@@ -443,3 +443,39 @@ test('a pipeline that measures its delay (Mistral) puts it in the history segmen
   assert.equal(segment.service, 'Mistral live');
   engine.cancel();
 });
+
+test('split output: while the voice plays on the phone SPEAKER the microphone is silenced (OpenAI/Gemini/Doubao have no text echo filter), not for the headset', async () => {
+  const routes = [];
+  const { engine, sessions, played, events, chunk, audioPiece } = setup({ languages: { A: 'fr', B: 'en' } });
+  engine.audio.routeOf = (pan) => (pan > 0 ? 'speaker' : 'headset');
+  void routes;
+  await engine.toggle('A'); // French speaker: the voice goes to B = the other person = the speaker
+  chunk();
+  sessions[0].opts.onInputText('bonjour tout le monde');
+  sessions[0].opts.onOutputText('hello everyone');
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  await pause(20);
+  assert.equal(played.length, 1);
+  chunk(); // spoken while the speaker plays
+  const sentAfter = Buffer.from(sessions[0].sent.at(-1), 'base64');
+  assert.ok(sentAfter.every((b) => b === 0), 'silence instead of the microphone');
+  assert.ok(events.some((e) => e.type === 'note' && /haut-parleur : le micro est coupé/.test(e.text)));
+  assert.ok(events.some((e) => e.type === 'note' && /démarrée sur le haut-parleur/.test(e.text)));
+  engine.cancel();
+});
+
+test('split output: a voice for the headset does not silence the microphone', async () => {
+  const { engine, sessions, played, chunk, audioPiece } = setup({ languages: { A: 'fr', B: 'en' } });
+  engine.audio.routeOf = (pan) => (pan > 0 ? 'speaker' : 'headset');
+  await engine.toggle('B'); // the other person speaks English: the French voice goes to A = me = the headset
+  chunk();
+  sessions[0].opts.onInputText('hello');
+  sessions[0].opts.onOutputText('bonjour');
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  await pause(20);
+  assert.equal(played.length, 1);
+  chunk();
+  const sent = Buffer.from(sessions[0].sent.at(-1), 'base64');
+  assert.ok(sent.some((b) => b !== 0), 'the microphone keeps going');
+  engine.cancel();
+});

@@ -2,9 +2,12 @@ package expo.modules.dualcastpower
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
+import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.AutomaticGainControl
@@ -15,6 +18,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.Base64
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -37,6 +41,15 @@ class DualcastPowerModule : Module() {
   private var captureThread: Thread? = null
   @Volatile private var capturing = false
   private val effects = mutableListOf<AudioEffect>()
+
+  // Speaker playback (see speakerOpen): the translated voice for the person in front of the phone goes to the BUILT-IN
+  // SPEAKER while everything else (the headset) keeps its normal route.
+  @Volatile private var speakerTrack: AudioTrack? = null
+  private var speakerRate = 0
+  private val speakerFrames = AtomicLong(0)
+  private val speakerExecutor = Executors.newSingleThreadExecutor { runnable ->
+    Thread(runnable, "DualCast-speaker").also { it.isDaemon = true }
+  }
 
   // Native timers (see setTimer): React Native's own JS timers are suspended when the screen is off.
   private val timerExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -209,6 +222,83 @@ class DualcastPowerModule : Module() {
       true
     }
 
+    /**
+     * Open (or keep) a mono 16-bit PCM stream at `sampleRate` aimed at the phone's BUILT-IN SPEAKER, even when a
+     * Bluetooth or wired headset is connected (the headset keeps what the app plays elsewhere).
+     * Returns "ok", "ok;speaker=none" (no built-in speaker found: the system picks), "ok;preferred=false" (refused: the
+     * system picks) or an error code.
+     */
+    Function("speakerOpen") { sampleRate: Int ->
+      if (speakerTrack != null && speakerRate == sampleRate) return@Function "ok"
+      speakerCloseInternal()
+      val minBuffer = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+      if (minBuffer <= 0) return@Function "error_buffer_size"
+      try {
+        val attributes = AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_MEDIA)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+          .build()
+        val format = AudioFormat.Builder()
+          .setSampleRate(sampleRate)
+          .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+          .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+          .build()
+        val track = AudioTrack.Builder()
+          .setAudioAttributes(attributes)
+          .setAudioFormat(format)
+          .setBufferSizeInBytes(maxOf(minBuffer, sampleRate * 2))
+          .setTransferMode(AudioTrack.MODE_STREAM)
+          .build()
+        var status = "ok"
+        val manager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val speaker = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+        if (speaker == null) status = "ok;speaker=none"
+        else if (!track.setPreferredDevice(speaker)) status = "ok;preferred=false"
+        track.play()
+        speakerTrack = track
+        speakerRate = sampleRate
+        speakerFrames.set(0)
+        status
+      } catch (e: Exception) {
+        "error_open:" + (e.message ?: "")
+      }
+    }
+
+    /** Queue PCM16 mono (base64) for the speaker stream; the writes happen on their own thread. */
+    Function("speakerWrite") { base64: String ->
+      val track = speakerTrack ?: return@Function false
+      val bytes = Base64.decode(base64, Base64.NO_WRAP)
+      speakerFrames.addAndGet((bytes.size / 2).toLong())
+      speakerExecutor.execute {
+        try {
+          track.write(bytes, 0, bytes.size)
+        } catch (e: Exception) {
+          // the stream was closed meanwhile
+        }
+      }
+      true
+    }
+
+    /** Waits until everything queued has been played (or `timeoutMs`, or the stream was closed). */
+    AsyncFunction("speakerDrain") { timeoutMs: Int ->
+      val track = speakerTrack ?: return@AsyncFunction true
+      val deadline = System.currentTimeMillis() + timeoutMs
+      var done = false
+      while (!done && System.currentTimeMillis() < deadline) {
+        if (speakerTrack !== track) return@AsyncFunction true
+        val played = try { track.playbackHeadPosition.toLong() and 0xFFFFFFFFL } catch (e: Exception) { return@AsyncFunction true }
+        done = played >= speakerFrames.get()
+        if (!done) Thread.sleep(25)
+      }
+      done
+    }
+
+    /** Cut what is playing and close the speaker stream. */
+    Function("speakerStop") {
+      speakerCloseInternal()
+      true
+    }
+
     Function("stopCapture") {
       stopCaptureInternal()
       true
@@ -216,9 +306,28 @@ class DualcastPowerModule : Module() {
 
     OnDestroy {
       stopCaptureInternal()
+      speakerCloseInternal()
+      speakerExecutor.shutdownNow()
       timerExecutor.shutdownNow()
       if (wakeLock?.isHeld == true) wakeLock?.release()
       if (wifiLock?.isHeld == true) wifiLock?.release()
+    }
+  }
+
+  private fun speakerCloseInternal() {
+    val track = speakerTrack ?: return
+    speakerTrack = null
+    speakerRate = 0
+    speakerFrames.set(0)
+    try {
+      track.pause()
+      track.flush()
+      track.stop()
+    } catch (e: Exception) {
+    }
+    try {
+      track.release()
+    } catch (e: Exception) {
     }
   }
 

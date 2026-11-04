@@ -128,10 +128,12 @@ export default class LiveTranslationEngine {
       ended: false,
       streams: new Set(),
       quietUntil: 0,
+      quietUntilSpeaker: 0,
       dirs: [],
     };
     this.turn = turn;
     this.playingCount = 0;
+    this.speakerCount = 0;
     this.setState(STATE.STARTING);
 
     for (const [index, [from, to]] of pairs.entries()) {
@@ -184,7 +186,10 @@ export default class LiveTranslationEngine {
         this.armStallMonitor(turn, onChunk);
       }
       // Optional echo guard: silence instead of the microphone while our own voice plays.
-      const silent = this.muteWhilePlaying && (this.playingCount > 0 || Date.now() < turn.quietUntil);
+      // Echo guard: optional while any voice plays; and always, for services without a text echo filter, while the voice
+      // comes out of the phone's SPEAKER (it goes straight back into the microphone; the headset does not).
+      const speakerOn = this.profile.muteOnSpeaker && (this.speakerCount > 0 || Date.now() < turn.quietUntilSpeaker);
+      const silent = (this.muteWhilePlaying && (this.playingCount > 0 || Date.now() < turn.quietUntil)) || speakerOn;
       // What the service did NOT hear because of the echo guard: the journal says how much (a continuous speaker loses it).
       turn.heardSec = (turn.heardSec ?? 0) + pcm16.byteLength / 2 / sampleRate;
       if (silent) {
@@ -316,6 +321,8 @@ export default class LiveTranslationEngine {
       d.stream = stream;
       turn.streams.add(stream);
       this.playingCount++;
+      const toSpeaker = this.audio.routeOf?.(PAN[d.to]) === 'speaker';
+      if (toSpeaker) this.speakerCount++;
       // In order PER DIRECTION (the next burst of this ear waits for this one); the two ears play independently.
       d.chain = (d.chain ?? Promise.resolve())
         .then(async () => {
@@ -328,7 +335,11 @@ export default class LiveTranslationEngine {
               await this.audio.ctx.resume?.();
             } catch {}
           }
-          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} démarrée (moteur audio : ${this.audio.ctx?.state ?? '?'})` });
+          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} démarrée sur ${toSpeaker ? 'le haut-parleur' : 'le casque'}${toSpeaker ? '' : ` (moteur audio : ${this.audio.ctx?.state ?? '?'})`}` });
+          if (toSpeaker && this.profile.muteOnSpeaker && !turn.speakerMuteNoted) {
+            turn.speakerMuteNoted = true;
+            this.emit({ type: 'note', text: 'haut-parleur : le micro est coupé pendant sa lecture (évite que le téléphone se réécoute)' });
+          }
           return this.audio.playStream(stream, PAN[d.to]);
         })
         .catch((error) => this.emit({ type: 'note', text: `lecture du flux live impossible : ${error?.message ?? error}` }))
@@ -337,6 +348,10 @@ export default class LiveTranslationEngine {
           turn.streams.delete(stream);
           this.playingCount = Math.max(0, this.playingCount - 1);
           turn.quietUntil = Date.now() + 600;
+          if (toSpeaker) {
+            this.speakerCount = Math.max(0, this.speakerCount - 1);
+            turn.quietUntilSpeaker = Date.now() + 700;
+          }
           this.syncState(turn);
         });
       this.syncState(turn);

@@ -70,6 +70,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   micAgc: true, // use the phone's own automatic gain control when it has one
   voiceVolume: 2, // loudness of the translated voice: 1 (normal) … 2.5 (loud)
   speed: 'normal', // see SPEEDS
+  outputMode: 'stereo', // where the voices play: 'stereo' (A left, B right) | 'split' (me in the headset, the other person on the phone speaker)
   muteWhilePlaying: false, // hands-free: stop listening while the translated voice plays (kills echo, no interruption)
   recentPairs: Object.freeze([]), // last language pairs used: [{A, B}], newest first
   prices: Object.freeze({}), // unit prices overriding the defaults of the usage counter
@@ -132,6 +133,7 @@ export function sanitizeSettings(raw) {
     micGain: MIC_GAIN_CHOICES.includes(gain) ? gain : DEFAULT_SETTINGS.micGain,
     voiceVolume: VOICE_VOLUME_CHOICES.includes(volume) ? volume : DEFAULT_SETTINGS.voiceVolume,
     speed: SPEEDS[input.speed] ? input.speed : DEFAULT_SETTINGS.speed,
+    outputMode: input.outputMode === 'split' ? 'split' : DEFAULT_SETTINGS.outputMode,
     muteWhilePlaying: typeof input.muteWhilePlaying === 'boolean' ? input.muteWhilePlaying : DEFAULT_SETTINGS.muteWhilePlaying,
     recentPairs: sanitizePairs(input.recentPairs),
     prices: sanitizePrices(input.prices),

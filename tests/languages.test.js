@@ -50,6 +50,7 @@ test('sanitizeSettings keeps valid values', () => {
     streamVoice: false,
     handsFree: false,
     speed: 'normal',
+    outputMode: 'stereo',
     muteWhilePlaying: false,
     voiceBySpeaker: false,
     minutesLanguage: 'fr',
@@ -207,4 +208,10 @@ test('sanitizeSettings: theme is system, light or dark', () => {
   assert.equal(sanitizeSettings({ theme: 'light' }).theme, 'light');
   assert.equal(sanitizeSettings({ theme: 'dark' }).theme, 'dark');
   assert.equal(sanitizeSettings({ theme: 'pink' }).theme, 'system');
+});
+
+test('outputMode accepts only stereo or split', () => {
+  assert.equal(sanitizeSettings({ outputMode: 'split' }).outputMode, 'split');
+  assert.equal(sanitizeSettings({ outputMode: 'both' }).outputMode, 'stereo');
+  assert.equal(sanitizeSettings({}).outputMode, 'stereo');
 });
