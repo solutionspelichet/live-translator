@@ -1,12 +1,17 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
 const MAX_ATTEMPTS = 8;
 const PAUSE_AFTER_SENTENCE_MS = 200; // the text already ends like a sentence: a short pause is enough
 const PAUSE_MID_SENTENCE_MS = 650; // no punctuation yet: wait for a real pause before cutting
+const PAUSE_FRAGMENT_MS = 3000; // one or two words alone: wait for the rest of the sentence (they were dropped as « not speech »)
 const QUIET_MS = 1500;
+const MAX_PARALLEL_CHAT = 2; // more at once triggers the per-second limit of the plans, and one 429 then stalls every sentence behind it
+const MODEL_ROUNDS = 2; // times every model is tried before giving up on a sentence
+const ROUND_PAUSE_MS = 1500;
+const STALE_VOICE_MS = 12000; // a sentence this old when its turn comes is shown without voice: 20 s of backlog helps nobody
 const decodeText = (data) => {
   if (typeof data === 'string') return data;
   const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
@@ -201,7 +206,7 @@ export default class MistralLiveHub {
     }
     this.timers.clearTimeout(this.pauseTimer);
     if (this.buffer.trim()) {
-      this.pauseTimer = this.timers.setTimeout(() => this.flushBuffer(), endsSentence(this.buffer) ? PAUSE_AFTER_SENTENCE_MS : PAUSE_MID_SENTENCE_MS);
+      this.pauseTimer = this.timers.setTimeout(() => this.flushBuffer(), endsSentence(this.buffer) ? PAUSE_AFTER_SENTENCE_MS : isFragment(this.buffer) ? PAUSE_FRAGMENT_MS : PAUSE_MID_SENTENCE_MS);
     }
   }
 
@@ -256,7 +261,7 @@ export default class MistralLiveHub {
     if (this.dead) return;
     // Is the speaker silent as the sentence becomes ready? Then the delay AFTER THE LAST WORD can be measured.
     const readyAt = this.now();
-    const meta = { speechEnd: this.lastVoiceAt && readyAt - this.lastVoiceAt >= 250 ? this.lastVoiceAt : null };
+    const meta = { speechEnd: this.lastVoiceAt && readyAt - this.lastVoiceAt >= 250 ? this.lastVoiceAt : null, queuedAt: readyAt };
     const job = this.process(text, meta).then((result) => {
       if (result) this.failures = 0;
       return result;
@@ -308,7 +313,7 @@ export default class MistralLiveHub {
     const session = this.sessions.find((s) => s.source === (verdict.from === 'A' ? pair.a : pair.b));
     if (!session) return null; // one direction only (tap mode) and the sentence is in the language it already speaks
     this.recent.push({ at: this.now(), text: verdict.text });
-    const result = { session, input: text, output: verdict.text, samples: null, rate: 24000, llmMs, ttsMs: 0, startedAt: t0, speechEnd: meta.speechEnd };
+    const result = { session, input: text, output: verdict.text, samples: null, rate: 24000, llmMs, ttsMs: 0, startedAt: t0, speechEnd: meta.speechEnd, queuedAt: meta.queuedAt ?? t0 };
     const language = mistralVoiceLanguage(session.target);
     if (!language) {
       if (!this.noVoiceNoted.has(session.target)) {
@@ -338,23 +343,49 @@ export default class MistralLiveHub {
 
   /** The translation call; a model that is rate-limited or refused for this account is replaced by the next one (and remembered). */
   async interpret(messages) {
-    let refusal = null;
-    for (let i = 0; i < MISTRAL_LLM_MODELS.length; i++) {
-      const index = (this.llmIndex + i) % MISTRAL_LLM_MODELS.length;
-      const model = MISTRAL_LLM_MODELS[index];
-      try {
-        const chat = await this.post('/v1/chat/completions', { model, temperature: 0, max_tokens: 500, response_format: { type: 'json_object' }, messages }, { retries: 1 });
-        if (index !== this.llmIndex) {
-          this.llmIndex = index;
-          this.note(`Mistral live : traduction avec le modèle « ${model} » (le précédent est refusé ou limité pour ce compte)`);
+    await this.acquireChat();
+    try {
+      let refusal = null;
+      for (let round = 0; round < MODEL_ROUNDS; round++) {
+        if (round > 0) await new Promise((resolve) => this.timers.setTimeout(resolve, ROUND_PAUSE_MS)); // every model is limited: let the per-second window pass
+        for (let i = 0; i < MISTRAL_LLM_MODELS.length; i++) {
+          const index = (this.llmIndex + i) % MISTRAL_LLM_MODELS.length;
+          const model = MISTRAL_LLM_MODELS[index];
+          try {
+            // No wait-and-retry on the same model: a 429 moves to the next one at once (the first version waited up to 5 s per
+            // model and a single sentence could take 33 s, with the whole queue behind it).
+            const chat = await this.post('/v1/chat/completions', { model, temperature: 0, max_tokens: 500, response_format: { type: 'json_object' }, messages }, { retries: 0 });
+            if (index !== this.llmIndex) {
+              this.llmIndex = index;
+              this.note(`Mistral live : traduction avec le modèle « ${model} » (le précédent est refusé ou limité pour ce compte)`);
+            }
+            return chat;
+          } catch (error) {
+            if (!isModelRefusal(error)) throw error;
+            refusal = error;
+          }
         }
-        return chat;
-      } catch (error) {
-        if (!isModelRefusal(error)) throw error;
-        refusal = error;
       }
+      throw refusal;
+    } finally {
+      this.releaseChat();
     }
-    throw refusal;
+  }
+
+  acquireChat() {
+    this.chatBusy = this.chatBusy ?? 0;
+    if (this.chatBusy < MAX_PARALLEL_CHAT) {
+      this.chatBusy++;
+      return Promise.resolve();
+    }
+    this.chatWaiting = this.chatWaiting ?? [];
+    return new Promise((resolve) => this.chatWaiting.push(resolve));
+  }
+
+  releaseChat() {
+    const next = this.chatWaiting?.shift();
+    if (next) next(); // the slot goes straight to the next sentence
+    else this.chatBusy--;
   }
 
   /** The voice lists are asked while the user starts to speak, not at the first sentence (it cost over a second). */
@@ -402,8 +433,12 @@ export default class MistralLiveHub {
     return res.json();
   }
 
-  deliver({ session, input, output, samples, rate, llmMs, ttsMs, startedAt, speechEnd }) {
+  deliver({ session, input, output, samples, rate, llmMs, ttsMs, startedAt, speechEnd, queuedAt }) {
     if (this.dead) return;
+    if (samples?.length && queuedAt && this.now() - queuedAt > STALE_VOICE_MS) {
+      this.note(`Mistral live : phrase trop en retard (${Math.round((this.now() - queuedAt) / 1000)} s) : texte seulement, la voix est sautée pour rattraper`);
+      samples = null;
+    }
     session.onInputText(`${input} `);
     session.onOutputText(`${output} `);
     if (samples?.length) session.onAudio(samples, rate);

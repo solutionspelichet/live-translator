@@ -304,3 +304,47 @@ test('the voice lists are fetched as soon as the session opens, and the delay af
   await pause(100);
   assert.ok(got.notes.some((n) => /ms après le dernier mot/.test(n)));
 });
+
+test('one or two words alone are kept for the rest of the sentence instead of being sent (and dropped) alone', async () => {
+  const { sockets, got } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'High' });
+  await pause(1000); // longer than the normal mid-sentence pause (650 ms in production, quietMs-scaled here)
+  assert.equal(got.inText.length, 0, 'the fragment waits');
+  sockets[0].serve({ type: 'transcription.text.delta', text: ' viscosity resin.' });
+  await pause(600);
+  assert.match(got.inText.map((x) => x.t).join(''), /High viscosity resin\./);
+});
+
+test('no more than two translation calls run at once', async () => {
+  let running = 0;
+  let peak = 0;
+  const { sockets } = await setup({
+    chatFail: (url, body, json) => {
+      running++;
+      peak = Math.max(peak, running);
+      return new Promise((resolve) => setTimeout(() => {
+        running--;
+        resolve(json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hi.' }) } }] }));
+      }, 60));
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Un deux. Trois quatre. Cinq six. Sept huit. Neuf dix. ' });
+  await pause(600);
+  assert.ok(peak <= 2, `peak ${peak}`);
+  assert.ok(peak >= 1);
+});
+
+test('a sentence that waited too long is shown without voice so the speech catches up', async () => {
+  let clock = 1_000_000;
+  const { hub, sockets, got } = await setup();
+  hub.now = () => clock;
+  sockets[0].serve({ type: 'session.created' });
+  const result = { session: hub.sessions[0], input: 'Old.', output: 'Vieux.', samples: new Float32Array([0.1, 0.2]), rate: 24000, llmMs: 5, ttsMs: 5, startedAt: clock - 20000, speechEnd: null, queuedAt: clock - 20000 };
+  hub.deliver(result);
+  assert.equal(got.audio.length, 0);
+  assert.ok(got.notes.some((n) => /trop en retard/.test(n)));
+  hub.deliver({ ...result, queuedAt: clock - 1000, startedAt: clock - 1000 });
+  assert.equal(got.audio.length, 1);
+});

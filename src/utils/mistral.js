@@ -46,6 +46,14 @@ export function splitSentences(buffer) {
 /** Does the text end like a finished sentence (the pause to wait before cutting it can be short)? */
 export const endsSentence = (text) => TERMINATORS.test(text.trimEnd().slice(-1));
 
+/** One or two words with no end mark (« High », « Is », « 就是 »): the rest of the sentence comes next, do not send it alone. */
+export function isFragment(text) {
+  const t = String(text ?? '').trim();
+  if (!t || endsSentence(t)) return false;
+  if (/[぀-ヿ㐀-鿿가-힯]/u.test(t)) return t.length < 4;
+  return t.split(/\s+/).length <= 2;
+}
+
 export function interpreterMessages({ a, b, text }) {
   const system = [
     `You are the interpreter of a live face-to-face conversation: person A speaks ${a}, person B speaks ${b}.`,
