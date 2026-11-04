@@ -17,6 +17,7 @@ import Power from './modules/dualcast-power';
 import audio from './src/services/AudioRoutingService';
 import BackgroundService from './src/services/BackgroundService';
 import BackgroundTimers from './src/services/BackgroundTimers';
+import { shareTextFile } from './src/services/DocumentExport';
 import EventLog from './src/services/EventLog';
 import HistoryStore from './src/services/HistoryStore';
 import TranslationMeetingService from './src/services/TranslationMeetingService';
@@ -354,7 +355,14 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         <Pressable
           style={styles.gear}
           onPress={onOpenSettings}
-          onLongPress={() => setDiag((d) => (d ? null : engine.diagnostics()))}
+          onLongPress={() => {
+            try {
+              setDiag((d) => (d ? null : engine.diagnostics()));
+            } catch (error) {
+              EventLog.add(`panneau de diagnostic : ${error?.message ?? error}`);
+            }
+          }}
+          delayLongPress={400}
           hitSlop={16}
           accessibilityLabel="Réglages"
         >
@@ -383,7 +391,15 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         <View style={styles.diag} pointerEvents="box-none">
           <Pressable
             style={styles.diagShare}
-            onPress={() => Share.share({ title: 'Journal DualCast', message: EventLog.all().join('\n') }).catch(() => {})}
+            onPress={async () => {
+              const all = EventLog.all().join('\n');
+              const day = new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-');
+              try {
+                await shareTextFile(`journal-dualcast-${day}`, 'Journal DualCast', all); // a file: a long journal does not fit in a message
+              } catch {
+                Share.share({ title: 'Journal DualCast', message: EventLog.all().slice(-600).join('\n') }).catch(() => {});
+              }
+            }}
             hitSlop={10}
             accessibilityRole="button"
           >

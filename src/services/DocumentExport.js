@@ -38,3 +38,14 @@ export async function exportMinutes(kind, doc) {
   if (!(await Sharing.isAvailableAsync())) throw new Error('Le partage de fichiers n’est pas disponible sur cet appareil.');
   await Sharing.shareAsync(uri, kind === 'pdf' ? { mimeType: 'application/pdf', dialogTitle: doc.title, UTI: 'com.adobe.pdf' } : { mimeType: DOCX_MIME, dialogTitle: doc.title, UTI: 'org.openxmlformats.wordprocessingml.document' });
 }
+
+/** The journal as a text file (a long journal does not fit in a share message: Android refuses it silently). */
+export async function shareTextFile(name, title, text) {
+  const file = new File(exportDir(), `${safeFileName(name)}.txt`);
+  file.create({ intermediates: true, overwrite: true });
+  const handle = file.open(FileMode.ReadWrite);
+  handle.writeBytes(new TextEncoder().encode(text));
+  handle.close();
+  if (!(await Sharing.isAvailableAsync())) throw new Error('Le partage de fichiers n’est pas disponible sur cet appareil.');
+  await Sharing.shareAsync(file.uri, { mimeType: 'text/plain', dialogTitle: title });
+}

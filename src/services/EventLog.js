@@ -5,7 +5,10 @@ import BackgroundTimers from './BackgroundTimers';
 // Journal shown in the diagnostics panel: lets a tester see, after waking the screen, what happened meanwhile (app went
 // to background, mic stalled, connection dropped, an error occurred…). It is also written to the phone's storage, so if
 // Android kills the app while the screen is off the trace of what happened survives the restart.
-const MAX = 200;
+// A meeting writes a few lines per sentence: 200 lines were gone after about three minutes of conversation, long before anyone
+// could share them. The phone keeps the last SAVED (kept small: AsyncStorage rows are limited).
+const MAX = 4000;
+const SAVED = 1500;
 const KEY = 'dualcast_journal';
 const SAVE_DELAY_MS = 2500;
 const lines = [];
@@ -21,7 +24,7 @@ function scheduleSave() {
   saveTimer = BackgroundTimers.setTimeout(async () => {
     saveTimer = null;
     try {
-      await AsyncStorage.setItem(KEY, JSON.stringify(lines.slice(-MAX)));
+      await AsyncStorage.setItem(KEY, JSON.stringify(lines.slice(-SAVED)));
     } catch {}
   }, SAVE_DELAY_MS);
 }
@@ -37,7 +40,7 @@ export default {
   async load() {
     try {
       const stored = JSON.parse((await AsyncStorage.getItem(KEY)) ?? '[]');
-      if (Array.isArray(stored) && !lines.length) lines.push(...stored.filter((l) => typeof l === 'string').slice(-MAX + 1));
+      if (Array.isArray(stored) && !lines.length) lines.push(...stored.filter((l) => typeof l === 'string').slice(-SAVED));
     } catch {}
     this.add('══ app (re)lancée ══');
   },
