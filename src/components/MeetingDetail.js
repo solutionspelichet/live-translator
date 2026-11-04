@@ -6,6 +6,7 @@ import { getLanguage, LANGUAGES } from '../config/languages';
 import MeetingStore from '../services/MeetingStore';
 import { transcribeRecording } from '../services/meetings/PrerecordedTranscriber';
 import { chat, listModels } from '../services/minutes/OpenRouterClient';
+import { exportMinutes } from '../services/DocumentExport';
 import UsageTracker from '../services/UsageTracker';
 import { formatClock, formatTranscript, speakerName, speakersOf, talkShare } from '../utils/diarize';
 import { describeError } from '../utils/http';
@@ -104,6 +105,21 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
       setShowMinutesForm(false);
     } catch (error) {
       Alert.alert('Compte rendu impossible', describeError(error));
+    }
+    setBusy(null);
+  };
+
+  const exportNote = async (kind, n) => {
+    setBusy(kind === 'pdf' ? 'Création du PDF…' : 'Création du document Word…');
+    try {
+      const lang = n.language ? languageLabel(n.language) : '';
+      await exportMinutes(kind, {
+        title: meeting.title || 'Compte rendu',
+        meta: `${dateText} · ${formatDuration(meeting.durationSec)}${lang ? ` · ${lang}` : ''} · ${TEMPLATES[n.template]?.label ?? n.template}`,
+        text: n.text,
+      });
+    } catch (error) {
+      Alert.alert('Export impossible', describeError(error));
     }
     setBusy(null);
   };
@@ -211,6 +227,8 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
             <MarkdownText text={n.text} />
             <View style={styles.actions}>
               <Btn label="Partager" onPress={() => Share.share({ title: meeting.title, message: n.text }).catch(() => {})} />
+              <Btn label="📄 PDF" onPress={() => exportNote('pdf', n)} disabled={!!busy} />
+              <Btn label="📝 Word" onPress={() => exportNote('docx', n)} disabled={!!busy} />
               <Btn
                 label="Supprimer"
                 danger

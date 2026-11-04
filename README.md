@@ -239,6 +239,7 @@ la voix de sortie est en 24 kHz (documenté ; un premier essai qui la déduisait
 - **Thème clair / sombre** : ⚙︎ → Apparence → Auto (suit le téléphone), Clair ou Sombre. Le changement s'applique tout de suite, avant même d'enregistrer. Les deux palettes (`src/theme/index.js`) ont les mêmes jetons de couleur ; un test vérifie le contraste de chaque texte sur chaque fond dans les deux thèmes. Les écrans lisent le thème au moment de s'afficher (`themedStyles`), il n'y a aucune couleur écrite en dur.
 - **Réglages en sections repliables** : en haut, un résumé (mode, langues, clés complètes ou non, apparence) ; puis Traduction, Clés API, Micro, Voix, Apparence, Arrière-plan. Seule « Traduction » est ouverte (et « Clés API » quand il en manque) ; le bouton Enregistrer reste en bas de l'écran.
 - **Comptes rendus de réunion** : le texte du modèle (titres, puces, **gras**) est mis en page au lieu d'être affiché avec ses symboles (`src/utils/markdown.js`, `src/components/MarkdownText.js`).
+- **Export PDF / Word** : chaque compte rendu a des boutons 📄 PDF (imprimé avec `expo-print`) et 📝 Word (.docx écrit à la main, `src/utils/exportDoc.js`), puis la feuille de partage Android (Drive, e-mail, WhatsApp, « Enregistrer »).
 
 ## Consommation facturée
 
