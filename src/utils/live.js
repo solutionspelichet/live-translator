@@ -61,6 +61,31 @@ export function scriptOf(code) {
   return CJK_LANGS.has(base) ? 'cjk' : LATIN_LANGS.has(base) ? 'latin' : null;
 }
 
+const STOPWORDS = {
+  en: 'the and you that this with have for are was not but what they there which would about because just yeah okay your from will can its it\'s i\'m don\'t that\'s we our their been were when how than then them these those'.split(' '),
+  fr: 'le la les des une est que qui pas pour dans avec sur vous nous je il elle ils sont mais ou donc très cette ces son ses leur plus bien oui non avoir être fait comme aussi alors parce'.split(' '),
+  es: 'el los las una que por con para pero como está son muy también porque cuando donde esto esta yo tú usted nosotros bueno sí hay del'.split(' '),
+  de: 'der die das und ist nicht ein eine ich sie wir mit für auf aber auch wie ja nein sehr oder wenn dann das'.split(' '),
+  it: 'il lo gli che non per con una sono ma come anche molto perché quando questo questa io tu noi sì bene del della'.split(' '),
+  pt: 'os as uma que não para com mas como também muito porque quando isto eu você nós sim bem do da são está'.split(' '),
+};
+const STOP_SETS = Object.fromEntries(Object.entries(STOPWORDS).map(([k, v]) => [k, new Set(v)]));
+
+/**
+ * Is this Latin-script text clearly in ANOTHER Latin language than `code` (e.g. English heard in a French↔Chinese pair)?
+ * Counts common function words per language; needs a few of them and a clear lead over `code`. false when unsure.
+ */
+export function isForeignLatin(text, code) {
+  const own = String(code ?? '').toLowerCase().split(/[-_]/)[0];
+  const words = tokens(String(text ?? '').replace(/[’]/g, "'"));
+  if (words.length < 3) return false;
+  const score = (lang) => words.reduce((n, w) => n + (STOP_SETS[lang]?.has(w) ? 1 : 0), 0);
+  const mine = STOP_SETS[own] ? score(own) : 0;
+  let best = 0;
+  for (const lang of Object.keys(STOP_SETS)) if (lang !== own) best = Math.max(best, score(lang));
+  return best >= 3 && best >= mine * 2 + 2;
+}
+
 /** Share of CJK in a text, counting a Latin word as ~1.7 characters; null when there is too little text. */
 export function cjkShare(text) {
   const cjk = [...text].filter((c) => CJK.test(c)).length;
@@ -84,10 +109,12 @@ export default class LiveGate {
    * @param {{minChars?: number, holdMs?: number, threshold?: number, windowMs?: number, recheckChars?: number, tailChars?: number, recheckStep?: number, fallback?: () => boolean}} [opts]
    *   `scriptRule`: the two languages use different scripts (e.g. French/Chinese): the script of what was said tells at once
    *   whether a direction repeats it (paraphrases defeat word comparison); only an unclear mix falls back to comparing words
+   *   `foreignRule`: { code, toUser } — `code` is the Latin-script language of the pair, `toUser` whether this direction ends in the
+   *   user's language: Latin speech in another language is then translated for the user only
    *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, shortWindowMs = 6000, fallback = null } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, shortWindowMs, fallback });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback });
     this.trace = []; // decisions taken (for the journal): { at, mode, basis, why }
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
     this.reset();
@@ -135,6 +162,12 @@ export default class LiveGate {
           return outCjk; // said in Chinese: a Chinese output repeats it
         }
         if (share <= 0.3) {
+          // Said in a THIRD language (English in a French↔Chinese pair): neither session's own language. It is translated for
+          // the user only (into his language); the direction towards the other person stays silent.
+          if (this.foreignRule && isForeignLatin(this.reference(now, this.shortWindowMs) || ref, this.foreignRule.code)) {
+            this.why = 'langue tierce (ni la mienne ni celle de l\'autre)';
+            return !this.foreignRule.toUser;
+          }
           this.why = `texte dit à ${pct} % en CJK`;
           return !outCjk; // said in French: a French output repeats it
         }

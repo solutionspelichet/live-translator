@@ -166,6 +166,12 @@ export default class LiveTranslationEngine {
             const b = scriptOf(this.profile.outputCode(this.languages[to]));
             return !!a && !!b && a !== b;
           })(),
+          // Speech in a third Latin language (English in a French↔Chinese pair) is translated for the user only.
+          foreignRule: (() => {
+            const codes = [from, to].map((k) => this.profile.outputCode(this.languages[k]));
+            const latin = codes.find((c) => scriptOf(c) === 'latin');
+            return latin && codes.some((c) => scriptOf(c) === 'cjk') ? { code: latin, toUser: to === 'A' } : null;
+          })(),
           ...this.gateOptions,
           fallback: () => {
             const sibling = turn.dirs.find((x) => x !== d);

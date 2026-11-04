@@ -179,3 +179,31 @@ test('LiveGate: only the recent seconds decide the script (speech alternates)', 
   assert.equal(g.audio([1], 9300).length, 0);
   assert.equal(g.mode, 'mute');
 });
+
+test('isForeignLatin: English is foreign to French, French is not, unsure short texts are not', async () => {
+  const { isForeignLatin } = await import('../src/utils/live.js');
+  assert.equal(isForeignLatin("Because it was for free to make this. All of them. Yeah, I know it.", 'fr'), true);
+  assert.equal(isForeignLatin("Parce que c'était gratuit de faire ça, oui je le sais bien", 'fr'), false);
+  assert.equal(isForeignLatin('OK. Great.', 'fr'), false);
+  assert.equal(isForeignLatin("Because it was for free to make this", 'en'), false);
+});
+
+test('LiveGate foreignRule: English heard in a French↔Chinese pair is translated for the user only', () => {
+  const said = "We have to be very careful on that, because that is the worst thing";
+  const toUser = new LiveGate({ scriptRule: true, foreignRule: { code: 'fr', toUser: true } });
+  toUser.text('in', said, 1000);
+  toUser.text('out', "Nous devons être très prudents à ce sujet", 1100);
+  assert.equal(toUser.audio([1], 1200).length, 1);
+  assert.equal(toUser.mode, 'play');
+  const toOther = new LiveGate({ scriptRule: true, foreignRule: { code: 'fr', toUser: false } });
+  toOther.text('in', said, 1000);
+  toOther.text('out', '所以我们必须非常小心', 1100);
+  assert.equal(toOther.audio([1], 1200).length, 0);
+  assert.equal(toOther.mode, 'mute');
+  assert.match(toOther.trace.at(-1).why, /tierce/);
+  // French speech: unchanged (Chinese output plays towards the other person)
+  const fr = new LiveGate({ scriptRule: true, foreignRule: { code: 'fr', toUser: false } });
+  fr.text('in', "c'est pas désagréable, c'est pas gênant du tout pour nous", 1000);
+  fr.text('out', '这不难受、不碍事', 1100);
+  assert.equal(fr.audio([1], 1200).length, 1);
+});
