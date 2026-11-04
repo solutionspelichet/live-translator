@@ -103,6 +103,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
       await update({ ...meeting, minutes: [note, ...meeting.minutes] });
       onSettingsChange({ ...settings, minutesLanguage: language, minutesTemplate: template, minutesModel: model });
       setShowMinutesForm(false);
+      if (result.truncated) Alert.alert('Compte rendu peut-être incomplet', 'Le modèle a atteint sa limite de longueur même après plusieurs reprises. Choisissez un modèle qui écrit plus long ou ajoutez la consigne « sois plus concis ».');
     } catch (error) {
       Alert.alert('Compte rendu impossible', describeError(error));
     }
