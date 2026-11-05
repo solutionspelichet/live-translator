@@ -124,9 +124,9 @@ fournit désormais des minuteries qui tournent écran éteint (`setTimer`/`clear
 veille, renvoyant un événement `onTimer`), utilisées partout via `BackgroundTimers` (`src/utils/timers.js`). Sans module natif, retour aux
 minuteries JS.
 
-Le journal (200 lignes) est **gardé sur le téléphone** : si Android ferme l'app écran éteint, la ligne « ══ app (re)lancée ══ » le montre
+Le journal (4 000 lignes en mémoire, 1 500 gardées après un redémarrage) est **gardé sur le téléphone** : si Android ferme l'app écran éteint, la ligne « ══ app (re)lancée ══ » le montre
 au redémarrage. Un battement « ♥ » est écrit chaque minute (état, micro, paquets, Deepgram, verrou de veille, exemption batterie) : un trou
-dans les ♥ prouve que l'app était gelée. Le bouton « Partager le journal complet » du panneau de diagnostic l'envoie en texte.
+dans les ♥ prouve que l'app était gelée. Le bouton « Partager le journal complet » du panneau de diagnostic l'envoie comme **fichier .txt** (un long journal ne passe pas dans un message Android).
 Tout ce qui se passe est inscrit dans le
 journal du panneau de diagnostic (appui long sur ⚙︎) : « micro silencieux… → redémarrage », « Deepgram : reconnexion 2/30 »…
 
@@ -296,10 +296,16 @@ Limites connues : la voix doit être **clonée** (`seed-icl-2.0`) ; une des deux
 Stratégie « Mistral live » (⚙︎ → Traduction) : une chaîne **à une seule clé Mistral**, hébergée en Europe, pour toutes les langues de l'application. Ce n'est pas un traducteur de parole à parole : une transcription en direct (`voxtral-mini-transcribe-realtime-2602`, WebSocket `wss://api.mistral.ai/v1/audio/transcriptions/realtime`) coupe la parole en phrases ; Mistral Small (`mistral-small-latest`) dit **dans quelle langue est chaque phrase** (A ou B) et la traduit en une seule réponse JSON ; la voix Voxtral (`voxtral-mini-tts-latest`, `POST /v1/audio/speech`) lit la traduction dans l'oreille de l'interlocuteur. Un seul flux audio part vers Mistral, quel que soit le nombre de sens (mains libres comprises).
 
 - **Voix** : anglais, français, espagnol, allemand, néerlandais, portugais, italien, hindi et arabe. Pour toute autre langue (chinois, polonais…) la traduction s'affiche **sans voix** (une ligne du journal le dit) — sauf si une clé ElevenLabs et au moins une voix sont saisies : ElevenLabs parle alors ces langues (« voix de secours »). La voix est choisie automatiquement parmi les voix prédéfinies de la langue.
+- **Limites de débit** : un refus 429 passe tout de suite au modèle suivant (pas d'attente), 2 traductions au plus en parallèle ; une phrase en retard de plus de 12 s est affichée sans voix pour rattraper ; un ou deux mots seuls attendent la suite de la phrase.
 - **Écho** : sans écouteurs, la voix traduite rentre dans le micro ; son texte est reconnu et ignoré (ligne « écho de la voix traduite ignoré » dans le journal), sans couper le micro.
 - **Coût** : environ 0,008 $ par minute de parole entendue + 0,016 $ pour 1 000 caractères de voix (la traduction par Mistral Small est négligeable) — voir Consommation.
 - **Délai** attendu : de l'ordre de 2 s après la fin d'une phrase (transcription → traduction → voix, tout en une fois par phrase). Les lignes « Mistral live : phrase A→B (traduction X ms, voix Y ms) » du journal donnent les mesures réelles.
-- **Non vérifié** : le protocole a été reconstitué à partir des kits officiels de Mistral, sans essai avec une vraie clé. La connexion utilise le jeton temps réel documenté (`POST /v1/client/sessions`, puis sous-protocole `["realtime", jeton]`), avec la clé en en-tête en secours. **« Tester mes clés »** passe chaque étape en revue (clé, jeton, socket de transcription, traduction, voix) et affiche ce que le service répond ; le journal copie les premiers événements reçus (« Mistral live : reçu … ») et dit si de l'audio part sans qu'aucun texte revienne.
+- **Vérifié sur téléphone** : la chaîne fonctionne de bout en bout avec une vraie clé (journaux de test). Reste à surveiller : le retard si la formule Mistral est limitée. La connexion utilise le jeton temps réel documenté (`POST /v1/client/sessions`, puis sous-protocole `["realtime", jeton]`), avec la clé en en-tête en secours. **« Tester mes clés »** passe chaque étape en revue (clé, jeton, socket de transcription, traduction, voix) et affiche ce que le service répond ; le journal copie les premiers événements reçus (« Mistral live : reçu … ») et dit si de l'audio part sans qu'aucun texte revienne.
+
+### Langues mélangées en mains libres (Doubao, OpenAI, Gemini)
+- Le filtre anti-répétition décide, pour chaque direction, si sa sortie répète ce qui vient d'être dit. Il reconnaît le chinois par ses caractères (un texte court fait **uniquement** de caractères chinois suffit ; une phrase chinoise pleine de noms latins est reconnue à partir de 45 % de caractères chinois).
+- **Langue tierce** : un texte latin clairement dans une autre langue que la vôtre (anglais dans une paire français ↔ chinois, détecté par les mots courants) est traduit **vers vous seulement** ; la direction vers l'autre personne est coupée (le journal écrit « langue tierce »).
+- Limite connue de Doubao : chaque session n'écoute qu'une langue et invente du texte quand elle entend l'autre. En mains libres, du chinois peut ressortir en trop ; l'appui sur une zone ou Mistral live l'évitent.
 
 ## Casque + haut-parleur (« Où entendre chaque langue »)
 
