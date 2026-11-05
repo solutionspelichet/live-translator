@@ -34,6 +34,7 @@ export function engineOptions(settings) {
     streamTts: Boolean(settings.streamVoice),
     muteWhilePlaying: Boolean(settings.muteWhilePlaying),
     voiceBySpeaker: Boolean(settings.voiceBySpeaker),
+    elevenVoiceForAll: Boolean(settings.elevenVoiceForAll),
     endpointingMs,
     utteranceEndMs,
     flushAfterMs,
@@ -74,6 +75,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   muteWhilePlaying: false, // hands-free: stop listening while the translated voice plays (kills echo, no interruption)
   recentPairs: Object.freeze([]), // last language pairs used: [{A, B}], newest first
   prices: Object.freeze({}), // unit prices overriding the defaults of the usage counter
+  elevenVoiceForAll: false, // Mistral live: ElevenLabs (my voices, cloned ones included) speaks every language instead of Mistral's 9
   voiceBySpeaker: false, // the voice follows who is speaking (own cloned voice for own words) instead of the language heard
   minutesLanguage: 'fr', // language of the last minutes written
   minutesTemplate: 'reunion',
@@ -138,6 +140,7 @@ export function sanitizeSettings(raw) {
     recentPairs: sanitizePairs(input.recentPairs),
     prices: sanitizePrices(input.prices),
     voiceBySpeaker: typeof input.voiceBySpeaker === 'boolean' ? input.voiceBySpeaker : DEFAULT_SETTINGS.voiceBySpeaker,
+    elevenVoiceForAll: typeof input.elevenVoiceForAll === 'boolean' ? input.elevenVoiceForAll : DEFAULT_SETTINGS.elevenVoiceForAll,
     minutesLanguage: LANGUAGES[input.minutesLanguage] ? input.minutesLanguage : DEFAULT_SETTINGS.minutesLanguage,
     minutesTemplate: TEMPLATE_IDS.includes(input.minutesTemplate) ? input.minutesTemplate : DEFAULT_SETTINGS.minutesTemplate,
     minutesModel: typeof input.minutesModel === 'string' ? input.minutesModel.trim().slice(0, 100) : DEFAULT_SETTINGS.minutesModel,

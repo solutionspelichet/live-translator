@@ -357,7 +357,7 @@ test('a language Mistral cannot speak (Chinese) is spoken by the fallback voice 
   await pause(600);
   assert.equal(got.audio.length, 1);
   assert.equal(got.audio[0].target, 'zh');
-  assert.ok(got.notes.some((n) => /voix de secours/.test(n)));
+  assert.ok(got.notes.some((n) => /voix ElevenLabs en « zh »/.test(n)));
 
   const plain = await setup({ pair: ['fr', 'zh'], answer: { from: 'A', text: '你好。' } });
   plain.sockets[0].serve({ type: 'session.created' });
@@ -376,5 +376,43 @@ test('a failing fallback voice leaves the text and says why', async () => {
   await pause(600);
   assert.equal(got.audio.length, 0);
   assert.equal(got.outText.length, 1);
-  assert.ok(got.notes.some((n) => /voix de secours indisponible/.test(n)));
+  assert.ok(got.notes.some((n) => /voix ElevenLabs indisponible/.test(n)));
+});
+
+test('speech in a third language is translated for person A only (towards the language of A, by the B→A direction)', async () => {
+  const { sockets, got } = await setup({ pair: ['fr', 'zh'], answer: { from: 'other', text: 'Bonjour à tous.' } });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Hello everyone. ' });
+  await pause(600);
+  assert.equal(got.outText.length, 1);
+  assert.equal(got.outText[0].target, 'fr', 'the voice goes to the user');
+  assert.ok(got.notes.some((n) => /langue tierce/.test(n)));
+});
+
+test('a stray syllable or noise (other, no text) is still dropped', async () => {
+  const { sockets, got } = await setup({ pair: ['fr', 'zh'], answer: { from: 'other', text: '' } });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Hmm. ' });
+  await pause(600);
+  assert.equal(got.outText.length, 0);
+});
+
+test('with preferFallback the other voice speaks every language, and Mistral voice takes over when it fails', async () => {
+  const a = await setup({ pair: ['fr', 'en'], answer: { from: 'A', text: 'Hello.' } });
+  a.hub.preferFallback = true;
+  a.hub.fallbackSpeak = async () => ({ samples: new Float32Array([0.1, 0.2]), rate: 24000 });
+  a.sockets[0].serve({ type: 'session.created' });
+  a.sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(600);
+  assert.equal(a.got.audio.length, 1);
+  assert.equal(a.calls.filter((c) => c.url.includes('/v1/audio/speech')).length, 0, 'Mistral voice not used');
+
+  const b = await setup({ pair: ['fr', 'en'], answer: { from: 'A', text: 'Hello.' } });
+  b.hub.preferFallback = true;
+  b.hub.fallbackSpeak = async () => { throw new Error('boom'); };
+  b.sockets[0].serve({ type: 'session.created' });
+  b.sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(900);
+  assert.equal(b.got.audio.length, 1, 'Mistral voice as a safety net');
+  assert.ok(b.got.notes.some((n) => /ElevenLabs indisponible/.test(n)));
 });

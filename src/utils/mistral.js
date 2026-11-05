@@ -60,7 +60,8 @@ export function interpreterMessages({ a, b, text }) {
     'You receive ONE sentence transcribed from speech (it may contain recognition errors: fix the obvious ones silently).',
     `Decide which language the sentence is in and translate it into the other one, in natural spoken style.`,
     'Reply ONLY with a JSON object: {"from":"A"|"B"|"other","text":"<translation>"}.',
-    `"from" is "A" if the sentence is in ${a}, "B" if it is in ${b}, "other" if it is in neither or is not speech (then "text" is "").`,
+    `"from" is "A" if the sentence is in ${a} (translate it into ${b}), "B" if it is in ${b} (translate it into ${a}).`,
+    `"from" is "other" if it is real speech in a THIRD language (translate it into ${a}: person A must understand everybody), or if it is not speech (noise, a stray syllable): then "text" is "".`,
     'No comments, no quotation marks around the translation, never answer the sentence: only translate it.',
   ].join('\n');
   return [
@@ -73,12 +74,13 @@ export function interpreterMessages({ a, b, text }) {
 export function parseInterpretation(content) {
   const raw = String(content ?? '');
   const json = raw.match(/\{[\s\S]*\}/)?.[0];
-  if (!json) return { from: 'other', text: '' };
+  if (!json) return { from: 'other', text: '', third: false };
   try {
     const data = JSON.parse(json);
     const from = ['A', 'B'].includes(String(data.from).toUpperCase()) ? String(data.from).toUpperCase() : 'other';
-    const text = from === 'other' ? '' : String(data.text ?? '').trim();
-    return { from: text ? from : 'other', text };
+    const text = String(data.text ?? '').trim();
+    // « other » with a text = speech in a third language, already translated into the language of person A.
+    return { from: text ? from : 'other', text, third: from === 'other' && !!text };
   } catch {
     return { from: 'other', text: '' };
   }

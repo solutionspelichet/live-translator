@@ -70,7 +70,7 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       muteWhilePlaying: options.muteWhilePlaying,
       createSession: (opts) => {
         if (opts.transcribeInput || !hub) {
-          hub = new MistralLiveHub({ apiKey: env.mistralKey, baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl, languageName: (code) => getLanguage(code).label, timers: BackgroundTimers, fallbackSpeak: mistralFallbackVoice(languages) });
+          hub = new MistralLiveHub({ apiKey: env.mistralKey, baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl, languageName: (code) => getLanguage(code).label, timers: BackgroundTimers, fallbackSpeak: mistralFallbackVoice(languages), preferFallback: Boolean(options.elevenVoiceForAll) });
         }
         return new MistralLiveSession({ ...opts, hub });
       },

@@ -42,6 +42,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
   const [voiceBySpeaker, setVoiceBySpeaker] = useState(settings.voiceBySpeaker);
   const [muteWhilePlaying, setMuteWhilePlaying] = useState(settings.muteWhilePlaying);
   const [outputMode, setOutputMode] = useState(settings.outputMode);
+  const [elevenVoiceForAll, setElevenVoiceForAll] = useState(settings.elevenVoiceForAll);
   const [report, setReport] = useState(null); // result of « Tester mes clés »
   const [testing, setTesting] = useState(false);
   const [voices, setVoices] = useState(null); // voices of the ElevenLabs account
@@ -286,6 +287,16 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
             : ''}
         </Text>
 
+        {strategy === 'mistral' && (
+          <>
+            <Text style={styles.label}>Voix de Mistral live</Text>
+            <Chip label={elevenVoiceForAll ? 'Mes voix ElevenLabs pour toutes les langues' : 'Voix Mistral (ElevenLabs seulement en secours)'} on={elevenVoiceForAll} onPress={() => setElevenVoiceForAll((v) => !v)} />
+            <Text style={styles.hint}>
+              Mistral parle 9 langues avec ses voix prédéfinies. Activée, cette option fait parler **toutes** les langues par vos voix ElevenLabs (les deux voix des réglages, clonées si vous les avez clonées) : il faut une clé ElevenLabs. Sinon ElevenLabs ne prend le relais que pour le chinois, le japonais…
+            </Text>
+          </>
+        )}
+
         <Text style={styles.label}>Mains libres : écho</Text>
         <Chip
           label={muteWwp(muteWhilePlaying)}
@@ -449,7 +460,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

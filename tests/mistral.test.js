@@ -24,11 +24,13 @@ test('the interpreter prompt names both languages and the answer is read back', 
   assert.match(messages[0].content, /speaks Français/);
   assert.match(messages[0].content, /speaks English/);
   assert.equal(messages[1].content, 'Bonjour');
-  assert.deepEqual(parseInterpretation('{"from":"A","text":"Hello"}'), { from: 'A', text: 'Hello' });
-  assert.deepEqual(parseInterpretation('```json\n{"from":"b","text":"Bonjour"}\n```'), { from: 'B', text: 'Bonjour' });
-  assert.deepEqual(parseInterpretation('{"from":"other","text":"x"}'), { from: 'other', text: '' });
-  assert.deepEqual(parseInterpretation('not json'), { from: 'other', text: '' });
-  assert.deepEqual(parseInterpretation('{"from":"A","text":""}'), { from: 'other', text: '' });
+  assert.deepEqual(parseInterpretation('{"from":"A","text":"Hello"}'), { from: 'A', text: 'Hello', third: false });
+  assert.deepEqual(parseInterpretation('```json\n{"from":"b","text":"Bonjour"}\n```'), { from: 'B', text: 'Bonjour', third: false });
+  assert.deepEqual(parseInterpretation('{"from":"other","text":"x"}'), { from: 'other', text: 'x', third: true }, 'a third language, already translated for person A');
+  assert.deepEqual(parseInterpretation('{"from":"other","text":""}'), { from: 'other', text: '', third: false });
+  assert.deepEqual(parseInterpretation('not json'), { from: 'other', text: '', third: false });
+  assert.deepEqual(parseInterpretation('{"from":"A","text":""}'), { from: 'other', text: '', third: false });
+  assert.match(messages[0].content, /THIRD language/);
 });
 
 test('our own translated voice coming back is recognised by its text', () => {

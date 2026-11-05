@@ -53,6 +53,7 @@ test('sanitizeSettings keeps valid values', () => {
     outputMode: 'stereo',
     muteWhilePlaying: false,
     voiceBySpeaker: false,
+    elevenVoiceForAll: false,
     minutesLanguage: 'fr',
     minutesTemplate: 'reunion',
     minutesModel: '',
