@@ -227,3 +227,18 @@ test('LiveGate: a few Chinese words inside French speech do not silence the Chin
   g.text('out', '他对我说你好，然后我们谈了项目和明天早上的会议', 1100);
   assert.equal(g.audio([1], 1200).length, 1);
 });
+
+test('LiveGate: two Chinese characters alone are already Chinese — the Chinese output only repeats them', () => {
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', '左转，', 1000);
+  g.text('out', '左转，', 1100);
+  g.audio([1], 1200);
+  g.flush(1300);
+  assert.equal(g.mode, 'mute');
+  const fr = new LiveGate({ scriptRule: true });
+  fr.text('in', '左转，', 1000);
+  fr.text('out', 'Tournez à gauche,', 1100);
+  fr.audio([1], 1200);
+  fr.flush(1300);
+  assert.equal(fr.mode, 'play');
+});

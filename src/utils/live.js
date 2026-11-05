@@ -87,6 +87,14 @@ export function isForeignLatin(text, code) {
   return best >= 3 && best >= mine * 2 + 2;
 }
 
+/** A very short text with Chinese characters and no Latin word (« 左转， », « 没有。 ») is Chinese, whatever its length: 1, else null. */
+export function shortCjkShare(text) {
+  const t = String(text ?? '');
+  const hasCjk = [...t].some((c) => CJK.test(c));
+  const hasLatin = tokens(t.replace(/[぀-ヿ㐀-鿿가-힯]/gu, ' ')).some((w) => /\p{L}/u.test(w));
+  return hasCjk && !hasLatin ? 1 : null;
+}
+
 /** Share of CJK in a text, counting a Latin word as ~1.7 characters; null when there is too little text. */
 export function cjkShare(text) {
   const cjk = [...text].filter((c) => CJK.test(c)).length;
@@ -154,7 +162,9 @@ export default class LiveGate {
       return true;
     }
     if (this.scriptRule) {
-      const share = cjkShare(this.reference(now, this.shortWindowMs)) ?? cjkShare(ref);
+      const short = this.reference(now, this.shortWindowMs);
+      // A few characters are enough when they are all Chinese: waiting for more text let both directions speak (Chinese heard twice).
+      const share = cjkShare(short) ?? cjkShare(ref) ?? shortCjkShare(short) ?? shortCjkShare(ref);
       if (share !== null) {
         const outCjk = CJK.test(output);
         const pct = Math.round(share * 100);
