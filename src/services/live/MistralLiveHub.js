@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, languageFits, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -314,6 +314,21 @@ export default class MistralLiveHub {
     } else if (verdict.from === 'other') {
       this.note(`Mistral live : phrase ignorée (ni ${pair.a} ni ${pair.b}, ou pas de la parole) « ${text.slice(0, 50)} »`);
       return null;
+    }
+    if (verdict.from !== 'other' || thirdLanguage) {
+      // The small models sometimes « translate » Chinese into Chinese (or mix both languages): ask again, explicitly, then drop it.
+      const toCode = thirdLanguage ? pair.a : verdict.from === 'A' ? pair.b : pair.a;
+      if (!languageFits(verdict.text, toCode)) {
+        const fromCode = thirdLanguage ? null : verdict.from === 'A' ? pair.a : pair.b;
+        this.note(`Mistral live : traduction dans la mauvaise langue (« ${verdict.text.slice(0, 40)} ») : nouvel essai vers ${toCode}`);
+        const again = await this.interpret(forcedMessages({ from: fromCode ? this.languageName(fromCode) : 'the language of the sentence', to: this.languageName(toCode), text }));
+        const answer = parseInterpretation(again?.choices?.[0]?.message?.content);
+        if (answer.text && languageFits(answer.text, toCode)) verdict = { ...verdict, text: answer.text };
+        else {
+          this.note(`Mistral live : phrase abandonnée, la traduction reste dans la mauvaise langue « ${text.slice(0, 40)} »`);
+          return null;
+        }
+      }
     }
     const session = thirdLanguage ? this.sessions.find((s) => s.target === pair.a) : this.sessions.find((s) => s.source === (verdict.from === 'A' ? pair.a : pair.b));
     if (!session) return null; // one direction only (tap mode) and the sentence is in the language it already speaks

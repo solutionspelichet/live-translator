@@ -100,3 +100,14 @@ test('cutLongClause cuts a run of words at the last comma, or at the word limit,
   const zh = cutLongClause('我觉得我们明天早上应该出发，因为路很长而且天气今晚会变化所以我们最好早一点走吧');
   assert.equal(zh.head, '我觉得我们明天早上应该出发，');
 });
+
+test('languageFits: a Latin target must not come back in Chinese, a Chinese target must be Chinese', async () => {
+  const { languageFits } = await import('../src/utils/mistral.js');
+  assert.equal(languageFits('就是先搞清楚问题然后把结果反馈给我', 'fr'), false);
+  assert.equal(languageFits('你想知道这个应用具体解决什么问题吗？ Le client est vraiment déterminé à ce point', 'fr'), false);
+  assert.equal(languageFits('Le client est vraiment déterminé à ce point', 'fr'), true);
+  assert.equal(languageFits('我们从这个文件中收集位图并保存', 'zh'), true);
+  assert.equal(languageFits('We collect the bitmaps from this file and save them', 'zh'), false);
+  assert.equal(languageFits('Oui.', 'fr'), true, 'too short to judge');
+  assert.equal(languageFits('anything', 'ar'), true, 'other scripts are not judged');
+});

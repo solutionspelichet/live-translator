@@ -416,3 +416,21 @@ test('with preferFallback the other voice speaks every language, and Mistral voi
   assert.equal(b.got.audio.length, 1, 'Mistral voice as a safety net');
   assert.ok(b.got.notes.some((n) => /ElevenLabs indisponible/.test(n)));
 });
+
+test('a « translation » that stays in the source language is asked again, then spoken; if it stays wrong the sentence is dropped', async () => {
+  let n = 0;
+  const a = await setup({ pair: ['zh', 'fr'], answer: () => (++n === 1 ? { from: 'A', text: '就是先搞清楚问题然后把结果反馈给我。' } : { from: 'A', text: 'Il faut d’abord clarifier le problème.' }) });
+  a.sockets[0].serve({ type: 'session.created' });
+  a.sockets[0].serve({ type: 'transcription.text.delta', text: '就是先搞清楚问题然后把结果反馈给我。 ' });
+  await pause(800);
+  assert.equal(a.got.outText.length, 1);
+  assert.match(a.got.outText[0].t, /clarifier/);
+  assert.ok(a.got.notes.some((x) => /mauvaise langue/.test(x)));
+
+  const b = await setup({ pair: ['zh', 'fr'], answer: { from: 'A', text: '就是先搞清楚问题然后把结果反馈给我。' } });
+  b.sockets[0].serve({ type: 'session.created' });
+  b.sockets[0].serve({ type: 'transcription.text.delta', text: '就是先搞清楚问题然后把结果反馈给我。 ' });
+  await pause(800);
+  assert.equal(b.got.outText.length, 0);
+  assert.ok(b.got.notes.some((x) => /abandonnée/.test(x)));
+});

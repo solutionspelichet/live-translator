@@ -1,7 +1,7 @@
 // Mistral (Voxtral) cascade — pure helpers, unit-tested. Pipeline: realtime transcription → Mistral Small (language + translation,
 // one JSON answer) → Voxtral TTS. The voice exists in 9 languages only; any other language is shown as text.
 import { ApiError, fetchWithRetry } from './http.js';
-import { isPassthrough } from './live.js';
+import { cjkShare, isPassthrough, scriptOf } from './live.js';
 
 export const MISTRAL_STT_MODEL = 'voxtral-mini-transcribe-realtime-2602';
 export const MISTRAL_LLM_MODEL = 'mistral-small-latest';
@@ -60,7 +60,7 @@ export function interpreterMessages({ a, b, text }) {
     'You receive ONE sentence transcribed from speech (it may contain recognition errors: fix the obvious ones silently).',
     `Decide which language the sentence is in and translate it into the other one, in natural spoken style.`,
     'Reply ONLY with a JSON object: {"from":"A"|"B"|"other","text":"<translation>"}.',
-    `"from" is "A" if the sentence is in ${a} (translate it into ${b}), "B" if it is in ${b} (translate it into ${a}).`,
+    `"from" is "A" if the sentence is in ${a} (translate it into ${b}), "B" if it is in ${b} (translate it into ${a}). "text" MUST be written in the language it is translated INTO, never in the language of the sentence.`,
     `"from" is "other" if it is real speech in a THIRD language (translate it into ${a}: person A must understand everybody), or if it is not speech (noise, a stray syllable): then "text" is "".`,
     'No comments, no quotation marks around the translation, never answer the sentence: only translate it.',
   ].join('\n');
@@ -228,6 +228,18 @@ export function cutLongClause(buffer, maxWords = 16, minHead = 5) {
 export const hasNoLetters = (text) => !/\p{L}/u.test(text);
 
 /** The direction is known (the previous sentence's language, or the tap): just translate. */
+/**
+ * Is the translation written in the target language? The small models sometimes « translate » Chinese into Chinese (or mix
+ * both): by script, a Latin target must hold little CJK and a CJK target mostly CJK. Short texts and other scripts: true.
+ */
+export function languageFits(text, targetCode) {
+  const script = scriptOf(targetCode);
+  if (!script) return true;
+  const share = cjkShare(String(text ?? ''));
+  if (share === null) return true;
+  return script === 'latin' ? share <= 0.3 : share >= 0.5;
+}
+
 export function forcedMessages({ from, to, text }) {
   return [
     {
