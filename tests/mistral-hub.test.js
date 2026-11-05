@@ -348,3 +348,33 @@ test('a sentence that waited too long is shown without voice so the speech catch
   hub.deliver({ ...result, queuedAt: clock - 1000, startedAt: clock - 1000 });
   assert.equal(got.audio.length, 1);
 });
+
+test('a language Mistral cannot speak (Chinese) is spoken by the fallback voice when there is one, else shown as text with a hint', async () => {
+  const { hub, sockets, got } = await setup({ pair: ['fr', 'zh'], answer: { from: 'A', text: '你好。' } });
+  hub.fallbackSpeak = async (text, target) => ({ samples: new Float32Array([0.1, 0.2, 0.3]), rate: 24000, text, target });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(600);
+  assert.equal(got.audio.length, 1);
+  assert.equal(got.audio[0].target, 'zh');
+  assert.ok(got.notes.some((n) => /voix de secours/.test(n)));
+
+  const plain = await setup({ pair: ['fr', 'zh'], answer: { from: 'A', text: '你好。' } });
+  plain.sockets[0].serve({ type: 'session.created' });
+  plain.sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(600);
+  assert.equal(plain.got.audio.length, 0);
+  assert.equal(plain.got.outText.length, 1);
+  assert.ok(plain.got.notes.some((n) => /ElevenLabs/.test(n)));
+});
+
+test('a failing fallback voice leaves the text and says why', async () => {
+  const { hub, sockets, got } = await setup({ pair: ['fr', 'zh'], answer: { from: 'A', text: '你好。' } });
+  hub.fallbackSpeak = async () => { throw new Error('boom'); };
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(600);
+  assert.equal(got.audio.length, 0);
+  assert.equal(got.outText.length, 1);
+  assert.ok(got.notes.some((n) => /voix de secours indisponible/.test(n)));
+});

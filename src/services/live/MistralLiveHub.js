@@ -37,8 +37,8 @@ const NO_TEXT_AFTER_SEC = 8; // audio sent without a single word back: say so in
  * @param {(code: string) => string} opts.languageName
  */
 export default class MistralLiveHub {
-  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now }) {
-    Object.assign(this, { apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now });
+  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null }) {
+    Object.assign(this, { apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak }); // fallbackSpeak(text, target) → { samples, rate } | null: another voice for the languages Mistral cannot speak
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.fetchImpl = fetchImpl ?? ((...args) => fetch(...args));
     this.sessions = [];
@@ -316,9 +316,31 @@ export default class MistralLiveHub {
     const result = { session, input: text, output: verdict.text, samples: null, rate: 24000, llmMs, ttsMs: 0, startedAt: t0, speechEnd: meta.speechEnd, queuedAt: meta.queuedAt ?? t0 };
     const language = mistralVoiceLanguage(session.target);
     if (!language) {
+      // Mistral speaks 9 languages. For the others (Chinese, Japanese…) another voice takes over when one is configured.
+      if (this.fallbackSpeak) {
+        const t2 = this.now();
+        try {
+          const spoken = await this.fallbackSpeak(verdict.text, session.target);
+          if (spoken?.samples?.length) {
+            if (!this.noVoiceNoted.has(session.target)) {
+              this.noVoiceNoted.add(session.target);
+              this.note(`Mistral live : pas de voix Mistral en « ${session.target} » : voix de secours (ElevenLabs)`);
+            }
+            result.samples = spoken.samples;
+            result.rate = spoken.rate;
+            result.ttsMs = this.now() - t2;
+            return result;
+          }
+        } catch (error) {
+          if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+            this.note(`Mistral live : voix de secours refusée (${error.status}) : vérifiez la clé ElevenLabs`);
+          } else this.note(`Mistral live : voix de secours indisponible pour cette phrase (${error?.message ?? error})`);
+        }
+        return result;
+      }
       if (!this.noVoiceNoted.has(session.target)) {
         this.noVoiceNoted.add(session.target);
-        this.note(`Mistral live : pas de voix en « ${session.target} » (9 langues seulement) : traduction affichée sans voix`);
+        this.note(`Mistral live : pas de voix en « ${session.target} » (9 langues seulement) : traduction affichée sans voix — ajoutez une clé ElevenLabs et deux voix dans ⚙︎ pour entendre ces langues`);
       }
       return result;
     }
