@@ -135,6 +135,8 @@ export default class LiveTranslationEngine {
     this.playingCount = 0;
     this.speakerCount = 0;
     this.setState(STATE.STARTING);
+    // Where the voices go is not obvious from the rest of the journal: say it at every start.
+    this.emit({ type: 'note', text: `sortie audio : ${this.audio.outputMode === 'split' ? 'casque + haut-parleur (moi dans le casque, l\'autre sur le haut-parleur)' : 'casque stéréo (A à gauche, B à droite)'}${this.audio.speaker && !this.audio.speaker.available ? ' · haut-parleur natif indisponible' : ''}` });
 
     for (const [index, [from, to]] of pairs.entries()) {
       const d = { from, to, transcriber: index === 0, gate: null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 }, delays: [] };

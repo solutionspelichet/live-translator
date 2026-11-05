@@ -75,7 +75,7 @@ export default function App() {
         {bar}
       <MeetingsScreen
         settings={settings}
-        onSettingsChange={(next) => saveSettings(next).then(setSettings)}
+        onSettingsChange={(next) => { EventLog.add(`réglages enregistrés : service ${next.strategy} · sortie ${next.outputMode}`); return saveSettings(next).then(setSettings); }}
         onClose={() => setMeetings(false)}
       />
       </>
@@ -85,7 +85,7 @@ export default function App() {
     <Translator
       key={version}
       settings={settings}
-      onSettingsChange={(next) => saveSettings(next).then(setSettings)}
+      onSettingsChange={(next) => { EventLog.add(`réglages enregistrés : service ${next.strategy} · sortie ${next.outputMode}`); return saveSettings(next).then(setSettings); }}
       onOpenSettings={() => setEditing(true)}
       onOpenMeetings={() => setMeetings(true)}
     />
