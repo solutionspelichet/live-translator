@@ -240,6 +240,11 @@ export function languageFits(text, targetCode) {
   return script === 'latin' ? share <= 0.3 : share >= 0.5;
 }
 
+/** Three words or more with letters: enough to be a real sentence in a third language rather than a stray syllable of noise. */
+export function looksLikeSpeech(text) {
+  return String(text ?? '').trim().split(/\s+/).filter((w) => /\p{L}/u.test(w)).length >= 3;
+}
+
 export function forcedMessages({ from, to, text }) {
   return [
     {

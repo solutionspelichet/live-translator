@@ -434,3 +434,20 @@ test('a « translation » that stays in the source language is asked again, then
   assert.equal(b.got.outText.length, 0);
   assert.ok(b.got.notes.some((x) => /abandonnée/.test(x)));
 });
+
+test('English that the small model labels « other » with no text is still translated for person A (a real sentence of 3 words or more)', async () => {
+  let n = 0;
+  const a = await setup({ pair: ['fr', 'zh'], answer: () => (++n === 1 ? { from: 'other', text: '' } : { from: 'A', text: 'Donc si je parle anglais maintenant, tu m’entends ?' }) });
+  a.sockets[0].serve({ type: 'session.created' });
+  a.sockets[0].serve({ type: 'transcription.text.delta', text: 'So if I speak in English now, do you hear it? ' });
+  await pause(900);
+  assert.equal(a.got.outText.length, 1);
+  assert.equal(a.got.outText[0].target, 'fr');
+  assert.match(a.got.outText[0].t, /anglais/);
+
+  const b = await setup({ pair: ['fr', 'zh'], answer: { from: 'other', text: '' } });
+  b.sockets[0].serve({ type: 'session.created' });
+  b.sockets[0].serve({ type: 'transcription.text.delta', text: 'Maybe. ' });
+  await pause(700);
+  assert.equal(b.got.outText.length, 0, 'one word stays ignored');
+});

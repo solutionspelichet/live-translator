@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, languageFits, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, languageFits, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -303,6 +303,13 @@ export default class MistralLiveHub {
       const forced = await this.interpret(forcedMessages({ from: this.languageName(from), to: this.languageName(to), text }));
       const answer = parseInterpretation(forced?.choices?.[0]?.message?.content);
       if (answer.text) verdict = { from: this.lastFrom, text: answer.text };
+    }
+    if (verdict.from === 'other' && !verdict.text && !hasNoLetters(text) && looksLikeSpeech(text)) {
+      // The small models answer « other » with an empty text for English in a French↔Chinese pair: translate it for person A anyway.
+      const third = await this.interpret(forcedMessages({ from: 'the language of the sentence', to: this.languageName(pair.a), text }));
+      const answer = parseInterpretation(third?.choices?.[0]?.message?.content);
+      const same = answer.text.replace(/\W+/g, '').toLowerCase() === text.replace(/\W+/g, '').toLowerCase();
+      if (answer.text && !same && languageFits(answer.text, pair.a)) verdict = { from: 'other', text: answer.text, third: true };
     }
     const llmMs = this.now() - t0;
     if (verdict.from !== 'other') this.lastFrom = verdict.from;
