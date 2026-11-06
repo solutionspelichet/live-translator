@@ -1,0 +1,453 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import MistralLiveHub from '../src/services/live/MistralLiveHub.js';
+import MistralLiveSession from '../src/services/live/MistralLiveSession.js';
+
+const pause = (ms = 20) => new Promise((r) => setTimeout(r, ms));
+
+function wavBytes(samples, rate = 24000) {
+  const payload = new Int16Array(samples);
+  const bytes = new Uint8Array(44 + payload.byteLength);
+  const view = new DataView(bytes.buffer);
+  const tag = (o, t) => [...t].forEach((c, i) => view.setUint8(o + i, c.charCodeAt(0)));
+  tag(0, 'RIFF');
+  view.setUint32(4, 36 + payload.byteLength, true);
+  tag(8, 'WAVE');
+  tag(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  tag(36, 'data');
+  view.setUint32(40, payload.byteLength, true);
+  bytes.set(new Uint8Array(payload.buffer), 44);
+  return bytes;
+}
+
+async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null, speech = null, chatFail = null } = {}) {
+  const sockets = [];
+  class FakeSocket {
+    constructor(url, protocols, options) {
+      Object.assign(this, { url, protocols, options, sent: [], closed: false });
+      sockets.push(this);
+    }
+    send(data) {
+      this.sent.push(JSON.parse(data));
+    }
+    close() {
+      this.closed = true;
+    }
+    serve(msg) {
+      this.onmessage?.({ data: JSON.stringify(msg) });
+    }
+  }
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, body: init.body ? JSON.parse(init.body) : null, headers: init.headers });
+    const json = (value) => ({ ok: true, status: 200, json: async () => value, text: async () => JSON.stringify(value) });
+    if (url.includes('/v1/client/sessions')) return typeof mint === 'function' ? mint() : json({ client_secret: { value: 'rt_test', expires_at: 1 } });
+    if (url.includes('/v1/chat/completions') && chatFail) {
+      const r = chatFail(url, init.body ? JSON.parse(init.body) : null, json);
+      if (r) return r;
+    }
+    if (url.includes('/v1/chat/completions')) return json({ choices: [{ message: { content: JSON.stringify(typeof answer === 'function' ? answer() : answer) } }] });
+    if (url.includes('/v2/audio/voices')) return json(voices);
+    if (url.includes('/v1/audio/speech') && speech) return speech(init.body ? JSON.parse(init.body) : null, json);
+    if (url.includes('/v1/audio/speech')) return json({ audio_data: Buffer.from(wavBytes([1000, 2000, 3000])).toString('base64') });
+    return { ok: false, status: 404, text: async () => 'nope' };
+  };
+  const hub = new MistralLiveHub({ apiKey: 'key-test', baseUrl: 'https://api.test', wsUrl: 'wss://stt.test/realtime', languageName: (c) => c, WebSocketImpl: FakeSocket, fetchImpl, quietMs: 40 });
+  const got = { audio: [], inText: [], outText: [], notes: [], errors: [], usage: [] };
+  const make = (source, target, transcribeInput) =>
+    new MistralLiveSession({
+      source,
+      target,
+      transcribeInput,
+      hub,
+      onAudio: (s, r) => got.audio.push({ target, samples: s, rate: r }),
+      onInputText: (t) => got.inText.push({ target, t }),
+      onOutputText: (t) => got.outText.push({ target, t }),
+      onNote: (t) => got.notes.push(t),
+      onError: (e) => got.errors.push(e),
+      onUsage: (u) => got.usage.push(u),
+    });
+  const ab = make(pair[0], pair[1], true);
+  const ba = tapOnly ? null : make(pair[1], pair[0], false);
+  ab.connect();
+  ba?.connect();
+  await pause(10); // the realtime token is minted first
+  return { hub, sockets, calls, got, ab, ba };
+}
+
+test('connects with the key, declares the audio format, then sends the audio base64 as input_audio.append', async () => {
+  const { sockets, ab, calls } = await setup();
+  const ws = sockets[0];
+  assert.match(ws.url, /^wss:\/\/stt\.test\/realtime\?model=voxtral-mini-transcribe-realtime-2602$/);
+  assert.deepEqual(ws.protocols, ['realtime', 'rt_test'], 'the short-lived token travels as the sub-protocol');
+  assert.equal(ws.options, undefined);
+  const mint = calls.find((c) => c.url.endsWith('/v1/client/sessions'));
+  assert.deepEqual(mint.body, { purpose: 'realtime', model: 'voxtral-mini-transcribe-realtime-2602' });
+  assert.equal(mint.headers.Authorization, 'Bearer key-test');
+  ab.sendAudio('QUJD'); // before session.created: kept
+  assert.equal(ws.sent.length, 0);
+  ws.serve({ type: 'session.created' });
+  assert.deepEqual(ws.sent[0], { type: 'session.update', session: { audio_format: { encoding: 'pcm_s16le', sample_rate: 16000 } } });
+  assert.deepEqual(ws.sent[1], { type: 'input_audio.append', audio: 'QUJD' });
+  ab.sendAudio('REVG');
+  assert.deepEqual(ws.sent[2], { type: 'input_audio.append', audio: 'REVG' });
+});
+
+test('a finished sentence is translated, the direction is chosen by its language, the voice is spoken in order', async () => {
+  const { sockets, calls, got } = await setup();
+  const ws = sockets[0];
+  ws.serve({ type: 'session.created' });
+  ws.serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(80);
+  assert.equal(got.inText[0].target, 'en');
+  assert.equal(got.inText[0].t.trim(), 'Bonjour à tous.');
+  assert.equal(got.outText[0].t.trim(), 'Hello everyone.');
+  assert.equal(got.audio.length, 1);
+  assert.equal(got.audio[0].rate, 24000);
+  assert.equal(got.audio[0].samples.length, 3);
+  const speech = calls.find((c) => c.url.endsWith('/v1/audio/speech'));
+  assert.equal(speech.body.voice_id, 'voice-en');
+  assert.equal(speech.body.input, 'Hello everyone.');
+  assert.equal(speech.body.model, 'voxtral-mini-tts-latest');
+  assert.deepEqual(got.usage, [{ mistralTtsChars: 15 }]);
+  assert.ok(got.notes.some((n) => /phrase fr→en/.test(n)));
+});
+
+test('the other language goes to the other direction', async () => {
+  const { sockets, got } = await setup({ answer: { from: 'B', text: 'Bonjour à tous.' }, voices: { data: [{ id: 'voice-fr', name: 'Marie', languages: ['fr'] }] } });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Hello everyone. ' });
+  await pause(80);
+  assert.equal(got.outText[0].target, 'fr');
+  assert.equal(got.audio[0].target, 'fr');
+});
+
+test('a language without voice is shown as text only, and said once in the journal', async () => {
+  const { sockets, calls, got } = await setup({ answer: { from: 'A', text: '你好。' }, pair: ['fr', 'zh'] });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour. ' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Merci beaucoup. ' });
+  await pause(100);
+  assert.equal(got.outText.length, 2);
+  assert.equal(got.outText[0].target, 'zh');
+  assert.equal(got.audio.length, 0, 'no voice in Chinese');
+  assert.ok(!calls.some((c) => c.url.endsWith('/v1/audio/speech')));
+  assert.equal(got.notes.filter((n) => /pas de voix en « zh »/.test(n)).length, 1, 'said once');
+});
+
+test('own voice coming back through the microphone (no earphones) is ignored', async () => {
+  const { sockets, calls, got } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(60);
+  const before = calls.filter((c) => c.url.endsWith('/v1/chat/completions')).length;
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Hello everyone. ' }); // our translation, heard again
+  await pause(60);
+  assert.equal(calls.filter((c) => c.url.endsWith('/v1/chat/completions')).length, before, 'no new translation');
+  assert.ok(got.notes.some((n) => /écho/.test(n)));
+});
+
+test('a pause cuts the sentence when there is no punctuation', async () => {
+  const { sockets, got } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'bonjour à tous' });
+  await pause(40);
+  assert.equal(got.inText.length, 0, 'still waiting for the pause');
+  await pause(1000);
+  assert.equal(got.inText.length, 1);
+});
+
+test('tap mode: a sentence already in the language the session speaks is dropped', async () => {
+  const { sockets, got } = await setup({ answer: { from: 'B', text: 'Bonjour' }, tapOnly: true });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Hello everyone. ' });
+  await pause(80);
+  assert.equal(got.outText.length, 0);
+  assert.equal(got.audio.length, 0);
+});
+
+test('a server error is fatal and reported; closing flushes the stream and waits for the sentences in progress', async () => {
+  const { sockets, got, ab } = await setup();
+  const ws = sockets[0];
+  ws.serve({ type: 'session.created' });
+  ws.serve({ type: 'transcription.text.delta', text: 'Bonjour' });
+  const closing = ab.close();
+  assert.deepEqual(ws.sent.slice(-2).map((m) => m.type), ['input_audio.flush', 'input_audio.end']);
+  ws.serve({ type: 'transcription.done' });
+  await closing;
+  assert.equal(got.outText.length, 1, 'the last words were translated before the end');
+
+  const second = await setup();
+  second.sockets[0].serve({ type: 'error', error: { message: 'Unauthorized: invalid api key' } });
+  assert.equal(second.got.errors.length, 1);
+  assert.match(second.got.errors[0].message, /invalid api key/i);
+});
+
+test('without a usable token the key goes in the header; a refused key stops at once with the reason', async () => {
+  const fallback = await setup({ mint: () => ({ ok: false, status: 404, text: async () => 'not found' }) });
+  assert.deepEqual(fallback.sockets[0].options, { headers: { Authorization: 'Bearer key-test' } });
+  assert.equal(fallback.sockets[0].protocols, undefined);
+  assert.ok(fallback.got.notes.some((n) => /clé en en-tête|avec la clé/.test(n)));
+
+  const refused = await setup({ mint: () => ({ ok: false, status: 401, text: async () => 'Unauthorized' }) });
+  assert.equal(refused.sockets.length, 0);
+  assert.equal(refused.got.errors.length, 1);
+  assert.match(refused.got.errors[0].message, /401/);
+});
+
+test('a refused handshake is reported (not retried for ever); a refused token is tried once with the key', async () => {
+  const { sockets, got } = await setup();
+  sockets[0].onclose({ code: 1006, reason: "Expected HTTP 101 response but was '401 Unauthorized'" });
+  await pause(10);
+  assert.equal(sockets.length, 2, 'second try, with the key in the header');
+  assert.deepEqual(sockets[1].options, { headers: { Authorization: 'Bearer key-test' } });
+  sockets[1].onclose({ code: 1006, reason: "Expected HTTP 101 response but was '401 Unauthorized'" });
+  await pause(10);
+  assert.equal(got.errors.length, 1);
+  assert.match(got.errors[0].message, /401/);
+});
+
+test('the journal says when audio goes in and nothing comes back', async () => {
+  const { sockets, got, ab } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  const chunk = Buffer.alloc(32000).toString('base64'); // one second
+  for (let i = 0; i < 9; i++) ab.sendAudio(chunk);
+  assert.ok(got.notes.some((n) => /aucun texte reçu après 8 s/.test(n)));
+  assert.ok(got.notes.some((n) => /reçu \{"type":"session.created"/.test(n)));
+});
+
+test('a voice the speech endpoint refuses is skipped: the next one is tried and remembered', async () => {
+  const tried = [];
+  const { sockets, got, calls } = await setup({
+    voices: { data: [{ id: 'voice-bad', name: 'Bad', languages: ['en'] }, { id: 'voice-ok', name: 'Good', languages: ['en'] }] },
+    speech: (body, json) => {
+      tried.push(body.voice_id);
+      if (body.voice_id === 'voice-bad') return { ok: false, status: 400, text: async () => '{"message":"voice is not supported for speech v1","code":"3051"}' };
+      return json({ audio_data: Buffer.from(wavBytes([1000, 2000])).toString('base64') });
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(80);
+  assert.deepEqual(tried, ['voice-bad', 'voice-ok']);
+  assert.equal(got.audio.length, 1);
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Merci beaucoup. ' });
+  await pause(80);
+  assert.deepEqual(tried.slice(2), ['voice-ok'], 'the good voice is used directly next time');
+  assert.ok(calls.some((c) => c.url.includes('/v1/audio/voices')), 'the v1 list is asked first');
+});
+
+test('three sentences in a row that cannot be translated stop the turn with the reason (a silent screen looks broken)', async () => {
+  const { sockets, got } = await setup({ chatFail: () => ({ ok: false, status: 500, text: async () => 'boom', headers: { get: () => null } }) });
+  sockets[0].serve({ type: 'session.created' });
+  for (const t of ['Un. ', 'Deux. ', 'Trois. ']) sockets[0].serve({ type: 'transcription.text.delta', text: `${t}` });
+  await pause(4000);
+  assert.ok(got.notes.filter((n) => /phrase abandonnée/.test(n)).length >= 3);
+  assert.equal(got.errors.length, 1);
+}).timeout?.(10000);
+
+test('a model that is rate-limited for the account is replaced by the next one, which is then kept', async () => {
+  const asked = [];
+  const { sockets, got } = await setup({
+    chatFail: (url, body, json) => {
+      asked.push(body.model);
+      if (body.model === 'mistral-small-latest') return { ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } };
+      return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hello everyone.' }) } }] });
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(2500);
+  assert.equal(got.outText.length, 1);
+  assert.ok(asked.includes('ministral-8b-latest'));
+  assert.ok(got.notes.some((n) => /traduction avec le modèle « ministral-8b-latest »/.test(n)));
+  const before = asked.length;
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Merci beaucoup. ' });
+  await pause(100);
+  assert.deepEqual(asked.slice(before), ['ministral-8b-latest'], 'the working model is used directly next time');
+});
+
+test('a counting (numbers have no language) is translated in the direction of the previous sentence instead of being dropped', async () => {
+  const { sockets, got, calls } = await setup({
+    chatFail: (url, body, json) => {
+      if (body.messages[0].content.includes('Translate the sentence from')) return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'One, two, three, four.' }) } }] });
+      if (body.messages[1].content.startsWith('1,')) return json({ choices: [{ message: { content: JSON.stringify({ from: 'other', text: '' }) } }] });
+      return null;
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(80);
+  sockets[0].serve({ type: 'transcription.text.delta', text: '1, 2, 3, 4. ' });
+  await pause(80);
+  assert.deepEqual(got.outText.map((o) => o.t.trim()), ['Hello everyone.', 'One, two, three, four.']);
+  assert.ok(calls.some((c) => c.body?.messages?.[0]?.content?.includes('from Français into English') || c.body?.messages?.[0]?.content?.includes('from fr into en')));
+});
+
+test('the voice lists are fetched as soon as the session opens, and the delay after the last word is measured', async () => {
+  const { sockets, got, calls, ab } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  await pause(20);
+  assert.ok(calls.some((c) => c.url.includes('/audio/voices')), 'warm-up before the first sentence');
+  const loud = Buffer.from(new Int16Array(1600).fill(12000).buffer).toString('base64');
+  ab.sendAudio(loud); // the speaker is heard...
+  await pause(300); // ...then stops
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(100);
+  assert.ok(got.notes.some((n) => /ms après le dernier mot/.test(n)));
+});
+
+test('one or two words alone are kept for the rest of the sentence instead of being sent (and dropped) alone', async () => {
+  const { sockets, got } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'High' });
+  await pause(1000); // longer than the normal mid-sentence pause (650 ms in production, quietMs-scaled here)
+  assert.equal(got.inText.length, 0, 'the fragment waits');
+  sockets[0].serve({ type: 'transcription.text.delta', text: ' viscosity resin.' });
+  await pause(600);
+  assert.match(got.inText.map((x) => x.t).join(''), /High viscosity resin\./);
+});
+
+test('no more than two translation calls run at once', async () => {
+  let running = 0;
+  let peak = 0;
+  const { sockets } = await setup({
+    chatFail: (url, body, json) => {
+      running++;
+      peak = Math.max(peak, running);
+      return new Promise((resolve) => setTimeout(() => {
+        running--;
+        resolve(json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hi.' }) } }] }));
+      }, 60));
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Un deux. Trois quatre. Cinq six. Sept huit. Neuf dix. ' });
+  await pause(600);
+  assert.ok(peak <= 2, `peak ${peak}`);
+  assert.ok(peak >= 1);
+});
+
+test('a sentence that waited too long is shown without voice so the speech catches up', async () => {
+  let clock = 1_000_000;
+  const { hub, sockets, got } = await setup();
+  hub.now = () => clock;
+  sockets[0].serve({ type: 'session.created' });
+  const result = { session: hub.sessions[0], input: 'Old.', output: 'Vieux.', samples: new Float32Array([0.1, 0.2]), rate: 24000, llmMs: 5, ttsMs: 5, startedAt: clock - 20000, speechEnd: null, queuedAt: clock - 20000 };
+  hub.deliver(result);
+  assert.equal(got.audio.length, 0);
+  assert.ok(got.notes.some((n) => /trop en retard/.test(n)));
+  hub.deliver({ ...result, queuedAt: clock - 1000, startedAt: clock - 1000 });
+  assert.equal(got.audio.length, 1);
+});
+
+test('a language Mistral cannot speak (Chinese) is spoken by the fallback voice when there is one, else shown as text with a hint', async () => {
+  const { hub, sockets, got } = await setup({ pair: ['fr', 'zh'], answer: { from: 'A', text: '你好。' } });
+  hub.fallbackSpeak = async (text, target) => ({ samples: new Float32Array([0.1, 0.2, 0.3]), rate: 24000, text, target });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(600);
+  assert.equal(got.audio.length, 1);
+  assert.equal(got.audio[0].target, 'zh');
+  assert.ok(got.notes.some((n) => /voix ElevenLabs en « zh »/.test(n)));
+
+  const plain = await setup({ pair: ['fr', 'zh'], answer: { from: 'A', text: '你好。' } });
+  plain.sockets[0].serve({ type: 'session.created' });
+  plain.sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(600);
+  assert.equal(plain.got.audio.length, 0);
+  assert.equal(plain.got.outText.length, 1);
+  assert.ok(plain.got.notes.some((n) => /ElevenLabs/.test(n)));
+});
+
+test('a failing fallback voice leaves the text and says why', async () => {
+  const { hub, sockets, got } = await setup({ pair: ['fr', 'zh'], answer: { from: 'A', text: '你好。' } });
+  hub.fallbackSpeak = async () => { throw new Error('boom'); };
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(600);
+  assert.equal(got.audio.length, 0);
+  assert.equal(got.outText.length, 1);
+  assert.ok(got.notes.some((n) => /voix ElevenLabs indisponible/.test(n)));
+});
+
+test('speech in a third language is translated for person A only (towards the language of A, by the B→A direction)', async () => {
+  const { sockets, got } = await setup({ pair: ['fr', 'zh'], answer: { from: 'other', text: 'Bonjour à tous.' } });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Hello everyone. ' });
+  await pause(600);
+  assert.equal(got.outText.length, 1);
+  assert.equal(got.outText[0].target, 'fr', 'the voice goes to the user');
+  assert.ok(got.notes.some((n) => /langue tierce/.test(n)));
+});
+
+test('a stray syllable or noise (other, no text) is still dropped', async () => {
+  const { sockets, got } = await setup({ pair: ['fr', 'zh'], answer: { from: 'other', text: '' } });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Hmm. ' });
+  await pause(600);
+  assert.equal(got.outText.length, 0);
+});
+
+test('with preferFallback the other voice speaks every language, and Mistral voice takes over when it fails', async () => {
+  const a = await setup({ pair: ['fr', 'en'], answer: { from: 'A', text: 'Hello.' } });
+  a.hub.preferFallback = true;
+  a.hub.fallbackSpeak = async () => ({ samples: new Float32Array([0.1, 0.2]), rate: 24000 });
+  a.sockets[0].serve({ type: 'session.created' });
+  a.sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(600);
+  assert.equal(a.got.audio.length, 1);
+  assert.equal(a.calls.filter((c) => c.url.includes('/v1/audio/speech')).length, 0, 'Mistral voice not used');
+
+  const b = await setup({ pair: ['fr', 'en'], answer: { from: 'A', text: 'Hello.' } });
+  b.hub.preferFallback = true;
+  b.hub.fallbackSpeak = async () => { throw new Error('boom'); };
+  b.sockets[0].serve({ type: 'session.created' });
+  b.sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(900);
+  assert.equal(b.got.audio.length, 1, 'Mistral voice as a safety net');
+  assert.ok(b.got.notes.some((n) => /ElevenLabs indisponible/.test(n)));
+});
+
+test('a « translation » that stays in the source language is asked again, then spoken; if it stays wrong the sentence is dropped', async () => {
+  let n = 0;
+  const a = await setup({ pair: ['zh', 'fr'], answer: () => (++n === 1 ? { from: 'A', text: '就是先搞清楚问题然后把结果反馈给我。' } : { from: 'A', text: 'Il faut d’abord clarifier le problème.' }) });
+  a.sockets[0].serve({ type: 'session.created' });
+  a.sockets[0].serve({ type: 'transcription.text.delta', text: '就是先搞清楚问题然后把结果反馈给我。 ' });
+  await pause(800);
+  assert.equal(a.got.outText.length, 1);
+  assert.match(a.got.outText[0].t, /clarifier/);
+  assert.ok(a.got.notes.some((x) => /mauvaise langue/.test(x)));
+
+  const b = await setup({ pair: ['zh', 'fr'], answer: { from: 'A', text: '就是先搞清楚问题然后把结果反馈给我。' } });
+  b.sockets[0].serve({ type: 'session.created' });
+  b.sockets[0].serve({ type: 'transcription.text.delta', text: '就是先搞清楚问题然后把结果反馈给我。 ' });
+  await pause(800);
+  assert.equal(b.got.outText.length, 0);
+  assert.ok(b.got.notes.some((x) => /abandonnée/.test(x)));
+});
+
+test('English that the small model labels « other » with no text is still translated for person A (a real sentence of 3 words or more)', async () => {
+  let n = 0;
+  const a = await setup({ pair: ['fr', 'zh'], answer: () => (++n === 1 ? { from: 'other', text: '' } : { from: 'A', text: 'Donc si je parle anglais maintenant, tu m’entends ?' }) });
+  a.sockets[0].serve({ type: 'session.created' });
+  a.sockets[0].serve({ type: 'transcription.text.delta', text: 'So if I speak in English now, do you hear it? ' });
+  await pause(900);
+  assert.equal(a.got.outText.length, 1);
+  assert.equal(a.got.outText[0].target, 'fr');
+  assert.match(a.got.outText[0].t, /anglais/);
+
+  const b = await setup({ pair: ['fr', 'zh'], answer: { from: 'other', text: '' } });
+  b.sockets[0].serve({ type: 'session.created' });
+  b.sockets[0].serve({ type: 'transcription.text.delta', text: 'Maybe. ' });
+  await pause(700);
+  assert.equal(b.got.outText.length, 0, 'one word stays ignored');
+});

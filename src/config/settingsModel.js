@@ -34,6 +34,7 @@ export function engineOptions(settings) {
     streamTts: Boolean(settings.streamVoice),
     muteWhilePlaying: Boolean(settings.muteWhilePlaying),
     voiceBySpeaker: Boolean(settings.voiceBySpeaker),
+    elevenVoiceForAll: Boolean(settings.elevenVoiceForAll),
     endpointingMs,
     utteranceEndMs,
     flushAfterMs,
@@ -48,11 +49,13 @@ export function engineOptions(settings) {
  *  - classic : Deepgram (listen) → DeepL (translate) → ElevenLabs (voice) — three keys, own voices, 32 languages;
  *  - openai  : OpenAI live translation, one service and one key — lower delay, but the service's voice and 13 spoken languages;
  *  - gemini  : Gemini Live translation, one key, 70+ languages;
+ *  - mistral : Mistral Voxtral cascade (realtime transcription → Mistral Small → Voxtral voice), one key, any language (voice in 9);
  *  - doubao  : BytePlus Doubao live interpretation, one key + one CLONED voice, Chinese/English with 18 other languages.
  */
 export const STRATEGIES = Object.freeze({
   classic: { label: 'Classique', hint: 'Deepgram → DeepL → ElevenLabs : vos voix, 32 langues, trois clés' },
   openai: { label: 'OpenAI live (expérimental)', hint: 'un seul service et une seule clé, la voix d\'OpenAI, 13 langues parlées' },
+  mistral: { label: 'Mistral live (expérimental)', hint: 'Voxtral : une seule clé, hébergé en Europe ; voix en 9 langues (français, anglais, espagnol…), les autres langues s\'affichent en texte' },
   doubao: { label: 'Doubao live (expérimental)', hint: 'BytePlus : une clé et une voix clonée, le chinois ou l\'anglais d\'un côté ; un seul sens par session (deux en mains libres)' },
   gemini: { label: 'Gemini live (expérimental)', hint: 'un seul service et une seule clé, la voix de Gemini, toutes les langues de l\'app, un filtre coupe les répétitions' },
 });
@@ -68,9 +71,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   micAgc: true, // use the phone's own automatic gain control when it has one
   voiceVolume: 2, // loudness of the translated voice: 1 (normal) … 2.5 (loud)
   speed: 'normal', // see SPEEDS
+  outputMode: 'stereo', // where the voices play: 'stereo' (A left, B right) | 'split' (me in the headset, the other person on the phone speaker)
   muteWhilePlaying: false, // hands-free: stop listening while the translated voice plays (kills echo, no interruption)
   recentPairs: Object.freeze([]), // last language pairs used: [{A, B}], newest first
   prices: Object.freeze({}), // unit prices overriding the defaults of the usage counter
+  elevenVoiceForAll: false, // Mistral live: ElevenLabs (my voices, cloned ones included) speaks every language instead of Mistral's 9
   voiceBySpeaker: false, // the voice follows who is speaking (own cloned voice for own words) instead of the language heard
   minutesLanguage: 'fr', // language of the last minutes written
   minutesTemplate: 'reunion',
@@ -88,7 +93,7 @@ function sanitizePairs(raw) {
     .slice(0, 4);
 }
 
-export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin', 'geminiInPerMin', 'geminiOutPerMin', 'doubaoPerMin']);
+export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin', 'geminiInPerMin', 'geminiOutPerMin', 'doubaoPerMin', 'mistralSttPerMin', 'mistralTtsPerKChars']);
 
 function sanitizePrices(raw) {
   const out = {};
@@ -130,10 +135,12 @@ export function sanitizeSettings(raw) {
     micGain: MIC_GAIN_CHOICES.includes(gain) ? gain : DEFAULT_SETTINGS.micGain,
     voiceVolume: VOICE_VOLUME_CHOICES.includes(volume) ? volume : DEFAULT_SETTINGS.voiceVolume,
     speed: SPEEDS[input.speed] ? input.speed : DEFAULT_SETTINGS.speed,
+    outputMode: input.outputMode === 'split' ? 'split' : DEFAULT_SETTINGS.outputMode,
     muteWhilePlaying: typeof input.muteWhilePlaying === 'boolean' ? input.muteWhilePlaying : DEFAULT_SETTINGS.muteWhilePlaying,
     recentPairs: sanitizePairs(input.recentPairs),
     prices: sanitizePrices(input.prices),
     voiceBySpeaker: typeof input.voiceBySpeaker === 'boolean' ? input.voiceBySpeaker : DEFAULT_SETTINGS.voiceBySpeaker,
+    elevenVoiceForAll: typeof input.elevenVoiceForAll === 'boolean' ? input.elevenVoiceForAll : DEFAULT_SETTINGS.elevenVoiceForAll,
     minutesLanguage: LANGUAGES[input.minutesLanguage] ? input.minutesLanguage : DEFAULT_SETTINGS.minutesLanguage,
     minutesTemplate: TEMPLATE_IDS.includes(input.minutesTemplate) ? input.minutesTemplate : DEFAULT_SETTINGS.minutesTemplate,
     minutesModel: typeof input.minutesModel === 'string' ? input.minutesModel.trim().slice(0, 100) : DEFAULT_SETTINGS.minutesModel,

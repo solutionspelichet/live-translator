@@ -123,8 +123,19 @@ export default class OpenAiLiveSession {
       default:
         if (msg.error || msg.type === 'error') {
           const detail = msg.error?.message ?? msg.message ?? JSON.stringify(msg.error ?? msg).slice(0, 200);
-          const code = msg.error?.code === 'invalid_api_key' || /api key|auth/i.test(String(detail)) ? 401 : 500;
-          this.fail(new ApiError('OpenAI', code, String(detail)));
+          this.onNote?.(`OpenAI live : erreur reçue ${JSON.stringify(msg.error ?? msg).slice(0, 300)}`);
+          const kind = `${msg.error?.type ?? ''} ${msg.error?.code ?? ''}`;
+          if (msg.error?.code === 'invalid_api_key' || /api key|auth/i.test(String(detail))) this.fail(new ApiError('OpenAI', 401, String(detail)));
+          // A real server fault: reconnect (a few times) instead of stopping the turn with an alert.
+          else if (/server_error|overloaded|unavailable/i.test(kind) || /server (had an error|error)|try again/i.test(String(detail))) {
+            const old = this.ws;
+            this.ws = null; // its close event must not trigger a second reconnection
+            this.ready = false;
+            try { old?.close(); } catch {}
+            this.lost(`erreur du serveur : ${String(detail).slice(0, 80)}`);
+          }
+          // Anything else is a refusal of OUR request (a language, a parameter): say what it is, it is not an « outage ».
+          else this.fail(new ApiError('OpenAI', 400, String(detail)));
         } else if (msg.type && !this.seen.has(msg.type)) {
           // Events we do not use (session.created, …): the journal shows each kind once, to learn what the service really sends.
           this.seen.add(msg.type);

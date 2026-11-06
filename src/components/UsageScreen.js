@@ -17,6 +17,8 @@ const PRICE_LABELS = {
   openaiTranscribePerMin: 'OpenAI live, transcription du texte source — $ par minute',
   geminiInPerMin: 'Gemini live, audio envoyé — $ par minute',
   geminiOutPerMin: 'Gemini live, voix traduite reçue — $ par minute',
+  mistralSttPerMin: 'Mistral live, transcription — $ par minute',
+  mistralTtsPerKChars: 'Mistral live, voix — $ pour 1 000 caractères',
   doubaoPerMin: 'Doubao live, audio envoyé — $ par minute (à lire dans la console BytePlus)',
 };
 
@@ -65,6 +67,7 @@ export default function UsageScreen({ visible, usage, prices, onPrices, onReset,
                 <Row label="ElevenLabs (voix)" value={`${formatCount(u.elevenChars)} car.`} money={cost.eleven} />
                 <Row label="OpenAI live (traduction + texte source)" value={formatDuration(u.oaiLiveSec || 0)} money={cost.openaiLive} />
                 <Row label="Gemini live (audio envoyé + voix reçue)" value={formatDuration((u.geminiInSec || 0) + (u.geminiOutSec || 0))} money={cost.geminiLive} />
+                <Row label="Mistral live (transcription + voix)" value={`${formatDuration(u.mistralSttSec || 0)} · ${formatCount(u.mistralTtsChars || 0)} car.`} money={cost.mistralLive} />
                 <Row label="Doubao live (audio envoyé)" value={formatDuration(u.doubaoSec || 0)} money={cost.doubaoLive} />
                 <Row label="OpenRouter (comptes rendus)" value={`${formatCount(u.orTokens)} jetons`} money={cost.openrouter} />
                 <View style={styles.sep} />

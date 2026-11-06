@@ -8,6 +8,9 @@ import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, STRA
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 import { doubaoCode, doubaoPairProblem } from '../utils/doubao';
+import { OUTPUT_MODES } from '../utils/outputRoute';
+import { mistralVoiceLanguage } from '../utils/mistral';
+import { checkMistral } from '../utils/mistralCheck';
 import { describeError } from '../utils/http';
 import VoiceCloneCard from './VoiceCloneCard';
 import { listVoices, testGeminiKey, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
@@ -32,12 +35,14 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
   const [strategy, setStrategy] = useState(settings.strategy);
   const [theme, setThemeChoice] = useState(settings.theme);
   const live = strategy !== 'classic'; // one live-translation service (OpenAI or Gemini) instead of the Deepgram → DeepL → ElevenLabs chain
-  const LIVE_FIELDS = { openai: ['EXPO_PUBLIC_OPENAI_API_KEY'], gemini: ['EXPO_PUBLIC_GEMINI_API_KEY'], doubao: ['EXPO_PUBLIC_BYTEPLUS_API_KEY', 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID'] };
+  const LIVE_FIELDS = { openai: ['EXPO_PUBLIC_OPENAI_API_KEY'], gemini: ['EXPO_PUBLIC_GEMINI_API_KEY'], mistral: ['EXPO_PUBLIC_MISTRAL_API_KEY'], doubao: ['EXPO_PUBLIC_BYTEPLUS_API_KEY', 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID'] };
   const OTHER_LIVE_FIELDS = Object.values(LIVE_FIELDS).flat();
   const [streamVoice, setStreamVoice] = useState(settings.streamVoice);
   const [speed, setSpeed] = useState(settings.speed);
   const [voiceBySpeaker, setVoiceBySpeaker] = useState(settings.voiceBySpeaker);
   const [muteWhilePlaying, setMuteWhilePlaying] = useState(settings.muteWhilePlaying);
+  const [outputMode, setOutputMode] = useState(settings.outputMode);
+  const [elevenVoiceForAll, setElevenVoiceForAll] = useState(settings.elevenVoiceForAll);
   const [report, setReport] = useState(null); // result of « Tester mes clés »
   const [testing, setTesting] = useState(false);
   const [voices, setVoices] = useState(null); // voices of the ElevenLabs account
@@ -77,7 +82,9 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
         </View>
         <Text style={styles.hint}>
           {STRATEGIES[strategy].hint}.
-          {strategy === 'doubao'
+          {strategy === 'mistral'
+            ? ' Mistral enchaîne la transcription en direct (Voxtral), la traduction (Mistral Small, qui reconnaît aussi la langue de chaque phrase) et la voix (Voxtral). Une seule clé, hébergé en Europe, environ 0,01 $ par minute de parole entendue plus 0,016 $ pour 1 000 caractères de voix. La voix existe en anglais, français, espagnol, allemand, néerlandais, portugais, italien, hindi et arabe ; pour toute autre langue (chinois, japonais…) la traduction s\'affiche sans voix, sauf si vous avez une clé ElevenLabs et deux voix dans ces réglages : elles prennent alors le relais. Un peu plus lent que les services de parole à parole (comptez 2 secondes après la fin d\'une phrase). Fonction nouvelle : renvoyez-moi le journal si quelque chose cloche.'
+          : strategy === 'doubao'
             ? ' Doubao (BytePlus Seed LiveInterpret 2.0) traduit directement la parole en parole avec une voix clonée que vous avez enrôlée dans la console BytePlus (identifiant « speaker_id »). Une des deux langues doit être le chinois ou l\'anglais ; seuls chinois ↔ français et chinois → anglais sont éprouvés. Chaque session entend une seule langue : en mains libres, deux sessions tournent (une par sens). Prix non publié : renseignez-le dans l\'écran Consommation. Fonction nouvelle : renvoyez-moi le journal si quelque chose cloche.'
           : strategy === 'gemini'
             ? ' Gemini traduit directement la parole en parole (modèle gemini-3.5-live-translate-preview, environ 0,005 $ par minute d\'audio envoyé et 0,03 $ par minute de voix traduite, un niveau gratuit existe ; deux sessions en mains libres). Il est censé rester muet quand on parle déjà la langue cible ; un filtre coupe les répétitions qui restent. Vos voix ElevenLabs, DeepL et Deepgram ne servent pas dans ce mode. Fonction nouvelle, en préversion chez Google : renvoyez-moi le journal si quelque chose cloche.'
@@ -90,6 +97,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
         {strategy === 'openai' && [languages.A, languages.B].some((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)) && (
           <Text style={styles.bad}>
             {`⚠ ${[languages.A, languages.B].filter((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)).map((c) => getLanguage(c).label).join(' et ')} : cette langue ne peut pas être parlée par OpenAI live. Choisissez-en une autre ci-dessous, ou repassez en « Classique ».`}
+          </Text>
+        )}
+        {strategy === 'mistral' && [languages.A, languages.B].some((c) => !mistralVoiceLanguage(c)) && (
+          <Text style={styles.hint}>
+            {`ℹ︎ ${[languages.A, languages.B].filter((c) => !mistralVoiceLanguage(c)).map((c) => getLanguage(c).label).join(' et ')} : pas de voix Mistral dans cette langue, la traduction s'affichera sans être lue.`}
           </Text>
         )}
         {strategy === 'doubao' && (() => {
@@ -129,7 +141,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
               autoCorrect={false}
               secureTextEntry={f.secret}
               placeholderTextColor={palette().placeholder}
-              placeholder={f.name === 'EXPO_PUBLIC_OPENAI_API_KEY' ? 'sk-… (obligatoire pour OpenAI live)' : f.name === 'EXPO_PUBLIC_GEMINI_API_KEY' ? 'AIza… (obligatoire pour Gemini live)' : f.name === 'EXPO_PUBLIC_BYTEPLUS_API_KEY' ? 'clé Seed Speech (pas une clé ModelArk)' : f.name === 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID' ? 'ex. S_xxxxxxxx (voix enrôlée dans la console)' : f.optional ? 'sk-or-… (laisser vide si inutilisé)' : f.secret ? '••••••••' : 'ex. 21m00Tcm4TlvDq8ikWAM'}
+              placeholder={f.name === 'EXPO_PUBLIC_OPENAI_API_KEY' ? 'sk-… (obligatoire pour OpenAI live)' : f.name === 'EXPO_PUBLIC_GEMINI_API_KEY' ? 'AIza… (obligatoire pour Gemini live)' : f.name === 'EXPO_PUBLIC_MISTRAL_API_KEY' ? 'clé Mistral (console.mistral.ai)' : f.name === 'EXPO_PUBLIC_BYTEPLUS_API_KEY' ? 'clé Seed Speech (pas une clé ModelArk)' : f.name === 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID' ? 'ex. S_xxxxxxxx (voix enrôlée dans la console)' : f.optional ? 'sk-or-… (laisser vide si inutilisé)' : f.secret ? '••••••••' : 'ex. 21m00Tcm4TlvDq8ikWAM'}
             />
           </Fragment>
         ))}
@@ -140,6 +152,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
             setTesting(true);
             setReport(null);
             const v = (name) => values[name]?.trim();
+            if (strategy === 'mistral') {
+              setReport({ steps: await checkMistral({ apiKey: v('EXPO_PUBLIC_MISTRAL_API_KEY'), baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl }), voices: [] });
+              setTesting(false);
+              return;
+            }
             if (strategy === 'doubao') {
               setReport({ doubao: { ok: !!(v('EXPO_PUBLIC_BYTEPLUS_API_KEY') && v('EXPO_PUBLIC_DOUBAO_SPEAKER_ID')), message: 'la clé ne peut se vérifier qu\'en ouvrant une session : lancez une traduction courte (chinois ↔ français ou anglais)' }, voices: [] });
               setTesting(false);
@@ -179,6 +196,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           [
             ['OpenAI', report.openai],
             ['Gemini', report.gemini],
+            ['Mistral', report.mistral],
             ['Doubao', report.doubao],
             ['Deepgram', report.deepgram],
             ['DeepL', report.deepl],
@@ -192,6 +210,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
                 {`${r.ok ? '✓' : '✗'} ${name} : ${r.message}`}
               </Text>
             ))}
+        {report?.steps?.map((s) => (
+          <Text key={s.name} style={s.ok ? styles.good : styles.bad}>
+            {`${s.ok ? '✓' : '✗'} ${s.name} : ${s.message}`}
+          </Text>
+        ))}
         {report?.languages?.map((l) => (
           <Text key={l.label} style={l.deepgram.ok && l.deepl.ok ? styles.good : styles.bad}>
             {`${l.deepgram.ok && l.deepl.ok ? '✓' : '✗'} ${l.label} — Deepgram : ${l.deepgram.message} · DeepL : ${l.deepl.message}`}
@@ -251,6 +274,29 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           Auto amplifie fortement la voix faible ou lointaine (jusqu'à ×60) sans amplifier le bruit. Évitez les gains fixes élevés (×16, ×32) : ils font saturer la voix dès qu'elle monte, ce qui fait rater des mots.
           La barre de volume s'affiche pendant l'enregistrement.
         </Text>
+        <Text style={styles.label}>Où entendre chaque langue</Text>
+        <View style={styles.chips}>
+          {Object.entries(OUTPUT_MODES).map(([key, m]) => (
+            <Chip key={key} label={m.label} on={outputMode === key} onPress={() => setOutputMode(key)} />
+          ))}
+        </View>
+        <Text style={styles.hint}>
+          {OUTPUT_MODES[outputMode].hint}.
+          {outputMode === 'split'
+            ? ' Langue A = vous (casque), langue B = la personne en face (haut-parleur). Posez le téléphone entre vous deux et gardez le micro du téléphone. Le haut-parleur reparle dans le micro : avec OpenAI, Gemini et Doubao le micro est coupé pendant sa lecture ; avec Mistral et le mode Classique le texte déjà lu est reconnu et ignoré. Sans casque, les deux voix sortent sur le haut-parleur.'
+            : ''}
+        </Text>
+
+        {strategy === 'mistral' && (
+          <>
+            <Text style={styles.label}>Voix de Mistral live</Text>
+            <Chip label={elevenVoiceForAll ? 'Mes voix ElevenLabs pour toutes les langues' : 'Voix Mistral (ElevenLabs seulement en secours)'} on={elevenVoiceForAll} onPress={() => setElevenVoiceForAll((v) => !v)} />
+            <Text style={styles.hint}>
+              Mistral parle 9 langues avec ses voix prédéfinies. Activée, cette option fait parler **toutes** les langues par vos voix ElevenLabs (les deux voix des réglages, clonées si vous les avez clonées) : il faut une clé ElevenLabs. Sinon ElevenLabs ne prend le relais que pour le chinois, le japonais…
+            </Text>
+          </>
+        )}
+
         <Text style={styles.label}>Mains libres : écho</Text>
         <Chip
           label={muteWwp(muteWhilePlaying)}
@@ -259,7 +305,8 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
         />
         <Text style={styles.hint}>
           Coupe l'écoute pendant que la voix traduite est lue (et une demi-seconde après) : plus aucun risque que l'app se réécoute. En
-          contrepartie, ce que l'on dit pendant la lecture n'est pas traduit. À activer si des phrases fantômes reviennent.
+          contrepartie, ce que l'on dit pendant la lecture n'est pas traduit : avec quelqu'un qui parle sans s'arrêter (radio, exposé),
+          une grande partie des phrases est perdue. À n'activer que sans écouteurs, avec des interlocuteurs qui attendent la fin de la voix.
         </Text>
         </Section>
 
@@ -413,7 +460,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

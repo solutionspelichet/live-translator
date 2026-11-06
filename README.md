@@ -124,9 +124,9 @@ fournit désormais des minuteries qui tournent écran éteint (`setTimer`/`clear
 veille, renvoyant un événement `onTimer`), utilisées partout via `BackgroundTimers` (`src/utils/timers.js`). Sans module natif, retour aux
 minuteries JS.
 
-Le journal (200 lignes) est **gardé sur le téléphone** : si Android ferme l'app écran éteint, la ligne « ══ app (re)lancée ══ » le montre
+Le journal (4 000 lignes en mémoire, 1 500 gardées après un redémarrage) est **gardé sur le téléphone** : si Android ferme l'app écran éteint, la ligne « ══ app (re)lancée ══ » le montre
 au redémarrage. Un battement « ♥ » est écrit chaque minute (état, micro, paquets, Deepgram, verrou de veille, exemption batterie) : un trou
-dans les ♥ prouve que l'app était gelée. Le bouton « Partager le journal complet » du panneau de diagnostic l'envoie en texte.
+dans les ♥ prouve que l'app était gelée. Le bouton « Partager le journal complet » du panneau de diagnostic l'envoie comme **fichier .txt** (un long journal ne passe pas dans un message Android).
 Tout ce qui se passe est inscrit dans le
 journal du panneau de diagnostic (appui long sur ⚙︎) : « micro silencieux… → redémarrage », « Deepgram : reconnexion 2/30 »…
 
@@ -239,6 +239,7 @@ la voix de sortie est en 24 kHz (documenté ; un premier essai qui la déduisait
 - **Thème clair / sombre** : ⚙︎ → Apparence → Auto (suit le téléphone), Clair ou Sombre. Le changement s'applique tout de suite, avant même d'enregistrer. Les deux palettes (`src/theme/index.js`) ont les mêmes jetons de couleur ; un test vérifie le contraste de chaque texte sur chaque fond dans les deux thèmes. Les écrans lisent le thème au moment de s'afficher (`themedStyles`), il n'y a aucune couleur écrite en dur.
 - **Réglages en sections repliables** : en haut, un résumé (mode, langues, clés complètes ou non, apparence) ; puis Traduction, Clés API, Micro, Voix, Apparence, Arrière-plan. Seule « Traduction » est ouverte (et « Clés API » quand il en manque) ; le bouton Enregistrer reste en bas de l'écran.
 - **Comptes rendus de réunion** : le texte du modèle (titres, puces, **gras**) est mis en page au lieu d'être affiché avec ses symboles (`src/utils/markdown.js`, `src/components/MarkdownText.js`).
+- **Export PDF / Word** : chaque compte rendu a des boutons 📄 PDF (imprimé avec `expo-print`) et 📝 Word (.docx écrit à la main, `src/utils/exportDoc.js`), puis la feuille de partage Android (Drive, e-mail, WhatsApp, « Enregistrer »).
 
 ## Consommation facturée
 
@@ -252,6 +253,7 @@ Les volumes sont exacts côté app ; les tarifs (modifiables dans l'écran) sont
 
 ## Fiabilité
 
+- **Micro muet écran éteint** : si Android renvoie des silences numériques (journal « micro muet (aucun signal, que des zéros) »), le micro est redémarré ; après 3 essais de suite l'appli change de source audio (voix → micro → caméscope → brut), renouvelle le service d'arrière-plan et fait vibrer le téléphone (journal « micro toujours muet : essai avec la source … »). Un retour dans l'appli rétablit toujours le micro.
 - **Micro qui ne capte rien** : en OpenAI/Gemini live comme en classique, si aucun son n'arrive 1,5 s après l'appui, le micro est redémarré une fois (sinon message clair) ; pendant une traduction, un micro qui ne livre que des zéros numériques (Android le coupe sans erreur) ou plus rien pendant 3 s est redémarré (au plus une fois toutes les 10 s). Le journal note « micro rouvert au premier appui en N ms », « aucun son reçu… » et, à la fin de chaque traduction live, « micro : N paquets, crête X, Z paquets à zéro ».
 - **Micro libéré au repos** (`src/utils/micIdle.js`) : sans traduction en cours, le micro est coupé après 15 s si l'appli est en arrière-plan (écran éteint), après 5 min si elle est affichée ; un appui, ou le retour dans l'appli, le rouvre (le journal note « micro coupé … »). Avant, il restait ouvert des heures, indicateur de micro allumé et batterie sollicitée. Contrepartie : après une longue veille, le premier appui rouvre le micro (quelques centaines de ms) au lieu de partir d'un micro déjà chaud.
 - Appels DeepL / ElevenLabs : jusqu'à 2 nouvelles tentatives sur coupure réseau, 429 ou erreur serveur (`src/utils/http.js`).
@@ -288,7 +290,35 @@ Stratégie « Doubao live » (⚙︎ → Traduction) : BytePlus Seed Speech, *Li
 
 À préparer dans la console BytePlus : activer *Live Interpretation 2.0* et *Voice Replication 2.0*, créer une clé API, enrôler une voix autorisée et copier son `speaker_id`. Les deux valeurs se saisissent dans l'application (clés API).
 
-Limites connues : la voix doit être **clonée** (`seed-icl-2.0`) ; une des deux langues doit être le chinois ou l'anglais ; seuls chinois ↔ français et chinois → anglais ont été éprouvés en parole à parole ; **la langue entendue est fixe pour chaque session**, donc en mains libres deux sessions tournent (A→B et B→A) et celle dont la langue n'est pas parlée ne comprend rien (aucun filtre de répétition : à observer dans le journal). Le prix n'est pas publié : à renseigner dans Consommation. Le protocole vient d'une intégration éprouvée sur Android, mais cette version React Native n'a pas encore été essayée : le journal dira si la connexion directe est acceptée.
+Limites connues : la voix doit être **clonée** (`seed-icl-2.0`) ; une des deux langues doit être le chinois ou l'anglais ; seuls chinois ↔ français et chinois → anglais ont été éprouvés en parole à parole ; **la langue entendue est fixe pour chaque session**, donc en mains libres deux sessions tournent (A→B et B→A) et celle dont la langue n'est pas parlée ne comprend rien ; un filtre anti-écho compare chaque session avec ce qu'elle a entendu elle-même et coupe une traduction qui répète la même langue (sans écouteurs, la voix traduite rentre dans le micro ; la ligne « filtre » du journal donne la raison). Avec des écouteurs, ou avec l'option « couper le micro pendant la lecture », il n'y a pas d'écho du tout. Le prix n'est pas publié : à renseigner dans Consommation. Le protocole vient d'une intégration éprouvée sur Android, mais cette version React Native n'a pas encore été essayée : le journal dira si la connexion directe est acceptée.
+
+## Mistral live (Voxtral, expérimental)
+
+Stratégie « Mistral live » (⚙︎ → Traduction) : une chaîne **à une seule clé Mistral**, hébergée en Europe, pour toutes les langues de l'application. Ce n'est pas un traducteur de parole à parole : une transcription en direct (`voxtral-mini-transcribe-realtime-2602`, WebSocket `wss://api.mistral.ai/v1/audio/transcriptions/realtime`) coupe la parole en phrases ; Mistral Small (`mistral-small-latest`) dit **dans quelle langue est chaque phrase** (A ou B) et la traduit en une seule réponse JSON ; la voix Voxtral (`voxtral-mini-tts-latest`, `POST /v1/audio/speech`) lit la traduction dans l'oreille de l'interlocuteur. Un seul flux audio part vers Mistral, quel que soit le nombre de sens (mains libres comprises).
+
+- **Voix** : anglais, français, espagnol, allemand, néerlandais, portugais, italien, hindi et arabe. Pour toute autre langue (chinois, polonais…) la traduction s'affiche **sans voix** (une ligne du journal le dit) — sauf si une clé ElevenLabs et au moins une voix sont saisies : ElevenLabs parle alors ces langues (« voix de secours »). La voix est choisie automatiquement parmi les voix prédéfinies de la langue.
+- **Limites de débit** : un refus 429 passe tout de suite au modèle suivant (pas d'attente), 2 traductions au plus en parallèle ; une phrase en retard de plus de 12 s est affichée sans voix pour rattraper ; un ou deux mots seuls attendent la suite de la phrase.
+- **Langue tierce** : une phrase dans une troisième langue (anglais dans une paire français ↔ chinois) est traduite **vers la langue A seulement** (ligne « langue tierce » du journal) ; un bruit ou une syllabe isolée reste ignoré.
+- **Voix ElevenLabs pour toutes les langues** (⚙︎ → « Voix de Mistral live ») : vos deux voix ElevenLabs, clonées ou non, parlent toutes les langues à la place des voix Mistral ; la voix Mistral reste le filet de sécurité si ElevenLabs échoue.
+- **Écho** : sans écouteurs, la voix traduite rentre dans le micro ; son texte est reconnu et ignoré (ligne « écho de la voix traduite ignoré » dans le journal), sans couper le micro.
+- **Coût** : environ 0,008 $ par minute de parole entendue + 0,016 $ pour 1 000 caractères de voix (la traduction par Mistral Small est négligeable) — voir Consommation.
+- **Délai** attendu : de l'ordre de 2 s après la fin d'une phrase (transcription → traduction → voix, tout en une fois par phrase). Les lignes « Mistral live : phrase A→B (traduction X ms, voix Y ms) » du journal donnent les mesures réelles.
+- **Vérifié sur téléphone** : la chaîne fonctionne de bout en bout avec une vraie clé (journaux de test). Reste à surveiller : le retard si la formule Mistral est limitée. La connexion utilise le jeton temps réel documenté (`POST /v1/client/sessions`, puis sous-protocole `["realtime", jeton]`), avec la clé en en-tête en secours. **« Tester mes clés »** passe chaque étape en revue (clé, jeton, socket de transcription, traduction, voix) et affiche ce que le service répond ; le journal copie les premiers événements reçus (« Mistral live : reçu … ») et dit si de l'audio part sans qu'aucun texte revienne.
+
+### Langues mélangées en mains libres (Doubao, OpenAI, Gemini)
+- Le filtre anti-répétition décide, pour chaque direction, si sa sortie répète ce qui vient d'être dit. Il reconnaît le chinois par ses caractères (un texte court fait **uniquement** de caractères chinois suffit ; une phrase chinoise pleine de noms latins est reconnue à partir de 45 % de caractères chinois).
+- **Langue tierce** : un texte latin clairement dans une autre langue que la vôtre (anglais dans une paire français ↔ chinois, détecté par les mots courants) est traduit **vers vous seulement** ; la direction vers l'autre personne est coupée (le journal écrit « langue tierce »).
+- Limite connue de Doubao : chaque session n'écoute qu'une langue et invente du texte quand elle entend l'autre. En mains libres, du chinois peut ressortir en trop ; l'appui sur une zone ou Mistral live l'évitent.
+
+## Casque + haut-parleur (« Où entendre chaque langue »)
+
+Réglages → Voix → **Où entendre chaque langue** :
+- **Casque : A à gauche, B à droite** (par défaut) : tout sort au même endroit, une langue par oreille.
+- **Moi dans le casque · l'interlocuteur sur le haut-parleur** : la langue A est la vôtre, la langue B celle de la personne en face. Ce que dit l'interlocuteur, traduit dans votre langue, arrive dans le **casque** ; ce que vous dites, traduit dans sa langue, sort sur le **haut-parleur du téléphone** (par exemple vous en français dans le casque, lui en chinois sur le haut-parleur). Fonctionne avec tous les services (Classique, OpenAI, Gemini, Doubao, Mistral).
+
+Techniquement, le flux destiné à l'interlocuteur passe par un `AudioTrack` natif (`modules/dualcast-power`, `speakerOpen/Write/Drain/Stop`) dirigé vers le haut-parleur intégré (`setPreferredDevice`), pendant que le reste de l'audio suit la route du casque. Sans casque connecté les deux voix sortent du haut-parleur ; sur iOS ou avec un module natif ancien, le mode stéréo habituel est conservé.
+
+**Écho** : le haut-parleur reparle dans le micro du téléphone. OpenAI, Gemini et Doubao n'ont pas de filtre sur le texte, donc le micro est **coupé pendant la lecture du haut-parleur** (une ligne du journal le dit) ; Mistral et le mode Classique reconnaissent le texte déjà lu et l'ignorent, sans couper le micro. Gardez le micro du téléphone (un micro de casque Bluetooth dégrade le son) et posez le téléphone entre vous deux.
 
 ## Points matériels à connaître
 

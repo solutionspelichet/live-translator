@@ -179,3 +179,66 @@ test('LiveGate: only the recent seconds decide the script (speech alternates)', 
   assert.equal(g.audio([1], 9300).length, 0);
   assert.equal(g.mode, 'mute');
 });
+
+test('isForeignLatin: English is foreign to French, French is not, unsure short texts are not', async () => {
+  const { isForeignLatin } = await import('../src/utils/live.js');
+  assert.equal(isForeignLatin("Because it was for free to make this. All of them. Yeah, I know it.", 'fr'), true);
+  assert.equal(isForeignLatin("Parce que c'était gratuit de faire ça, oui je le sais bien", 'fr'), false);
+  assert.equal(isForeignLatin('OK. Great.', 'fr'), false);
+  assert.equal(isForeignLatin("Because it was for free to make this", 'en'), false);
+});
+
+test('LiveGate foreignRule: English heard in a French↔Chinese pair is translated for the user only', () => {
+  const said = "We have to be very careful on that, because that is the worst thing";
+  const toUser = new LiveGate({ scriptRule: true, foreignRule: { code: 'fr', toUser: true } });
+  toUser.text('in', said, 1000);
+  toUser.text('out', "Nous devons être très prudents à ce sujet", 1100);
+  assert.equal(toUser.audio([1], 1200).length, 1);
+  assert.equal(toUser.mode, 'play');
+  const toOther = new LiveGate({ scriptRule: true, foreignRule: { code: 'fr', toUser: false } });
+  toOther.text('in', said, 1000);
+  toOther.text('out', '所以我们必须非常小心', 1100);
+  assert.equal(toOther.audio([1], 1200).length, 0);
+  assert.equal(toOther.mode, 'mute');
+  assert.match(toOther.trace.at(-1).why, /tierce/);
+  // French speech: unchanged (Chinese output plays towards the other person)
+  const fr = new LiveGate({ scriptRule: true, foreignRule: { code: 'fr', toUser: false } });
+  fr.text('in', "c'est pas désagréable, c'est pas gênant du tout pour nous", 1000);
+  fr.text('out', '这不难受、不碍事', 1100);
+  assert.equal(fr.audio([1], 1200).length, 1);
+});
+
+test('LiveGate: Chinese full of Latin names is still Chinese — the Chinese output only repeats it', () => {
+  const said = '我设置了 Samsung 的 Email 提醒，然后 Feishu 也连上了';
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', said, 1000);
+  g.text('out', '我设定了三星的邮件提醒，然后飞书也连接上了', 1100);
+  assert.equal(g.audio([1], 1200).length, 0);
+  assert.equal(g.mode, 'mute');
+  const fr = new LiveGate({ scriptRule: true });
+  fr.text('in', said, 1000);
+  fr.text('out', "J'ai réglé le rappel par e-mail de Samsung et Feishu est connecté", 1100);
+  assert.equal(fr.audio([1], 1200).length, 1);
+});
+
+test('LiveGate: a few Chinese words inside French speech do not silence the Chinese translation', () => {
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', "il m'a dit 你好 puis nous avons parlé du projet et de la réunion de demain matin", 1000);
+  g.text('out', '他对我说你好，然后我们谈了项目和明天早上的会议', 1100);
+  assert.equal(g.audio([1], 1200).length, 1);
+});
+
+test('LiveGate: two Chinese characters alone are already Chinese — the Chinese output only repeats them', () => {
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', '左转，', 1000);
+  g.text('out', '左转，', 1100);
+  g.audio([1], 1200);
+  g.flush(1300);
+  assert.equal(g.mode, 'mute');
+  const fr = new LiveGate({ scriptRule: true });
+  fr.text('in', '左转，', 1000);
+  fr.text('out', 'Tournez à gauche,', 1100);
+  fr.audio([1], 1200);
+  fr.flush(1300);
+  assert.equal(fr.mode, 'play');
+});

@@ -18,6 +18,8 @@ export const emptyUsage = () => ({
   geminiInSec: 0, // Gemini live: seconds of audio sent (per session)
   geminiOutSec: 0, // Gemini live: seconds of translated voice received
   doubaoSec: 0, // Doubao live: seconds of audio sent (per session)
+  mistralSttSec: 0, // Mistral live: seconds of audio transcribed (once for both directions)
+  mistralTtsChars: 0, // Mistral live: characters spoken by the Voxtral voice
 });
 
 export const USAGE_KEYS = Object.freeze(Object.keys(emptyUsage()));
@@ -92,6 +94,8 @@ export const DEFAULT_PRICES = Object.freeze({
   openaiTranscribePerMin: 0.017, // gpt-realtime-whisper (source transcript), per minute
   geminiInPerMin: 0.0053, // gemini-3.5-live-translate-preview, audio in (25 tokens/s × $3.50 per million); a free tier exists
   geminiOutPerMin: 0.0315, // same, audio out ($21 per million tokens)
+  mistralSttPerMin: 0.008, // Voxtral Mini Transcribe Realtime
+  mistralTtsPerKChars: 0.016, // Voxtral TTS, per 1 000 characters (the translation by Mistral Small is a fraction of a cent, not counted)
   doubaoPerMin: 0, // BytePlus AST: price not published in what was found — fill it in from the BytePlus console
 });
 
@@ -107,7 +111,8 @@ export function estimateCost(rawUsage, prices = {}) {
   const openaiLive = (usage.oaiLiveSec / 60) * p.openaiLivePerMin + (usage.oaiTranscribeSec / 60) * p.openaiTranscribePerMin;
   const geminiLive = (usage.geminiInSec / 60) * p.geminiInPerMin + (usage.geminiOutSec / 60) * p.geminiOutPerMin;
   const doubaoLive = (usage.doubaoSec / 60) * p.doubaoPerMin;
-  return { deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, openaiLive, geminiLive, doubaoLive, total: deepgram + deepgramPre + deepl + eleven + openrouter + openaiLive + geminiLive + doubaoLive };
+  const mistralLive = (usage.mistralSttSec / 60) * p.mistralSttPerMin + (usage.mistralTtsChars / 1000) * p.mistralTtsPerKChars;
+  return { deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, openaiLive, geminiLive, doubaoLive, mistralLive, total: deepgram + deepgramPre + deepl + eleven + openrouter + openaiLive + geminiLive + doubaoLive + mistralLive };
 }
 
 export function formatDuration(seconds) {

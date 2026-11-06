@@ -14,8 +14,9 @@ test('OpenRouter request asks for usage/cost reporting', () => {
 
 test('parseChat extracts the text and the usage with the cost', () => {
   const r = parseChat({ choices: [{ message: { content: '## CR' } }], usage: { prompt_tokens: 1200, completion_tokens: 300, cost: 0.0123 } });
-  assert.deepEqual(r, { text: '## CR', usage: { promptTokens: 1200, completionTokens: 300, cost: 0.0123 } });
+  assert.deepEqual(r, { text: '## CR', truncated: false, usage: { promptTokens: 1200, completionTokens: 300, cost: 0.0123 } });
   assert.equal(parseChat({ choices: [{ message: { content: 'x' } }] }).usage.cost, 0);
+  assert.equal(parseChat({ choices: [{ message: { content: 'x' }, finish_reason: 'length' }] }).truncated, true);
 });
 
 test('parseChat turns an in-body error into an ApiError with its status', () => {

@@ -40,3 +40,18 @@ test('formatConversation builds a readable transcript, oldest first', () => {
   assert.match(blocks[0], /^\[\d\d:\d\d:\d\d\] 🇫🇷 Français → 🇨🇳 中文\ns1\nt1$/);
   assert.match(blocks[1], /🇨🇳 中文 → 🇫🇷 Français/);
 });
+
+test('the service that produced an entry is kept and shown in the shared text', async () => {
+  const { formatConversation, parseHistory } = await import('../src/utils/history.js');
+  const items = parseHistory([{ id: 1, from: 'A', to: 'B', source: 'bonjour', translated: 'hello', at: 0, service: 'Mistral live' }, { id: 2, from: 'A', to: 'B', source: 'a', translated: 'b', at: 0 }]);
+  assert.equal(items[0].service, 'Mistral live');
+  assert.equal(items[1].service, undefined);
+  const text = formatConversation(items, () => ({ label: 'X', flag: '' }));
+  assert.match(text, /· Mistral live\nbonjour/);
+});
+
+test('the delay of a sentence is kept and shown next to the service', () => {
+  const items = parseHistory([{ id: 1, from: 'A', to: 'B', source: 'a', translated: 'b', at: 0, service: 'Mistral live', delayMs: 2900 }]);
+  assert.equal(items[0].delayMs, 2900);
+  assert.match(formatConversation(items, () => ({ label: 'X', flag: '' })), /· Mistral live · 2\.9 s\n/);
+});

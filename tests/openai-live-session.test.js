@@ -145,3 +145,22 @@ test('transcribeInput asks for the source transcript (gpt-realtime-whisper) in t
     session: { audio: { output: { language: 'es' }, input: { transcription: { model: 'gpt-realtime-whisper' } } } },
   });
 });
+
+test('a server fault is retried; any other error says what OpenAI refused instead of claiming an outage', async () => {
+  const a = make();
+  a.session.connect();
+  a.sockets[0].open();
+  a.sockets[0].message({ type: 'error', error: { type: 'server_error', message: 'The server had an error while processing your request' } });
+  await pause(450);
+  assert.equal(a.sockets.length, 2, 'reconnected');
+  assert.equal(a.got.errors.length, 0);
+  assert.ok(a.got.notes.some((n) => /erreur reçue/.test(n)));
+
+  const b = make();
+  b.session.connect();
+  b.sockets[0].open();
+  b.sockets[0].message({ type: 'error', error: { type: 'invalid_request_error', code: 'unsupported_language', message: 'Unsupported output language: xx' } });
+  assert.equal(b.got.errors.length, 1);
+  assert.equal(b.got.errors[0].status, 400);
+  assert.match(b.got.errors[0].detail, /Unsupported output language/);
+});

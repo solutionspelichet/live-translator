@@ -142,6 +142,7 @@ export default class GeminiLiveSession {
     }
     if (msg.error) {
       const detail = msg.error.message ?? JSON.stringify(msg.error).slice(0, 200);
+      this.onNote?.(`Gemini live : erreur reçue ${JSON.stringify(msg.error).slice(0, 300)}`);
       this.fail(new ApiError('Gemini', KEY_PROBLEM.test(String(detail)) ? 401 : 500, String(detail)));
       return;
     }
@@ -157,6 +158,13 @@ export default class GeminiLiveSession {
         this.onNote?.(`Gemini live : message « ${kind} » ${JSON.stringify(msg).slice(0, 160)}`);
       }
       return;
+    }
+    // The kinds of fields the service really sends (one line per new kind): tells at once if the transcription stopped coming.
+    for (const key of Object.keys(content)) {
+      if (!this.seen.has(`content.${key}`)) {
+        this.seen.add(`content.${key}`);
+        if (!['modelTurn', 'turnComplete', 'generationComplete'].includes(key)) this.onNote?.(`Gemini live : champ « ${key} » reçu ${JSON.stringify(content[key]).slice(0, 120)}`);
+      }
     }
     if (content.inputTranscription?.text) this.onInputText(String(content.inputTranscription.text));
     if (content.outputTranscription?.text) this.onOutputText(String(content.outputTranscription.text));
