@@ -447,11 +447,26 @@ export default class LiveTranslationEngine {
     turn.stallTimer = this.timers.setInterval(async () => {
       if (this.turnId !== turn.id || turn.ended || turn.restarting) return;
       const problem = micProblem(this.mic.stats, Date.now(), { stallMs: this.stallMs });
+      if (!problem && turn.stuck && Date.now() - (turn.lastRestartAt ?? 0) > 3000) {
+        this.emit({ type: 'note', text: `micro de nouveau audible après ${turn.stuck} tentative(s)` });
+        turn.stuck = 0;
+      }
       if (!problem || Date.now() - (turn.lastRestartAt ?? 0) < 10000) return;
       turn.lastRestartAt = Date.now();
       turn.restarting = true;
-      this.emit({ type: 'note', text: `${problem} → redémarrage` });
+      // The same silence after several restarts (screen off: Android keeps the background microphone muted): escalate instead of
+      // repeating the same restart for minutes — another audio source, and the app is told so it can renew its foreground service.
+      turn.stuck = (turn.stuck ?? 0) + 1;
+      this.emit({ type: 'note', text: `${problem} → redémarrage${turn.stuck > 1 ? ` (${turn.stuck}ᵉ tentative)` : ''}` });
       try {
+        if (turn.stuck >= 3) {
+          const sources = ['voice_recognition', 'mic', 'camcorder', 'unprocessed'];
+          const current = this.mic.config?.source ?? 'voice_recognition';
+          const next = sources[(Math.max(0, sources.indexOf(current)) + 1) % sources.length];
+          this.mic.setSource?.(next);
+          this.emit({ type: 'note', text: `micro toujours muet : essai avec la source « ${next} » et renouvellement du service d'arrière-plan` });
+          this.emit({ type: 'mic-stuck', attempt: turn.stuck });
+        }
         await this.mic.restart();
         if (this.turnId === turn.id && !turn.ended) this.mic.setSink(onChunk);
         this.emit({ type: 'note', text: 'micro redémarré' });

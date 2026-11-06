@@ -193,6 +193,11 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         EventLog.add(`mains libres arrêté : aucun mot depuis ${ev.minutes} min`);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
         Alert.alert('Mains libres arrêté', `Aucune parole détectée depuis ${ev.minutes} minutes : l'écoute s'est arrêtée pour économiser la batterie et la transcription. Touchez l'écran pour reprendre.`);
+      } else if (ev.type === 'mic-stuck') {
+        // Android keeps the microphone muted while the app is in the background: renew the foreground service + wake locks and buzz,
+        // the screen being off the user has no other way to know.
+        BackgroundService.start().catch(() => {});
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
       } else if (ev.type === 'note') {
         EventLog.add(ev.text);
       } else if (ev.type === 'error') {

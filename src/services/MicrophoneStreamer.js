@@ -106,6 +106,11 @@ export default class MicrophoneStreamer {
     this.stats.zeroRun = 0;
   }
 
+  /** Another audio source for the next open (a phone may silence one source for a background app and not another). */
+  setSource(source) {
+    this.config = { ...this.config, source };
+  }
+
   /** Tear the native recorder down and bring it back up (recovers from a silent recorder). */
   restart() {
     return this.close().then(() => this.open());

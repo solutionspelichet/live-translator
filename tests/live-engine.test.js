@@ -479,3 +479,26 @@ test('split output: a voice for the headset does not silence the microphone', as
   assert.ok(sent.some((b) => b !== 0), 'the microphone keeps going');
   engine.cancel();
 });
+
+test('a microphone that stays muted is restarted again with another audio source and the app is told (screen off)', async () => {
+  const { engine, events, sessions, chunk } = setup({ stallMs: 50 });
+  let source = 'voice_recognition';
+  engine.mic.config = { source };
+  engine.mic.setSource = (s) => { source = s; engine.mic.config = { source: s }; };
+  engine.mic.stats = { chunks: 10, lastChunkAt: Date.now() - 10000, zeroRun: 0 }; // nothing arrives
+  engine.mic.restart = async () => {};
+  await engine.toggle('A');
+  chunk(); // the first chunk arms the stall monitor
+  engine.mic.stats = { chunks: 10, lastChunkAt: Date.now() - 10000, zeroRun: 0 };
+  const turn = engine.turn;
+  turn.lastRestartAt = 0;
+  for (let i = 0; i < 4; i++) {
+    turn.lastRestartAt = 0; // skip the 10 s wait between attempts
+    await pause(250);
+  }
+  assert.ok(events.some((e) => e.type === 'mic-stuck'), 'the app is told');
+  assert.notEqual(source, 'voice_recognition', 'another source was tried');
+  assert.ok(events.some((e) => e.type === 'note' && /micro toujours muet/.test(e.text)));
+  engine.cancel();
+  void sessions;
+});
