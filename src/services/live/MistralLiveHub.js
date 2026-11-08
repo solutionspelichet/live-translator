@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, MISTRAL_LLM_MODELS, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, languageFits, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, languageFits, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -41,8 +41,9 @@ export default class MistralLiveHub {
   /** model → time until which it is known to be refused or limited (shared by the hubs of every turn). */
   static blockedUntil = new Map();
 
-  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false }) {
-    Object.assign(this, { apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak, preferFallback }); // preferFallback: the other voice speaks EVERY language (e.g. one's own cloned voice) // fallbackSpeak(text, target) → { samples, rate } | null: another voice for the languages Mistral cannot speak
+  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '' }) {
+    Object.assign(this, { apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak, preferFallback, glossary });
+    this.models = modelsForQuality(quality); // the translation models, best first or fastest first // preferFallback: the other voice speaks EVERY language (e.g. one's own cloned voice) // fallbackSpeak(text, target) → { samples, rate } | null: another voice for the languages Mistral cannot speak
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.fetchImpl = fetchImpl ?? ((...args) => fetch(...args));
     this.sessions = [];
@@ -322,7 +323,7 @@ export default class MistralLiveHub {
       return null;
     }
     const t0 = this.now();
-    const chat = await this.interpret(interpreterMessages({ a: this.languageName(pair.a), b: this.languageName(pair.b), text, context: this.context.slice(-3) }));
+    const chat = await this.interpret(interpreterMessages({ a: this.languageName(pair.a), b: this.languageName(pair.b), text, context: this.context.slice(-3), glossary: this.glossary }));
     this.context.push(text);
     if (this.context.length > 6) this.context.shift();
     let verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
@@ -330,13 +331,13 @@ export default class MistralLiveHub {
       // A counting, a number: no word tells the language, so it is the one of the previous sentence (the same speaker goes on).
       const from = this.lastFrom === 'B' ? pair.b : pair.a;
       const to = this.lastFrom === 'B' ? pair.a : pair.b;
-      const forced = await this.interpret(forcedMessages({ from: this.languageName(from), to: this.languageName(to), text }));
+      const forced = await this.interpret(forcedMessages({ from: this.languageName(from), to: this.languageName(to), text, glossary: this.glossary }));
       const answer = parseInterpretation(forced?.choices?.[0]?.message?.content);
       if (answer.text) verdict = { from: this.lastFrom, text: answer.text };
     }
     if (verdict.from === 'other' && !verdict.text && !hasNoLetters(text) && looksLikeSpeech(text)) {
       // The small models answer « other » with an empty text for English in a French↔Chinese pair: translate it for person A anyway.
-      const third = await this.interpret(forcedMessages({ from: 'the language of the sentence', to: this.languageName(pair.a), text }));
+      const third = await this.interpret(forcedMessages({ from: 'the language of the sentence', to: this.languageName(pair.a), text, glossary: this.glossary }));
       const answer = parseInterpretation(third?.choices?.[0]?.message?.content);
       const same = answer.text.replace(/\W+/g, '').toLowerCase() === text.replace(/\W+/g, '').toLowerCase();
       if (answer.text && !same && languageFits(answer.text, pair.a)) verdict = { from: 'other', text: answer.text, third: true };
@@ -358,7 +359,7 @@ export default class MistralLiveHub {
       if (!languageFits(verdict.text, toCode)) {
         const fromCode = thirdLanguage ? null : verdict.from === 'A' ? pair.a : pair.b;
         this.note(`Mistral live : traduction dans la mauvaise langue (« ${verdict.text.slice(0, 40)} ») : nouvel essai vers ${toCode}`);
-        const again = await this.interpret(forcedMessages({ from: fromCode ? this.languageName(fromCode) : 'the language of the sentence', to: this.languageName(toCode), text }));
+        const again = await this.interpret(forcedMessages({ from: fromCode ? this.languageName(fromCode) : 'the language of the sentence', to: this.languageName(toCode), text, glossary: this.glossary }));
         const answer = parseInterpretation(again?.choices?.[0]?.message?.content);
         if (answer.text && languageFits(answer.text, toCode)) verdict = { ...verdict, text: answer.text };
         else {
@@ -431,7 +432,7 @@ export default class MistralLiveHub {
         // The models known to be refused or limited are tried last (the hub lives one turn: without this memory every turn
         // started again with the model that was refused one minute before, one failed round trip per turn).
         const now = this.now();
-        const order = MISTRAL_LLM_MODELS.map((model, index) => ({ model, index })).sort((x, y) => (MistralLiveHub.blockedUntil.get(x.model) > now ? 1 : 0) - (MistralLiveHub.blockedUntil.get(y.model) > now ? 1 : 0));
+        const order = this.models.map((model, index) => ({ model, index })).sort((x, y) => (MistralLiveHub.blockedUntil.get(x.model) > now ? 1 : 0) - (MistralLiveHub.blockedUntil.get(y.model) > now ? 1 : 0));
         for (const { model, index } of order) {
           try {
             // No wait-and-retry on the same model: a 429 moves to the next one at once (the first version waited up to 5 s per

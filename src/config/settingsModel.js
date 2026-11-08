@@ -35,6 +35,8 @@ export function engineOptions(settings) {
     muteWhilePlaying: Boolean(settings.muteWhilePlaying),
     voiceBySpeaker: Boolean(settings.voiceBySpeaker),
     elevenVoiceForAll: Boolean(settings.elevenVoiceForAll),
+    mistralQuality: settings.mistralQuality === 'fast' ? 'fast' : 'best',
+    mistralGlossary: String(settings.mistralGlossary ?? ''),
     endpointingMs,
     utteranceEndMs,
     flushAfterMs,
@@ -75,6 +77,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   muteWhilePlaying: false, // hands-free: stop listening while the translated voice plays (kills echo, no interruption)
   recentPairs: Object.freeze([]), // last language pairs used: [{A, B}], newest first
   prices: Object.freeze({}), // unit prices overriding the defaults of the usage counter
+  mistralQuality: 'best', // Mistral live translation: 'best' (larger models first) | 'fast' (small models first)
+  mistralGlossary: '', // topic, names and terms of the meeting, given to the Mistral translator
   elevenVoiceForAll: false, // Mistral live: ElevenLabs (my voices, cloned ones included) speaks every language instead of Mistral's 9
   voiceBySpeaker: false, // the voice follows who is speaking (own cloned voice for own words) instead of the language heard
   minutesLanguage: 'fr', // language of the last minutes written
@@ -140,6 +144,8 @@ export function sanitizeSettings(raw) {
     recentPairs: sanitizePairs(input.recentPairs),
     prices: sanitizePrices(input.prices),
     voiceBySpeaker: typeof input.voiceBySpeaker === 'boolean' ? input.voiceBySpeaker : DEFAULT_SETTINGS.voiceBySpeaker,
+    mistralQuality: input.mistralQuality === 'fast' ? 'fast' : 'best',
+    mistralGlossary: typeof input.mistralGlossary === 'string' ? input.mistralGlossary.slice(0, 600) : '',
     elevenVoiceForAll: typeof input.elevenVoiceForAll === 'boolean' ? input.elevenVoiceForAll : DEFAULT_SETTINGS.elevenVoiceForAll,
     minutesLanguage: LANGUAGES[input.minutesLanguage] ? input.minutesLanguage : DEFAULT_SETTINGS.minutesLanguage,
     minutesTemplate: TEMPLATE_IDS.includes(input.minutesTemplate) ? input.minutesTemplate : DEFAULT_SETTINGS.minutesTemplate,

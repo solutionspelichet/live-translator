@@ -7,6 +7,19 @@ export const MISTRAL_STT_MODEL = 'voxtral-mini-transcribe-realtime-2602';
 export const MISTRAL_LLM_MODEL = 'mistral-small-latest';
 // Rate limits are per model: when the first is limited (429) or unknown for the account, the next one is tried.
 export const MISTRAL_LLM_MODELS = Object.freeze(['mistral-small-latest', 'ministral-8b-latest', 'open-mistral-nemo', 'mistral-medium-latest']);
+// Translation quality: « best » asks the larger models first (a little slower, much better with Chinese, names, long sentences) and
+// falls back on the smaller ones when the account is limited; « fast » is the previous order.
+export const MISTRAL_QUALITY = Object.freeze({
+  best: Object.freeze(['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest', 'ministral-8b-latest', 'open-mistral-nemo']),
+  fast: MISTRAL_LLM_MODELS,
+});
+export const modelsForQuality = (quality) => MISTRAL_QUALITY[quality] ?? MISTRAL_QUALITY.best;
+
+/** What the user told about the meeting (topic, names, terms to keep): given to the translator, cut to a reasonable size. */
+export const glossaryLine = (text) => {
+  const t = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 600);
+  return t ? `About this conversation, from the user (topic, names, terms to keep or translate in a given way): ${t}` : null;
+};
 export const MISTRAL_TTS_MODEL = 'voxtral-mini-tts-latest';
 export const MISTRAL_INPUT_RATE = 16000; // PCM 16-bit mono in
 export const MISTRAL_TTS_LANGUAGES = Object.freeze(['en', 'fr', 'de', 'es', 'nl', 'pt', 'it', 'hi', 'ar']);
@@ -54,7 +67,7 @@ export function isFragment(text) {
   return t.split(/\s+/).length <= 2;
 }
 
-export function interpreterMessages({ a, b, text, context = [] }) {
+export function interpreterMessages({ a, b, text, context = [], glossary = '' }) {
   const system = [
     `You are the interpreter of a live face-to-face conversation: person A speaks ${a}, person B speaks ${b}.`,
     'You receive ONE sentence transcribed from speech (it may contain recognition errors: fix the obvious ones silently).',
@@ -65,6 +78,7 @@ export function interpreterMessages({ a, b, text, context = [] }) {
     'No comments, no quotation marks around the translation, never answer the sentence: only translate it.',
     // What was said just before: the sentences are cut at pauses, so a fragment often only makes sense with its neighbours
     // (pronouns, names, a technical term used a moment ago).
+    ...(glossaryLine(glossary) ? [glossaryLine(glossary)] : []),
     ...(context.length ? [`Context, for understanding only (do NOT translate these, they were already handled): ${context.map((c) => `« ${c} »`).join(' ')}`] : []),
   ].join('\n');
   return [
@@ -248,13 +262,14 @@ export function looksLikeSpeech(text) {
   return String(text ?? '').trim().split(/\s+/).filter((w) => /\p{L}/u.test(w)).length >= 3;
 }
 
-export function forcedMessages({ from, to, text }) {
+export function forcedMessages({ from, to, text, glossary = '' }) {
   return [
     {
       role: 'system',
       content: [
         `Translate the sentence from ${from} into ${to}, in natural spoken style (it was transcribed from speech: fix obvious recognition errors silently).`,
         'Numbers and counting are translated too (write the numbers the way they are said in the target language).',
+        ...(glossaryLine(glossary) ? [glossaryLine(glossary)] : []),
         'Reply ONLY with a JSON object: {"from":"A","text":"<translation>"}. No comments, never answer the sentence: only translate it.',
       ].join('\n'),
     },

@@ -28,7 +28,7 @@ function wavBytes(samples, rate = 24000) {
   return bytes;
 }
 
-async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null, speech = null, chatFail = null } = {}) {
+async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null, speech = null, chatFail = null, quality = null, glossary = '' } = {}) {
   MistralLiveHub.blockedUntil.clear(); // the memory of refused models is shared by hubs: each test starts clean
   const sockets = [];
   class FakeSocket {
@@ -61,7 +61,7 @@ async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices =
     if (url.includes('/v1/audio/speech')) return json({ audio_data: Buffer.from(wavBytes([1000, 2000, 3000])).toString('base64') });
     return { ok: false, status: 404, text: async () => 'nope' };
   };
-  const hub = new MistralLiveHub({ apiKey: 'key-test', baseUrl: 'https://api.test', wsUrl: 'wss://stt.test/realtime', languageName: (c) => c, WebSocketImpl: FakeSocket, fetchImpl, quietMs: 40 });
+  const hub = new MistralLiveHub({ apiKey: 'key-test', baseUrl: 'https://api.test', wsUrl: 'wss://stt.test/realtime', languageName: (c) => c, WebSocketImpl: FakeSocket, fetchImpl, quietMs: 40, quality: quality ?? 'fast', glossary });
   const got = { audio: [], inText: [], outText: [], notes: [], errors: [], usage: [] };
   const make = (source, target, transcribeInput) =>
     new MistralLiveSession({
@@ -502,4 +502,25 @@ test('the last sentences are given to the translator as context (fragments cut a
   await pause(500);
   assert.ok(!/Context/.test(seen[0]), 'nothing before the first sentence');
   assert.match(seen[1], /Context[^\n]*Le brevet est abandonné/);
+});
+
+test('quality « best » asks the larger models first and falls back on the smaller ones; the glossary goes into the prompt', async () => {
+  const asked = [];
+  const prompts = [];
+  const { sockets, got } = await setup({
+    quality: 'best',
+    glossary: 'Réunion sur des brevets. Garder : Formlabs.',
+    chatFail: (url, body, json) => {
+      asked.push(body.model);
+      prompts.push(body.messages[0].content);
+      if (body.model === 'mistral-large-latest') return { ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } };
+      return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hello.' }) } }] });
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(900);
+  assert.deepEqual(asked.slice(0, 2), ['mistral-large-latest', 'mistral-medium-latest']);
+  assert.equal(got.outText.length, 1);
+  assert.match(prompts[0], /brevets\. Garder : Formlabs/);
 });

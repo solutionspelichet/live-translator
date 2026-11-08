@@ -54,6 +54,8 @@ test('sanitizeSettings keeps valid values', () => {
     muteWhilePlaying: false,
     voiceBySpeaker: false,
     elevenVoiceForAll: false,
+    mistralQuality: 'best',
+    mistralGlossary: '',
     minutesLanguage: 'fr',
     minutesTemplate: 'reunion',
     minutesModel: '',

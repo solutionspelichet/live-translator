@@ -43,6 +43,8 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
   const [muteWhilePlaying, setMuteWhilePlaying] = useState(settings.muteWhilePlaying);
   const [outputMode, setOutputMode] = useState(settings.outputMode);
   const [elevenVoiceForAll, setElevenVoiceForAll] = useState(settings.elevenVoiceForAll);
+  const [mistralQuality, setMistralQuality] = useState(settings.mistralQuality);
+  const [mistralGlossary, setMistralGlossary] = useState(settings.mistralGlossary);
   const [report, setReport] = useState(null); // result of « Tester mes clés »
   const [testing, setTesting] = useState(false);
   const [voices, setVoices] = useState(null); // voices of the ElevenLabs account
@@ -289,6 +291,27 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
 
         {strategy === 'mistral' && (
           <>
+            <Text style={styles.label}>Qualité de la traduction (Mistral live)</Text>
+            <View style={styles.chips}>
+              <Chip label="Meilleure (modèles plus puissants)" on={mistralQuality === 'best'} onPress={() => setMistralQuality('best')} />
+              <Chip label="Plus rapide" on={mistralQuality === 'fast'} onPress={() => setMistralQuality('fast')} />
+            </View>
+            <Text style={styles.hint}>
+              « Meilleure » demande d'abord les grands modèles de Mistral (plus justes en chinois, avec les noms et les longues phrases, un peu plus lents) et passe automatiquement aux petits si votre compte est limité. « Plus rapide » part des petits modèles.
+            </Text>
+            <Text style={styles.label}>Contexte et termes à respecter</Text>
+            <TextInput
+              style={[styles.input, { minHeight: 70 }]}
+              value={mistralGlossary}
+              onChangeText={setMistralGlossary}
+              multiline
+              maxLength={600}
+              placeholder="ex. Réunion sur des brevets d'impression 3D résine. Garder tels quels : Formlabs, Carbon, CDOM. « film » = film de décollement."
+              placeholderTextColor={palette().placeholder}
+            />
+            <Text style={styles.hint}>
+              Dites en une ou deux phrases de quoi parle la réunion et listez les noms de marques, de personnes ou les termes techniques : ils sont donnés au traducteur avec chaque phrase (600 caractères au plus).
+            </Text>
             <Text style={styles.label}>Voix de Mistral live</Text>
             <Chip label={elevenVoiceForAll ? 'Mes voix ElevenLabs pour toutes les langues' : 'Voix Mistral (ElevenLabs seulement en secours)'} on={elevenVoiceForAll} onPress={() => setElevenVoiceForAll((v) => !v)} />
             <Text style={styles.hint}>
@@ -460,7 +483,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}
