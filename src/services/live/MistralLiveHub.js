@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isAccountRateLimit, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -9,12 +9,13 @@ const PAUSE_MID_SENTENCE_MS = 650; // no punctuation yet: wait for a real pause 
 const PAUSE_FRAGMENT_MS = 3000; // one or two words alone: wait for the rest of the sentence (they were dropped as « not speech »)
 const QUIET_MS = 1500;
 const NOTES_EVERY = 4; // sentences between two updates of the notes
-const NOTES_MIN_GAP_MS = 40000;
+const NOTES_MIN_GAP_MS = 90000; // 20 000 tokens a minute on some accounts: the notes must not eat the translations’ budget
 const NOTES_KEEP_MS = 30 * 60000; // the notes of a conversation are still valid when the listening restarts within half an hour
 const REQUEST_TIMEOUT_MS = 12000; // a request that takes longer is given up (a slow network must not freeze every sentence behind it)
 const SLOW_VOICE_MS = 6000; // on a slow network a voice later than this is skipped (STALE_VOICE_MS otherwise)
 const RATE_GAP_MS = 1100; // spacing between two requests once the plan's limit was hit
 const MAX_PARALLEL_CHAT = 2; // more at once triggers the per-second limit of the plans, and one 429 then stalls every sentence behind it
+const MAX_MODELS_PER_ROUND = 3;
 const MODEL_ROUNDS = 2; // times every model is tried before giving up on a sentence
 const ROUND_PAUSE_MS = 1500;
 const STALE_VOICE_MS = 12000; // a sentence this old when its turn comes is shown without voice: 20 s of backlog helps nobody
@@ -42,6 +43,12 @@ const NO_TEXT_AFTER_SEC = 8; // audio sent without a single word back: say so in
  * @param {string} opts.wsUrl  wss://api.mistral.ai/v1/audio/transcriptions/realtime
  * @param {(code: string) => string} opts.languageName
  */
+/** The answer is one short sentence: asking for 500 tokens whatever the sentence reserves tokens the plan counts (20 000 a minute on some accounts). */
+function maxTokensFor(messages) {
+  const text = String(messages?.[messages.length - 1]?.content ?? '');
+  return Math.min(400, Math.max(120, Math.ceil(text.length * 2.2) + 60));
+}
+
 export default class MistralLiveHub {
   /** model → time until which it is known to be refused or limited (shared by the hubs of every turn). */
   static blockedUntil = new Map();
@@ -548,34 +555,35 @@ export default class MistralLiveHub {
     try {
       let refusal = null;
       for (let round = 0; round < MODEL_ROUNDS; round++) {
-        if (round > 0) await new Promise((resolve) => this.timers.setTimeout(resolve, ROUND_PAUSE_MS)); // every model is limited: let the per-second window pass
-        // The models known to be refused or limited are tried last (the hub lives one turn: without this memory every turn
-        // started again with the model that was refused one minute before, one failed round trip per turn).
+        let tried = 0;
+        // The models paused after a refusal are left alone until their pause is over (the memory is shared by every turn: without it
+        // each start asked again the model refused a minute before). When all of them are paused nothing is asked: the sentence is
+        // given up at once, which spares the quota and the user's patience.
         const now = this.now();
-        const order = this.models.map((model, index) => ({ model, index })).sort((x, y) => (MistralLiveHub.blockedUntil.get(x.model) > now ? 1 : 0) - (MistralLiveHub.blockedUntil.get(y.model) > now ? 1 : 0));
-        for (const { model, index } of order) {
+        const available = this.models.map((model, index) => ({ model, index })).filter(({ model }) => !(MistralLiveHub.blockedUntil.get(model) > now));
+        if (!available.length) throw refusal ?? this.lastRefusal ?? new ApiError('Mistral', 429, 'tous les modèles sont en pause après un refus (limite de débit)');
+        if (round > 0) await new Promise((resolve) => this.timers.setTimeout(resolve, ROUND_PAUSE_MS)); // let the per-second window pass
+        for (const { model, index } of available) {
           try {
             // No wait-and-retry on the same model: a 429 moves to the next one at once (the first version waited up to 5 s per
             // model and a single sentence could take 33 s, with the whole queue behind it).
-            const chat = await this.post('/v1/chat/completions', { model, temperature: 0, max_tokens: 500, response_format: { type: 'json_object' }, messages }, { retries: 0 });
+            const chat = await this.post('/v1/chat/completions', { model, temperature: 0, max_tokens: maxTokensFor(messages), response_format: { type: 'json_object' }, messages }, { retries: 0 });
             if (index !== this.llmIndex) {
               this.llmIndex = index;
-              this.note(`Mistral live : traduction avec le modèle « ${model} » (le précédent est refusé ou limité pour ce compte)`);
+              this.note(`Mistral live : traduction avec le modèle « ${model} »`);
             }
             return chat;
           } catch (error) {
             if (!isModelRefusal(error)) throw error;
-            if (isAccountRateLimit(error)) {
-              // The limit of the whole account: trying the other models would count again. Space the requests out, wait one
-              // slot and ask again with the same model; after the second refusal the sentence is given up (the next ones follow).
-              this.slowDown();
-              refusal = error;
-              if (round === 0) break; // the pause of the next round is the wait; same models, same order
-              throw refusal;
-            }
-            // 429 on this model only: a short break; 404/403: this account cannot use the model, much longer.
-            MistralLiveHub.blockedUntil.set(model, this.now() + (error.status === 429 ? 60000 : 30 * 60000));
+            // The limits are per model: 429 = this model for a minute (its tokens a minute or its requests a second), 404/403 = this
+            // account cannot use it, much longer. The next model is asked at once; the reason is written once so the journal says why.
+            const until = this.now() + (error.status === 429 ? 60000 : 30 * 60000);
+            if (!(MistralLiveHub.blockedUntil.get(model) > this.now())) this.note(`Mistral live : modèle « ${model} » refusé (${error.status} : ${String(error.detail ?? '').replace(/\s+/g, ' ').slice(0, 110)}) → ${error.status === 429 ? '1 min' : '30 min'} de pause pour ce modèle`);
+            MistralLiveHub.blockedUntil.set(model, until);
+            this.slowDown();
             refusal = error;
+            this.lastRefusal = error;
+            if (++tried >= MAX_MODELS_PER_ROUND) break; // a few models are enough: each ask counts against the limits
           }
         }
       }

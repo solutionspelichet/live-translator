@@ -119,11 +119,11 @@ test('interpreterMessages adds the previous sentences as context only when there
   assert.match(withContext, /« Le brevet est abandonné\. » « Il coûte cher\. »/);
 });
 
-test('modelsForQuality: best starts with the large model, fast with the small one; the glossary is cut and put in both prompts', async () => {
+test('modelsForQuality: best starts with the large model (the most tokens a minute), fast with the small one; the glossary is cut and put in both prompts', async () => {
   const { modelsForQuality, glossaryLine } = await import('../src/utils/mistral.js');
-  assert.equal(modelsForQuality('best')[0], 'mistral-medium-latest');
+  assert.equal(modelsForQuality('best')[0], 'mistral-large-2512');
   assert.equal(modelsForQuality('fast')[0], 'mistral-small-latest');
-  assert.equal(modelsForQuality('unknown')[0], 'mistral-medium-latest');
+  assert.equal(modelsForQuality('unknown')[0], 'mistral-large-2512');
   assert.equal(glossaryLine('  '), null);
   assert.ok(glossaryLine('x'.repeat(2000)).length < 1300);
   assert.match(interpreterMessages({ a: 'Français', b: 'English', text: 'Oui', glossary: 'Garder : Formlabs' })[0].content, /Garder : Formlabs/);

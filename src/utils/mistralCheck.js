@@ -87,32 +87,33 @@ export async function checkMistral({ apiKey, baseUrl, wsUrl, WebSocketImpl = glo
     };
   }));
 
-  // 3. the translation (language + translation in one JSON answer); a model refused for this account is replaced by the next one
+  // 3. the translation (language + translation in one JSON answer). EVERY model of the list is tried and reported: the limits are per
+  // model and differ a lot between accounts (one real account: 0.03 request a second on ministral, 250 000 tokens a minute on large),
+  // so the screen says which model works, which is limited and why.
   {
-    const t0 = Date.now();
-    const notes = [];
-    let done = false;
+    const results = [];
+    let working = null;
     for (const model of MISTRAL_LLM_MODELS) {
+      const t0 = Date.now();
       try {
         const chat = await call('/v1/chat/completions', {
           method: 'POST',
           body: JSON.stringify({ model, temperature: 0, max_tokens: 200, response_format: { type: 'json_object' }, messages: interpreterMessages({ a: 'Français', b: 'English', text: 'Bonjour, comment allez-vous ?' }) }),
         });
         const verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
-        add('Traduction', verdict.from === 'A' && !!verdict.text, `${model} : « ${verdict.text || String(chat?.choices?.[0]?.message?.content ?? '').slice(0, 80)} » (${Date.now() - t0} ms)${notes.length ? ` · avant : ${notes.join(' ; ')}` : ''}`);
-        done = true;
-        break;
+        const ok = verdict.from === 'A' && !!verdict.text;
+        results.push(`${model} : ${ok ? `OK « ${verdict.text} »` : `réponse inattendue « ${String(chat?.choices?.[0]?.message?.content ?? '').slice(0, 50)} »`} (${Date.now() - t0} ms)`);
+        if (ok && !working) working = model;
       } catch (error) {
         if (!isModelRefusal(error)) {
-          add('Traduction', false, detail(error));
-          done = true;
-          break;
+          results.push(`${model} : ${detail(error)}`);
+          continue;
         }
-        notes.push(`${model} ${error.status}`);
-        await new Promise((r) => setTimeout(r, error.status === 429 ? 1200 : 0));
+        results.push(`${model} : refusé ${error.status} (${String(error.detail ?? '').replace(/\s+/g, ' ').slice(0, 70)})`);
       }
+      await new Promise((r) => setTimeout(r, 1100)); // stay under one request a second between the models
     }
-    if (!done) add('Traduction', false, `tous les modèles refusés : ${notes.join(' ; ')} — limite de débit de votre formule Mistral (console.mistral.ai → Limites), ou clé partagée avec un autre outil`);
+    add('Traduction', !!working, `${working ? `utilisé en premier : ${working} — ` : 'aucun modèle ne répond — '}${results.join(' ; ')}`);
   }
 
   // 4. the voice (the voices of the two lists are tried until the speech endpoint accepts one)

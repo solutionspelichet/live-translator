@@ -5,13 +5,15 @@ import { cjkShare, isPassthrough, scriptOf } from './live.js';
 
 export const MISTRAL_STT_MODEL = 'voxtral-mini-transcribe-realtime-2602';
 export const MISTRAL_LLM_MODEL = 'mistral-small-latest';
-// Rate limits are per model: when the first is limited (429) or unknown for the account, the next one is tried.
-export const MISTRAL_LLM_MODELS = Object.freeze(['mistral-small-latest', 'ministral-8b-latest', 'open-mistral-nemo', 'mistral-medium-latest']);
-// Translation quality: « best » asks the medium model first (better with Chinese, names, long sentences than the small ones, and not
-// as slow as the large one, which added seconds to every sentence) and falls back on the smaller ones when the account is limited;
-// « fast » is the previous order.
+// The limits are PER MODEL and differ a lot between accounts: on one real account ministral-8b allowed 0.03 request per second (one
+// every 33 s) and was nevertheless the only model that ever answered (the others were refused), while mistral-large-2512 allowed 250 000
+// tokens a minute and the small and medium ones 20 000. The small « ministral » model is the LAST resort, not a fallback to rely on.
+export const MISTRAL_LLM_MODELS = Object.freeze(['mistral-small-latest', 'mistral-medium-latest', 'mistral-large-2512', 'ministral-8b-latest']);
+// Translation quality: « best » asks the large model first (the most tokens a minute, the most reliable with Chinese, names and long
+// sentences, a little slower), then medium and small; « fast » starts from the small one. Both go on to the next model when one is
+// refused or limited for the account.
 export const MISTRAL_QUALITY = Object.freeze({
-  best: Object.freeze(['mistral-medium-latest', 'mistral-small-latest', 'ministral-8b-latest', 'open-mistral-nemo']),
+  best: Object.freeze(['mistral-large-2512', 'mistral-medium-latest', 'mistral-small-latest', 'ministral-8b-latest']),
   fast: MISTRAL_LLM_MODELS,
 });
 export const modelsForQuality = (quality) => MISTRAL_QUALITY[quality] ?? MISTRAL_QUALITY.best;

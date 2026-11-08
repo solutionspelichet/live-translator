@@ -269,12 +269,12 @@ test('a model that is rate-limited for the account is replaced by the next one, 
   sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
   await pause(2500);
   assert.equal(got.outText.length, 1);
-  assert.ok(asked.includes('ministral-8b-latest'));
-  assert.ok(got.notes.some((n) => /traduction avec le modèle « ministral-8b-latest »/.test(n)));
+  assert.ok(asked.includes('mistral-medium-latest'));
+  assert.ok(got.notes.some((n) => /traduction avec le modèle « mistral-medium-latest »/.test(n)));
   const before = asked.length;
   sockets[0].serve({ type: 'transcription.text.delta', text: 'Merci beaucoup. ' });
   await pause(100);
-  assert.deepEqual(asked.slice(before), ['ministral-8b-latest'], 'the working model is used directly next time');
+  assert.deepEqual(asked.slice(before), ['mistral-medium-latest'], 'the working model is used directly next time');
 });
 
 test('a counting (numbers have no language) is translated in the direction of the previous sentence instead of being dropped', async () => {
@@ -505,7 +505,7 @@ test('the last sentences are given to the translator as context (fragments cut a
   assert.match(seen[1], /Context[^\n]*Le brevet est abandonné/);
 });
 
-test('quality « best » asks the medium model first and falls back on the smaller ones; the glossary goes into the prompt', async () => {
+test('quality « best » asks the large model first and falls back on the smaller ones; the glossary goes into the prompt', async () => {
   const asked = [];
   const prompts = [];
   const { sockets, got } = await setup({
@@ -514,14 +514,14 @@ test('quality « best » asks the medium model first and falls back on the small
     chatFail: (url, body, json) => {
       asked.push(body.model);
       prompts.push(body.messages[0].content);
-      if (body.model === 'mistral-medium-latest') return { ok: false, status: 429, text: async () => '{"message":"Service tier capacity exceeded for this model."}', headers: { get: () => null } };
+      if (body.model === 'mistral-large-2512') return { ok: false, status: 429, text: async () => '{"message":"Service tier capacity exceeded for this model."}', headers: { get: () => null } };
       return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hello.' }) } }] });
     },
   });
   sockets[0].serve({ type: 'session.created' });
   sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
   await pause(900);
-  assert.deepEqual(asked.slice(0, 2), ['mistral-medium-latest', 'mistral-small-latest']);
+  assert.deepEqual(asked.slice(0, 2), ['mistral-large-2512', 'mistral-medium-latest']);
   assert.equal(got.outText.length, 1);
   assert.match(prompts[0], /brevets\. Garder : Formlabs/);
 });
@@ -616,9 +616,10 @@ test('a request that hangs is given up after the timeout: the sentence is droppe
   assert.equal(got.outText.length >= 1, true, 'a later sentence goes through');
 }).timeout?.(12000);
 
-test('a rate limit of the whole account does not walk through the other models (each ask counts again): same model, once more, then the sentence is given up', async () => {
+test('every model limited: at most 3 models are asked per round (each ask counts), the limits are remembered per model and the reason is written', async () => {
   const asked = [];
   const { sockets, got, hub } = await setup({
+    quality: 'best',
     chatFail: (url, body) => {
       asked.push(body.model);
       return { ok: false, status: 429, text: async () => '{"object":"error","message":"Rate limit exceeded","type":"rate_limited","code":"1300"}', headers: { get: () => null } };
@@ -627,11 +628,12 @@ test('a rate limit of the whole account does not walk through the other models (
   sockets[0].serve({ type: 'session.created' });
   sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
   await pause(3500);
-  assert.equal(asked.length, 2, `two requests at most per sentence, got ${asked.length}: ${asked}`);
-  assert.equal(new Set(asked).size, 1, 'always the same model');
+  assert.ok(asked.length <= 6, `two rounds of 3 models at most, got ${asked.length}: ${asked}`);
+  assert.deepEqual(asked.slice(0, 3), ['mistral-large-2512', 'mistral-medium-latest', 'mistral-small-latest']);
   assert.equal(got.errors.length, 0);
   assert.ok(hub.gapMs > 0);
-  assert.equal(MistralLiveHub.blockedUntil.size, 0, 'no model is blamed for the account limit');
+  assert.ok(MistralLiveHub.blockedUntil.get('mistral-large-2512') > Date.now(), 'the large model is paused for a minute');
+  assert.ok(got.notes.some((n) => /modèle « mistral-large-2512 » refusé \(429 : /.test(n)), 'the journal says why');
 }).timeout?.(10000);
 
 test('three sentences in a row refused by the account limit warn the user once (the turn goes on)', async () => {
