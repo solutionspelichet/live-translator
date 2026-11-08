@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isAccountRateLimit, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -48,7 +48,7 @@ export default class MistralLiveHub {
   /** The last notes found about the conversation: { text, at }. */
   static sharedNotes = null;
 
-  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '', autoContext = true }) {
+  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '', autoContext = true, lowBandwidth = false }) {
     Object.assign(this, { apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak, preferFallback, userGlossary: glossary, autoContext });
     this.models = modelsForQuality(quality); // the translation models, best first or fastest first // preferFallback: the other voice speaks EVERY language (e.g. one's own cloned voice) // fallbackSpeak(text, target) → { samples, rate } | null: another voice for the languages Mistral cannot speak
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
@@ -73,7 +73,8 @@ export default class MistralLiveHub {
     this.lastNotesAt = 0;
     this.updatingNotes = false;
     this.textTail = Promise.resolve(); // the translations are SHOWN in order as soon as they are ready, before their voice
-    this.requestTimeoutMs = REQUEST_TIMEOUT_MS;
+    this.lowBandwidth = lowBandwidth;
+    this.requestTimeoutMs = lowBandwidth ? REQUEST_TIMEOUT_MS * 2 : REQUEST_TIMEOUT_MS; // low bandwidth: more patience
     this.slow = false; // the network is slow: shorter patience for the voices, no background notes
     this.slowStreak = 0;
     this.fastStreak = 0;
@@ -548,7 +549,15 @@ export default class MistralLiveHub {
             return chat;
           } catch (error) {
             if (!isModelRefusal(error)) throw error;
-            // 429: a short break (the window of the plan); 404/403: this account cannot use the model, much longer.
+            if (isAccountRateLimit(error)) {
+              // The limit of the whole account: trying the other models would count again. Space the requests out, wait one
+              // slot and ask again with the same model; after the second refusal the sentence is given up (the next ones follow).
+              this.slowDown();
+              refusal = error;
+              if (round === 0) break; // the pause of the next round is the wait; same models, same order
+              throw refusal;
+            }
+            // 429 on this model only: a short break; 404/403: this account cannot use the model, much longer.
             MistralLiveHub.blockedUntil.set(model, this.now() + (error.status === 429 ? 60000 : 30 * 60000));
             refusal = error;
           }
@@ -645,7 +654,7 @@ export default class MistralLiveHub {
       this.fastStreak = 0;
       if (++this.slowStreak >= 2 && !this.slow) {
         this.slow = true;
-        this.note(`Mistral live : réseau lent (${Math.round(ms / 1000)} s par phrase) : une voix en retard de plus de ${SLOW_VOICE_MS / 1000} s est sautée, le contexte automatique est suspendu`);
+        this.note(`Mistral live : réseau lent (${Math.round(ms / 1000)} s par phrase) : une voix en retard de plus de ${SLOW_VOICE_MS / 1000} s est sautée, le contexte automatique est suspendu${this.lowBandwidth ? '' : ' — activez « Connexion faible débit » dans ⚙︎'}`);
       }
     } else if (ms < 3000) {
       this.slowStreak = 0;

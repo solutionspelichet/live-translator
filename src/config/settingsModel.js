@@ -36,6 +36,7 @@ export function engineOptions(settings) {
     voiceBySpeaker: Boolean(settings.voiceBySpeaker),
     elevenVoiceForAll: Boolean(settings.elevenVoiceForAll),
     mistralQuality: settings.mistralQuality === 'fast' ? 'fast' : 'best',
+    lowBandwidth: Boolean(settings.lowBandwidth),
     mistralGlossary: String(settings.mistralGlossary ?? ''),
     mistralAutoContext: settings.mistralAutoContext !== false,
     endpointingMs,
@@ -78,6 +79,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   muteWhilePlaying: false, // hands-free: stop listening while the translated voice plays (kills echo, no interruption)
   recentPairs: Object.freeze([]), // last language pairs used: [{A, B}], newest first
   prices: Object.freeze({}), // unit prices overriding the defaults of the usage counter
+  lowBandwidth: false, // weak connection: nothing is sent while nobody speaks, lighter voices, more patience, no background calls
   mistralQuality: 'best', // Mistral live translation: 'best' (larger models first) | 'fast' (small models first)
   mistralAutoContext: true, // the translator finds the topic, names and terms of the conversation by itself
   mistralGlossary: '', // topic, names and terms of the meeting, given to the Mistral translator
@@ -146,6 +148,7 @@ export function sanitizeSettings(raw) {
     recentPairs: sanitizePairs(input.recentPairs),
     prices: sanitizePrices(input.prices),
     voiceBySpeaker: typeof input.voiceBySpeaker === 'boolean' ? input.voiceBySpeaker : DEFAULT_SETTINGS.voiceBySpeaker,
+    lowBandwidth: typeof input.lowBandwidth === 'boolean' ? input.lowBandwidth : DEFAULT_SETTINGS.lowBandwidth,
     mistralQuality: input.mistralQuality === 'fast' ? 'fast' : 'best',
     mistralAutoContext: input.mistralAutoContext !== false,
     mistralGlossary: typeof input.mistralGlossary === 'string' ? input.mistralGlossary.slice(0, 600) : '',

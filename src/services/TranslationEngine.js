@@ -3,6 +3,7 @@ import { getLanguage, PAN, SIDE } from '../config/languages.js';
 import { isEcho } from '../utils/echo.js';
 import { defaultTimers } from '../utils/timers.js';
 import SegmentBuffer from '../utils/segments.js';
+import SendGate from '../utils/sendGate.js';
 
 export const STATE = Object.freeze({
   IDLE: 'idle',
@@ -57,8 +58,8 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
 const CJK_CHARS = /[぀-ヿ㐀-鿿가-힯]/u;
 
 export default class TranslationEngine {
-  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.55, shortConfidence = 0.5, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000, timers = defaultTimers }) {
-    Object.assign(this, { languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, shortConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker, stallMs, timers });
+  constructor({ languages, voices, mic, stt, translator, tts, audio, tailMs = 200, autoStop = true, noAudioMs = 1500, flushAfterMs = 1200, autoEndMs = 1500, streamTts = false, detectWindowMs = 450, minConfidence = 0.5, loneConfidence = 0.55, shortConfidence = 0.5, echoWindowMs = 40000, idleStopMs = 300000, endpointingMs = 400, utteranceEndMs = 1500, clauseWords = 9, maxWords = 18, muteWhilePlaying = false, voiceBySpeaker = false, stallMs = 3000, lowBandwidth = false, timers = defaultTimers }) {
+    Object.assign(this, { lowBandwidth, languages, voices, mic, stt, translator, tts, audio, tailMs, autoStop, noAudioMs, flushAfterMs, autoEndMs, streamTts, detectWindowMs, minConfidence, loneConfidence, shortConfidence, echoWindowMs, idleStopMs, endpointingMs, utteranceEndMs, clauseWords, maxWords, muteWhilePlaying, voiceBySpeaker, stallMs, timers });
     this.pendingUsage = null; // billing units not yet reported (see recordUsage)
     this.usageTimer = null;
     this.lastWarm = 0;
@@ -231,8 +232,11 @@ export default class TranslationEngine {
         turn.mutedNoted = true;
         this.emit({ type: 'note', text: 'option « couper le micro pendant la voix traduite » active : pendant la lecture, ce qui est dit n\'est PAS envoyé à la reconnaissance' });
       }
-      turn.session.sendAudio(muted ? new ArrayBuffer(pcm16.byteLength) : pcm16);
-      const seconds = pcm16.byteLength / 2 / sampleRate;
+      // Low bandwidth: nothing is sent while nobody speaks (Deepgram gets 2 s of real silence after the voice to close the utterance).
+      if (this.lowBandwidth && !turn.sendGate) turn.sendGate = new SendGate();
+      const toSend = turn.sendGate ? turn.sendGate.step(muted ? new ArrayBuffer(pcm16.byteLength) : pcm16, () => new ArrayBuffer(pcm16.byteLength), level) : [muted ? new ArrayBuffer(pcm16.byteLength) : pcm16];
+      for (const piece of toSend) turn.session.sendAudio(piece);
+      const seconds = (pcm16.byteLength / 2 / sampleRate) * toSend.length;
       if (auto) {
         for (const sideLanguage of [this.languages.A, this.languages.B]) this.recordUsage({ [this.deepgramKey(sideLanguage)]: seconds });
       } else {

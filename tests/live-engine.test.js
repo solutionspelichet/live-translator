@@ -61,7 +61,7 @@ function setup(overrides = {}) {
   });
   const events = [];
   engine.subscribe((e) => events.push(e));
-  const chunk = () => sink?.({ pcm16: new Int16Array(1600).fill(500).buffer, sampleRate: 16000, level: 0.3 });
+  const chunk = (level = 0.3) => sink?.({ pcm16: new Int16Array(1600).fill(500).buffer, sampleRate: 16000, level });
   return { engine, sessions, played, events, chunk, audioPiece: () => new Float32Array(480).fill(0.2), silentPiece: () => new Float32Array(480) };
 }
 
@@ -501,4 +501,20 @@ test('a microphone that stays muted is restarted again with another audio source
   assert.ok(events.some((e) => e.type === 'note' && /micro toujours muet/.test(e.text)));
   engine.cancel();
   void sessions;
+});
+
+test('low bandwidth: the microphone is not sent while nobody speaks (a pre-roll, a hangover and the voice are), and only what was sent is counted', async () => {
+  const { engine, sessions, chunk } = setup({ lowBandwidth: true, sendGateOptions: { hangoverMs: 60, keepAliveMs: 100000, preRollChunks: 2 } });
+  await engine.toggle('A');
+  for (let i = 0; i < 20; i++) chunk(0.01); // nobody speaks
+  const quietSent = sessions[0].sent.length;
+  assert.ok(quietSent <= 1, `quiet chunks are not sent (${quietSent})`);
+  chunk(0.5); // a voice: the pre-roll then the chunk go
+  const voiceSent = sessions[0].sent.length - quietSent;
+  assert.ok(voiceSent >= 2, `the voice and its pre-roll are sent (${voiceSent})`);
+  await pause(120); // longer than the hangover
+  const before = sessions[0].sent.length;
+  for (let i = 0; i < 20; i++) chunk(0.01);
+  assert.ok(sessions[0].sent.length - before <= 1, 'quiet again: nothing more is sent');
+  engine.cancel();
 });

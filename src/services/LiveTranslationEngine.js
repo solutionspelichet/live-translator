@@ -1,5 +1,6 @@
 import { getLanguage, PAN, SIDE } from '../config/languages.js';
 import LiveGate, { scriptOf, toLiveAudio } from '../utils/live.js';
+import SendGate from '../utils/sendGate.js';
 import { micProblem } from '../utils/micHealth.js';
 import { OPENAI_LIVE } from './liveProfiles.js';
 import { rmsLevel } from '../utils/pcm.js';
@@ -37,8 +38,8 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {(opts) => {connect(), sendAudio(b64), close(): Promise<void>, abort(), status}} deps.createSession
  */
 export default class LiveTranslationEngine {
-  constructor({ languages, mic, audio, createSession, profile = OPENAI_LIVE, timers = defaultTimers, idleStopMs = 300000, stallMs = 3000, noAudioMs = 1500, muteWhilePlaying = false, burstGapMs = 1500, tailMs = 200, gate = {} }) {
-    Object.assign(this, { languages, mic, audio, createSession, profile, timers, idleStopMs, stallMs, noAudioMs, muteWhilePlaying, burstGapMs, tailMs, gateOptions: gate });
+  constructor({ languages, mic, audio, createSession, profile = OPENAI_LIVE, timers = defaultTimers, idleStopMs = 300000, stallMs = 3000, noAudioMs = 1500, muteWhilePlaying = false, burstGapMs = 1500, tailMs = 200, gate = {}, lowBandwidth = false, sendGateOptions = {} }) {
+    Object.assign(this, { lowBandwidth, sendGateOptions, languages, mic, audio, createSession, profile, timers, idleStopMs, stallMs, noAudioMs, muteWhilePlaying, burstGapMs, tailMs, gateOptions: gate });
     this.autoStop = true; // not used here (the service has no turn detection); the screen sets it
     this.state = STATE.IDLE;
     this.listeners = new Set();
@@ -208,11 +209,14 @@ export default class LiveTranslationEngine {
         }
       }
       const audio = toLiveAudio(pcm16, sampleRate, { silence: silent, rate: this.profile.inputRate });
-      for (const d of turn.dirs) d.session.sendAudio(audio);
+      // Low bandwidth: nothing is sent while nobody speaks (a short hangover, a pre-roll and a keep-alive excepted).
+      if (this.lowBandwidth && !turn.sendGate) turn.sendGate = new SendGate(this.sendGateOptions);
+      const toSend = turn.sendGate ? turn.sendGate.step(audio, () => toLiveAudio(pcm16, sampleRate, { silence: true, rate: this.profile.inputRate }), level) : [audio];
+      for (const piece of toSend) for (const d of turn.dirs) d.session.sendAudio(piece);
       // The service bills the audio it receives, per session.
-      const seconds = pcm16.byteLength / 2 / sampleRate;
+      const seconds = (pcm16.byteLength / 2 / sampleRate) * toSend.length;
       const { send, transcribe } = this.profile.usage;
-      this.recordUsage({ [send]: seconds * (this.profile.usage.shared ? 1 : turn.dirs.length), ...(transcribe ? { [transcribe]: seconds } : {}) });
+      if (seconds > 0) this.recordUsage({ [send]: seconds * (this.profile.usage.shared ? 1 : turn.dirs.length), ...(transcribe ? { [transcribe]: seconds } : {}) });
       this.emit({ type: 'level', level });
     };
 
@@ -509,6 +513,7 @@ export default class LiveTranslationEngine {
   reportStats(turn) {
     const m = this.mic.stats;
     if (m && turn?.live) {
+      if (turn.sendGate) this.emit({ type: 'note', text: `faible débit : ${Math.round(turn.sendGate.ratio_sent * 100)} % du son envoyé au service (le reste était du silence)` });
       this.emit({ type: 'note', text: `micro : ${m.chunks} paquets au total, crête ${(m.peak ?? 0).toFixed(3)}, ${m.zeroChunks ?? 0} paquets à zéro (${m.backend ?? '—'})` });
     }
     if (this.muteWhilePlaying && turn?.heardSec) {

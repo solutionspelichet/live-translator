@@ -44,6 +44,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
   const [outputMode, setOutputMode] = useState(settings.outputMode);
   const [elevenVoiceForAll, setElevenVoiceForAll] = useState(settings.elevenVoiceForAll);
   const [mistralQuality, setMistralQuality] = useState(settings.mistralQuality);
+  const [lowBandwidth, setLowBandwidth] = useState(settings.lowBandwidth);
   const [mistralGlossary, setMistralGlossary] = useState(settings.mistralGlossary);
   const [mistralAutoContext, setMistralAutoContext] = useState(settings.mistralAutoContext);
   const [report, setReport] = useState(null); // result of « Tester mes clés »
@@ -326,6 +327,12 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           </>
         )}
 
+        <Text style={styles.label}>Connexion faible débit</Text>
+        <Chip label={lowBandwidth ? 'Mode faible débit activé' : 'Mode faible débit désactivé'} on={lowBandwidth} onPress={() => setLowBandwidth((v) => !v)} />
+        <Text style={styles.hint}>
+          Pour un réseau lent ou instable. L'appli n'envoie plus le son pendant que personne ne parle (une demi-seconde de son avant la voix et deux secondes de silence après sont conservées pour que la fin des phrases soit bien comprise), ce qui réduit fortement les données envoyées. Avec Mistral : voix ElevenLabs plus légère, deux fois plus de patience avant d'abandonner une demande, et pas d'appel de fond pour le contexte. Le journal indique la part du son réellement envoyée. Les phrases en retard sont de toute façon affichées avant leur voix.
+        </Text>
+
         <Text style={styles.label}>Mains libres : écho</Text>
         <Chip
           label={muteWwp(muteWhilePlaying)}
@@ -489,7 +496,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, lowBandwidth, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

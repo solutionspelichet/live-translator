@@ -218,6 +218,12 @@ export async function listVoiceCandidates(getJson, language) {
 /** A refusal that says the MODEL is the problem for this account (rate-limited, unknown, not allowed): try another one. */
 export const isModelRefusal = (error) => error instanceof ApiError && (error.status === 429 || error.status === 404 || ((error.status === 400 || error.status === 403) && /model/i.test(error.detail ?? '')));
 
+/**
+ * A 429 that is about the whole ACCOUNT ("Rate limit exceeded", about one request per second on the small plans) and not about one
+ * model: asking the other models counts again against the same limit, so it only makes things worse — wait a moment instead.
+ */
+export const isAccountRateLimit = (error) => error instanceof ApiError && error.status === 429 && /rate[\s_-]*limit/i.test(error.detail ?? '') && !/model|capacity|tier/i.test(error.detail ?? '');
+
 /** A refusal that says the VOICE is the problem (try another one), not the key or the quota. */
 export const isVoiceRefusal = (error) => error instanceof ApiError && (error.status === 400 || error.status === 404 || error.status === 422) && /voice/i.test(error.detail ?? '');
 

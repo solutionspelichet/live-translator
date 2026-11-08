@@ -261,7 +261,7 @@ test('a model that is rate-limited for the account is replaced by the next one, 
   const { sockets, got } = await setup({
     chatFail: (url, body, json) => {
       asked.push(body.model);
-      if (body.model === 'mistral-small-latest') return { ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } };
+      if (body.model === 'mistral-small-latest') return { ok: false, status: 429, text: async () => '{"message":"Service tier capacity exceeded for this model."}', headers: { get: () => null } };
       return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hello everyone.' }) } }] });
     },
   });
@@ -469,7 +469,7 @@ test('a model refused one moment ago is tried last by the next turn (no failed r
   const asked = [];
   const chatFail = (url, body, json) => {
     asked.push(body.model);
-    if (body.model === 'mistral-small-latest') return { ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } };
+    if (body.model === 'mistral-small-latest') return { ok: false, status: 429, text: async () => '{"message":"Service tier capacity exceeded for this model."}', headers: { get: () => null } };
     return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hello.' }) } }] });
   };
   const a = await setup({ chatFail });
@@ -514,7 +514,7 @@ test('quality « best » asks the medium model first and falls back on the small
     chatFail: (url, body, json) => {
       asked.push(body.model);
       prompts.push(body.messages[0].content);
-      if (body.model === 'mistral-medium-latest') return { ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } };
+      if (body.model === 'mistral-medium-latest') return { ok: false, status: 429, text: async () => '{"message":"Service tier capacity exceeded for this model."}', headers: { get: () => null } };
       return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hello.' }) } }] });
     },
   });
@@ -615,3 +615,21 @@ test('a request that hangs is given up after the timeout: the sentence is droppe
   assert.equal(hub.slow, true);
   assert.equal(got.outText.length >= 1, true, 'a later sentence goes through');
 }).timeout?.(12000);
+
+test('a rate limit of the whole account does not walk through the other models (each ask counts again): same model, once more, then the sentence is given up', async () => {
+  const asked = [];
+  const { sockets, got, hub } = await setup({
+    chatFail: (url, body) => {
+      asked.push(body.model);
+      return { ok: false, status: 429, text: async () => '{"object":"error","message":"Rate limit exceeded","type":"rate_limited","code":"1300"}', headers: { get: () => null } };
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(3500);
+  assert.equal(asked.length, 2, `two requests at most per sentence, got ${asked.length}: ${asked}`);
+  assert.equal(new Set(asked).size, 1, 'always the same model');
+  assert.equal(got.errors.length, 0);
+  assert.ok(hub.gapMs > 0);
+  assert.equal(MistralLiveHub.blockedUntil.size, 0, 'no model is blamed for the account limit');
+}).timeout?.(10000);
