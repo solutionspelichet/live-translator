@@ -578,3 +578,40 @@ test('the automatic context can be switched off, and is not asked while the plan
   }
   assert.equal(notesCalls, 0);
 }).timeout?.(15000);
+
+test('slow network: the translated text is shown as soon as it exists, the voice follows when it is ready', async () => {
+  const { sockets, got } = await setup({
+    speech: (body, json) => new Promise((resolve) => setTimeout(() => resolve(json({ audio_data: Buffer.from(wavBytes([1000, 2000, 3000])).toString('base64') })), 700)),
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(350);
+  assert.equal(got.outText.length, 1, 'text already there');
+  assert.equal(got.audio.length, 0, 'voice not yet');
+  await pause(900);
+  assert.equal(got.audio.length, 1, 'voice after');
+  assert.equal(got.outText.length, 1, 'text not shown twice');
+});
+
+test('a request that hangs is given up after the timeout: the sentence is dropped, the turn goes on, the slow mode starts', async () => {
+  let n = 0;
+  const { hub, sockets, got } = await setup({
+    chatFail: (url, body, json) => {
+      n++;
+      if (n <= 3) return new Promise(() => {}); // never answers
+      return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hello.' }) } }] });
+    },
+  });
+  hub.requestTimeoutMs = 150;
+  sockets[0].serve({ type: 'session.created' });
+  for (const t of ['Un. ', 'Deux. ', 'Trois. ', 'Quatre. ']) {
+    sockets[0].serve({ type: 'transcription.text.delta', text: t });
+    await pause(80);
+  }
+  await pause(1500);
+  assert.equal(got.errors.length, 0, 'no alert for a slow network');
+  assert.equal(hub.dead, false);
+  assert.ok(got.notes.some((x) => /délai dépassé/.test(x)));
+  assert.equal(hub.slow, true);
+  assert.equal(got.outText.length >= 1, true, 'a later sentence goes through');
+}).timeout?.(12000);

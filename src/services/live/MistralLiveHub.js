@@ -11,6 +11,8 @@ const QUIET_MS = 1500;
 const NOTES_EVERY = 4; // sentences between two updates of the notes
 const NOTES_MIN_GAP_MS = 40000;
 const NOTES_KEEP_MS = 30 * 60000; // the notes of a conversation are still valid when the listening restarts within half an hour
+const REQUEST_TIMEOUT_MS = 12000; // a request that takes longer is given up (a slow network must not freeze every sentence behind it)
+const SLOW_VOICE_MS = 6000; // on a slow network a voice later than this is skipped (STALE_VOICE_MS otherwise)
 const RATE_GAP_MS = 1100; // spacing between two requests once the plan's limit was hit
 const MAX_PARALLEL_CHAT = 2; // more at once triggers the per-second limit of the plans, and one 429 then stalls every sentence behind it
 const MODEL_ROUNDS = 2; // times every model is tried before giving up on a sentence
@@ -70,6 +72,11 @@ export default class MistralLiveHub {
     this.sinceNotes = 0;
     this.lastNotesAt = 0;
     this.updatingNotes = false;
+    this.textTail = Promise.resolve(); // the translations are SHOWN in order as soon as they are ready, before their voice
+    this.requestTimeoutMs = REQUEST_TIMEOUT_MS;
+    this.slow = false; // the network is slow: shorter patience for the voices, no background notes
+    this.slowStreak = 0;
+    this.fastStreak = 0;
     this.context = []; // the last sentences heard (source text), given to the translator for context
     this.lastVoiceAt = 0; // last microphone chunk that held a voice (to measure the delay after the last word)
     this.lastFrom = 'A'; // language of the previous sentence (numbers have none of their own)
@@ -280,6 +287,13 @@ export default class MistralLiveHub {
     // Is the speaker silent as the sentence becomes ready? Then the delay AFTER THE LAST WORD can be measured.
     const readyAt = this.now();
     const meta = { speechEnd: this.lastVoiceAt && readyAt - this.lastVoiceAt >= 250 ? this.lastVoiceAt : null, queuedAt: readyAt };
+    // The translated TEXT is shown as soon as it exists (in order), the voice follows when it is ready: on a slow network the
+    // reader is not kept waiting for the voice, which is the slowest and heaviest step.
+    let showText;
+    const textReady = new Promise((resolve) => {
+      showText = resolve;
+    });
+    meta.onTranslated = (result) => showText(result);
     const job = this.process(text, meta).then((result) => {
       if (result) this.failures = 0;
       return result;
@@ -287,6 +301,11 @@ export default class MistralLiveHub {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) this.fail(error);
       else {
         this.note(`Mistral live : phrase abandonnée (${error?.message ?? error})`);
+        if (error?.timeout) {
+          // A slow network is not a broken app either: the sentence is lost, the next ones may pass, and the slow mode starts.
+          this.noteNetwork(99999);
+          return null;
+        }
         if (error?.status === 429) {
           // The plan's rate limit is not a broken app: keep listening (the next sentences go through once the window passes) and
           // slow the requests down, instead of stopping the turn with an alert in the middle of a conversation.
@@ -298,7 +317,19 @@ export default class MistralLiveHub {
       }
       return null;
     });
+    job.then(() => showText(null), () => showText(null)); // nothing to show (ignored, dropped or failed): do not block the next texts
+    this.textTail = this.textTail.then(() => textReady).then((result) => result && this.showText(result));
     this.tail = this.tail.then(() => job).then((result) => result && this.deliver(result));
+  }
+
+  /** The translation is displayed (and the delay until it is known is measured). */
+  showText(result) {
+    if (this.dead || result.textShown) return;
+    result.textShown = true;
+    result.session.onInputText(`${result.input} `);
+    result.session.onOutputText(`${result.output} `);
+    const afterLastWord = result.speechEnd ? this.now() - result.speechEnd : null;
+    result.session.onTiming?.(afterLastWord ?? this.now() - result.startedAt);
   }
 
   /** What the translator is told about the conversation: what the user typed, then what was found by itself. */
@@ -310,7 +341,7 @@ export default class MistralLiveHub {
   maybeUpdateNotes() {
     if (!this.autoContext || this.updatingNotes || this.dead || this.closing) return;
     if (this.sinceNotes < NOTES_EVERY || this.now() - this.lastNotesAt < NOTES_MIN_GAP_MS) return;
-    if (this.gapMs) return; // the plan's limit was hit: the translations come first
+    if (this.gapMs || this.slow) return; // the plan's limit was hit, or the network is slow: the translations come first
     this.updatingNotes = true;
     this.sinceNotes = 0;
     this.lastNotesAt = this.now();
@@ -359,12 +390,27 @@ export default class MistralLiveHub {
 
   async post(path, body, { retries = 2 } = {}) {
     await this.pace();
-    const res = await fetchWithRetry(
+    const request = fetchWithRetry(
       'Mistral',
       () => this.fetchImpl(`${this.baseUrl}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
       { retries, baseDelayMs: 1000 }, // the plans have per-second limits: wait a second before asking again
     );
-    return res.json();
+    // A very slow network can leave a request hanging for a minute with every sentence behind it: give up after a while.
+    let timer;
+    const limit = new Promise((_, reject) => {
+      timer = this.timers.setTimeout(() => {
+        const error = new ApiError('Mistral', 0, `délai dépassé (${Math.round(this.requestTimeoutMs / 1000)} s) : réseau trop lent`);
+        error.timeout = true;
+        reject(error);
+      }, this.requestTimeoutMs);
+    });
+    request.catch(() => {}); // the abandoned request may still fail later: nobody listens
+    try {
+      const res = await Promise.race([request, limit]);
+      return await res.json();
+    } finally {
+      this.timers.clearTimeout(timer);
+    }
   }
 
   async process(text, meta = {}) {
@@ -428,6 +474,7 @@ export default class MistralLiveHub {
     this.sinceNotes++;
     this.maybeUpdateNotes();
     const result = { session, input: text, output: verdict.text, samples: null, rate: 24000, llmMs, ttsMs: 0, startedAt: t0, speechEnd: meta.speechEnd, queuedAt: meta.queuedAt ?? t0 };
+    meta.onTranslated?.(result); // the text can be shown now, the voice comes after
     const language = mistralVoiceLanguage(session.target);
     // Another voice (ElevenLabs) speaks the languages Mistral cannot — or every language when the user asked for it (own cloned voice).
     if (this.fallbackSpeak && (!language || this.preferFallback)) {
@@ -574,27 +621,46 @@ export default class MistralLiveHub {
     return res.json();
   }
 
-  deliver({ session, input, output, samples, rate, llmMs, ttsMs, startedAt, speechEnd, queuedAt }) {
+  deliver(result) {
+    const { session, samples: voice, rate, llmMs, ttsMs, startedAt, speechEnd, queuedAt } = result;
+    let samples = voice;
     if (this.dead) return;
-    if (samples?.length && queuedAt && this.now() - queuedAt > STALE_VOICE_MS) {
-      this.note(`Mistral live : phrase trop en retard (${Math.round((this.now() - queuedAt) / 1000)} s) : texte seulement, la voix est sautée pour rattraper`);
+    const age = queuedAt ? this.now() - queuedAt : 0;
+    if (samples?.length && queuedAt && age > (this.slow ? SLOW_VOICE_MS : STALE_VOICE_MS)) {
+      this.note(`Mistral live : phrase trop en retard (${Math.round(age / 1000)} s) : texte seulement, la voix est sautée pour rattraper`);
       samples = null;
     }
-    session.onInputText(`${input} `);
-    session.onOutputText(`${output} `);
+    this.showText(result); // already shown in the normal case: no-op
     if (samples?.length) session.onAudio(samples, rate);
     const now = this.now();
     const totalMs = now - startedAt; // from the finished sentence to its voice being handed over
     const afterLastWord = speechEnd ? now - speechEnd : null; // transcription + cut + translation + voice, when the speaker had stopped
-    session.onTiming?.(afterLastWord ?? totalMs);
+    this.noteNetwork(afterLastWord ?? totalMs);
     this.note(`Mistral live : phrase ${session.source}→${session.target} (traduction ${llmMs} ms${samples ? `, voix ${ttsMs} ms` : ', sans voix'}, ${totalMs} ms depuis la phrase${afterLastWord != null ? `, ${afterLastWord} ms après le dernier mot` : ''})`);
+  }
+
+  /** Two slow sentences in a row = slow network (shorter patience for the voices); three quick ones = back to normal. */
+  noteNetwork(ms) {
+    if (ms > 4500) {
+      this.fastStreak = 0;
+      if (++this.slowStreak >= 2 && !this.slow) {
+        this.slow = true;
+        this.note(`Mistral live : réseau lent (${Math.round(ms / 1000)} s par phrase) : une voix en retard de plus de ${SLOW_VOICE_MS / 1000} s est sautée, le contexte automatique est suspendu`);
+      }
+    } else if (ms < 3000) {
+      this.slowStreak = 0;
+      if (++this.fastStreak >= 3 && this.slow) {
+        this.slow = false;
+        this.note('Mistral live : réseau de nouveau rapide');
+      }
+    }
   }
 
   // ───────────── end ─────────────
 
   /** End of the stream: flush the transcription, let the sentences in progress finish, close. */
   close(timeoutMs = 9000) {
-    if (this.dead && !this.ws) return this.tail.catch(() => {});
+    if (this.dead && !this.ws) return Promise.all([this.tail, this.textTail]).catch(() => {});
     if (this.closing) return this.closed;
     this.closing = true;
     this.closed = new Promise((resolve) => {
@@ -614,7 +680,7 @@ export default class MistralLiveHub {
       this.closeTimer = this.timers.setTimeout(check, step);
     }).then(async () => {
       this.flushBuffer();
-      await Promise.race([this.tail.catch(() => {}), new Promise((r) => this.timers.setTimeout(r, timeoutMs))]);
+      await Promise.race([Promise.all([this.tail, this.textTail]).catch(() => {}), new Promise((r) => this.timers.setTimeout(r, timeoutMs))]);
     });
     return this.closed;
   }
