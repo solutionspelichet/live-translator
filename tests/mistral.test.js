@@ -151,3 +151,14 @@ test('guessDeeplTarget: Latin text goes towards the Chinese side, Chinese text t
   assert.equal(guessDeeplTarget('Hello there', 'zh', 'fr'), 'zh');
   assert.equal(guessDeeplTarget('Hello there my friend', 'fr', 'en'), 'en');
 });
+
+test('dropRepeats: une transcription qui boucle est réduite à deux occurrences', async () => {
+  const { dropRepeats } = await import('../src/utils/mistral.js');
+  const lately = [];
+  const r = dropRepeats('微信。 微信。 微信。 微信。 微信。 微信。', lately, 1000);
+  assert.equal(r.text, '微信。 微信。');
+  assert.equal(r.looping, true);
+  assert.equal(dropRepeats('微信。', lately, 2000).text, '');
+  assert.equal(dropRepeats('Oui.', [], 0).text, 'Oui.');
+  assert.equal(dropRepeats('Bonjour. Comment ça va ?', [], 0).text, 'Bonjour. Comment ça va ?');
+});

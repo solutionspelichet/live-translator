@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { dropRepeats, chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -67,6 +67,7 @@ export default class MistralLiveHub {
     this.buffer = '';
     this.pauseTimer = null;
     this.tail = Promise.resolve();
+    this.lately = []; // sentences queued lately (to stop a transcription that loops)
     this.recent = []; // what we spoke lately: { at, text }
     this.voices = new Map(); // language → Promise<candidate voices>
     this.goodVoice = new Map(); // language → the voice id that worked
@@ -303,8 +304,13 @@ export default class MistralLiveHub {
     return first ? { a: first.source, b: first.target } : null;
   }
 
-  enqueue(text) {
+  enqueue(raw) {
     if (this.dead) return;
+    // A transcription stuck on one word repeats it endlessly: keep it twice at most, and when it goes on, restart the listening.
+    const filtered = dropRepeats(raw, this.lately, this.now());
+    const text = filtered.text;
+    if (filtered.looping) this.noteLoop();
+    if (!text) return;
     // Is the speaker silent as the sentence becomes ready? Then the delay AFTER THE LAST WORD can be measured.
     const readyAt = this.now();
     const meta = { speechEnd: this.lastVoiceAt && readyAt - this.lastVoiceAt >= 250 ? this.lastVoiceAt : null, queuedAt: readyAt };
@@ -349,6 +355,18 @@ export default class MistralLiveHub {
     job.then(() => showText(null), () => showText(null)); // nothing to show (ignored, dropped or failed): do not block the next texts
     this.textTail = this.textTail.then(() => textReady).then((result) => result && this.showText(result));
     this.tail = this.tail.then(() => job).then((result) => result && this.deliver(result));
+  }
+
+  noteLoop() {
+    const at = this.now();
+    this.loopHits = (this.loopHits ?? []).filter((t) => at - t < 15000);
+    this.loopHits.push(at);
+    if (this.loopHits.length < 6 || at - (this.lastLoopReset ?? 0) < 30000) return;
+    this.lastLoopReset = at;
+    this.loopHits = [];
+    this.buffer = '';
+    this.note('Mistral live : la transcription répète le même mot en boucle → répétitions ignorées, écoute relancée');
+    this.ws?.close(); // reconnects by itself (onclose → lost)
   }
 
   /** The translation is displayed (and the delay until it is known is measured). */

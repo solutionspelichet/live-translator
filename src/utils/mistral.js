@@ -35,6 +35,38 @@ export function mistralVoiceLanguage(code) {
   return MISTRAL_TTS_LANGUAGES.includes(base) ? base : null;
 }
 
+const repeatKey = (t) => String(t ?? '').toLowerCase().replace(/[\s.,;:!?¿¡…。，、！？；：「」"'()\-]+/g, '');
+
+/**
+ * Speech recognition sometimes gets stuck on one word and repeats it endlessly ("微信。微信。微信。…"): translating each
+ * repetition floods the translator (rate limits) and the screen. Inside a text, a sentence repeated right after itself more than
+ * twice is kept twice at most; across texts, one that was already queued twice lately is dropped.
+ * @param {string} text
+ * @param {{at:number,key:string}[]} lately  sentences queued lately (the caller keeps it; entries older than windowMs are ignored)
+ * @param {number} now
+ * @returns {{text:string, looping:boolean}}  text is '' when nothing new is left
+ */
+export function dropRepeats(text, lately = [], now = 0, windowMs = 20000) {
+  const parts = String(text ?? '').match(/[^.!?。！？…]+[.!?。！？…]*\s*/g) ?? [String(text ?? '')];
+  const kept = [];
+  let run = 0;
+  let looping = false;
+  let previous = null;
+  for (const part of parts) {
+    const key = repeatKey(part);
+    if (!key) continue;
+    run = key === previous ? run + 1 : 1;
+    previous = key;
+    if (run > 2) { looping = true; continue; }
+    // the same sentence was already queued twice lately: the recogniser is stuck
+    if (key.length >= 2 && lately.filter((e) => e.key === key && now - e.at <= windowMs).length >= 2) { looping = true; continue; }
+    lately.push({ at: now, key });
+    while (lately.length > 24) lately.shift();
+    kept.push(part);
+  }
+  return { text: kept.join('').trim(), looping };
+}
+
 /**
  * Cuts the transcript buffer into finished sentences (a terminator followed by a space, or a CJK terminator)
  * and what is still being said.
