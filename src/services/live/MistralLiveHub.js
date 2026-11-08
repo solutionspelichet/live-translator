@@ -8,6 +8,7 @@ const PAUSE_AFTER_SENTENCE_MS = 200; // the text already ends like a sentence: a
 const PAUSE_MID_SENTENCE_MS = 650; // no punctuation yet: wait for a real pause before cutting
 const PAUSE_FRAGMENT_MS = 3000; // one or two words alone: wait for the rest of the sentence (they were dropped as « not speech »)
 const QUIET_MS = 1500;
+const RATE_GAP_MS = 1100; // spacing between two requests once the plan's limit was hit
 const MAX_PARALLEL_CHAT = 2; // more at once triggers the per-second limit of the plans, and one 429 then stalls every sentence behind it
 const MODEL_ROUNDS = 2; // times every model is tried before giving up on a sentence
 const ROUND_PAUSE_MS = 1500;
@@ -269,6 +270,12 @@ export default class MistralLiveHub {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) this.fail(error);
       else {
         this.note(`Mistral live : phrase abandonnée (${error?.message ?? error})`);
+        if (error?.status === 429) {
+          // The plan's rate limit is not a broken app: keep listening (the next sentences go through once the window passes) and
+          // slow the requests down, instead of stopping the turn with an alert in the middle of a conversation.
+          this.slowDown();
+          return null;
+        }
         // Several in a row: the user must be told (a silent screen looks like a broken app), not left waiting.
         if (++this.failures >= 3) this.fail(new ApiError('Mistral', error?.status || 0, `${error?.detail || error?.message || error}${error?.status === 429 ? ' — limite de débit de votre formule Mistral : vérifiez vos limites sur console.mistral.ai (la formule gratuite est très limitée)' : ''}`));
       }
@@ -277,7 +284,24 @@ export default class MistralLiveHub {
     this.tail = this.tail.then(() => job).then((result) => result && this.deliver(result));
   }
 
+  /** After a 429 the requests are spaced out for a while (the plans allow about one per second, and a sentence needs two). */
+  slowDown() {
+    if (!this.gapMs) this.note('Mistral live : limite de débit atteinte : les requêtes sont espacées pendant 90 s (formule limitée — voir console.mistral.ai)');
+    this.gapMs = RATE_GAP_MS;
+    this.slowUntil = this.now() + 90000;
+  }
+
+  async pace() {
+    if (this.gapMs && this.now() > (this.slowUntil ?? 0)) this.gapMs = 0;
+    if (!this.gapMs) return;
+    const slot = Math.max(this.now(), this.nextSlot ?? 0);
+    this.nextSlot = slot + this.gapMs;
+    const wait = slot - this.now();
+    if (wait > 0) await new Promise((resolve) => this.timers.setTimeout(resolve, wait));
+  }
+
   async post(path, body, { retries = 2 } = {}) {
+    await this.pace();
     const res = await fetchWithRetry(
       'Mistral',
       () => this.fetchImpl(`${this.baseUrl}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
@@ -384,6 +408,7 @@ export default class MistralLiveHub {
       session.onUsage?.({ mistralTtsChars: verdict.text.length });
     } catch (error) {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
+      if (error?.status === 429) this.slowDown();
       this.note(`Mistral live : voix indisponible pour cette phrase (${error?.message ?? error})`);
     }
     result.ttsMs = this.now() - t1;

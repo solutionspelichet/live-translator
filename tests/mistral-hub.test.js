@@ -451,3 +451,14 @@ test('English that the small model labels « other » with no text is still tran
   await pause(700);
   assert.equal(b.got.outText.length, 0, 'one word stays ignored');
 });
+
+test('a rate limit (429 on every model) never stops the turn: the sentence is dropped, requests are spaced out, listening goes on', async () => {
+  const { hub, sockets, got } = await setup({ chatFail: () => ({ ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } }) });
+  sockets[0].serve({ type: 'session.created' });
+  for (const t of ['Un. ', 'Deux. ', 'Trois. ', 'Quatre. ']) sockets[0].serve({ type: 'transcription.text.delta', text: t });
+  await pause(5000);
+  assert.equal(got.errors.length, 0, 'no alert');
+  assert.ok(got.notes.some((n) => /limite de débit atteinte/.test(n)));
+  assert.ok(hub.gapMs > 0, 'requests spaced');
+  assert.equal(hub.dead, false);
+}).timeout?.(12000);
