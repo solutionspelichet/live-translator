@@ -125,8 +125,19 @@ test('modelsForQuality: best starts with the large model, fast with the small on
   assert.equal(modelsForQuality('fast')[0], 'mistral-small-latest');
   assert.equal(modelsForQuality('unknown')[0], 'mistral-large-latest');
   assert.equal(glossaryLine('  '), null);
-  assert.ok(glossaryLine('x'.repeat(2000)).length < 800);
+  assert.ok(glossaryLine('x'.repeat(2000)).length < 1300);
   assert.match(interpreterMessages({ a: 'Français', b: 'English', text: 'Oui', glossary: 'Garder : Formlabs' })[0].content, /Garder : Formlabs/);
   const { forcedMessages } = await import('../src/utils/mistral.js');
   assert.match(forcedMessages({ from: 'a', to: 'b', text: 'x', glossary: 'Garder : Formlabs' })[0].content, /Formlabs/);
+});
+
+test('notesMessages gives the latest sentences and the current notes; parseNotes reads the JSON and cuts it', async () => {
+  const { notesMessages, parseNotes } = await import('../src/utils/mistral.js');
+  const m = notesMessages({ a: 'Français', b: '中文', exchanges: [{ source: 'Le brevet CDOM est abandonné.', translation: 'CDOM 专利被放弃了。' }], previous: 'Topic: patents.' });
+  assert.match(m[0].content, /Français and 中文/);
+  assert.match(m[1].content, /Topic: patents\./);
+  assert.match(m[1].content, /Le brevet CDOM est abandonné\. => CDOM 专利被放弃了。/);
+  assert.equal(parseNotes('```json\n{"notes":"Topic: patents. Names: Formlabs."}\n```'), 'Topic: patents. Names: Formlabs.');
+  assert.equal(parseNotes('not json'), '');
+  assert.equal(parseNotes(JSON.stringify({ notes: 'x'.repeat(900) })).length, 500);
 });

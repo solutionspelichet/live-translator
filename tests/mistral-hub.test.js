@@ -29,6 +29,7 @@ function wavBytes(samples, rate = 24000) {
 }
 
 async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null, speech = null, chatFail = null, quality = null, glossary = '' } = {}) {
+  MistralLiveHub.sharedNotes = null;
   MistralLiveHub.blockedUntil.clear(); // the memory of refused models is shared by hubs: each test starts clean
   const sockets = [];
   class FakeSocket {
@@ -524,3 +525,56 @@ test('quality « best » asks the larger models first and falls back on the smal
   assert.equal(got.outText.length, 1);
   assert.match(prompts[0], /brevets\. Garder : Formlabs/);
 });
+
+test('the translator finds the context by itself: every 4 sentences a background call updates the notes, which then go into the prompts', async () => {
+  const prompts = [];
+  const { hub, sockets, got } = await setup({
+    pair: ['fr', 'zh'],
+    chatFail: (url, body, json) => {
+      const system = body.messages[0].content;
+      prompts.push(system);
+      if (/keep the notes of an interpreter/.test(system)) return json({ choices: [{ message: { content: JSON.stringify({ notes: 'Topic: 3D printing patents. Names: Formlabs, CDOM.' }) } }] });
+      return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: '好的。' }) } }] });
+    },
+  });
+  hub.lastNotesAt = -1e9; // the minimum gap between two updates does not apply to the first one
+  sockets[0].serve({ type: 'session.created' });
+  for (const t of ['Le brevet Formlabs est abandonné. ', 'Il coûte cher. ', 'Le CDOM reste utile. ', 'On le garde. ']) {
+    sockets[0].serve({ type: 'transcription.text.delta', text: t });
+    await pause(450);
+  }
+  await pause(600);
+  assert.equal(hub.autoNotes, 'Topic: 3D printing patents. Names: Formlabs, CDOM.');
+  assert.ok(got.notes.some((n) => /contexte détecté/.test(n)));
+  assert.equal(MistralLiveHub.sharedNotes.text, hub.autoNotes, 'kept for the next turn');
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Merci pour ce point. ' });
+  await pause(600);
+  assert.match(prompts.at(-1), /3D printing patents/);
+});
+
+test('the automatic context can be switched off, and is not asked while the plan is rate-limited', async () => {
+  let notesCalls = 0;
+  const chatFail = (url, body, json) => {
+    if (/keep the notes of an interpreter/.test(body.messages[0].content)) notesCalls++;
+    return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: '好的。' }) } }] });
+  };
+  const off = await setup({ pair: ['fr', 'zh'], chatFail });
+  off.hub.autoContext = false;
+  off.hub.lastNotesAt = -1e9;
+  off.sockets[0].serve({ type: 'session.created' });
+  for (const t of ['Un. ', 'Deux. ', 'Trois. ', 'Quatre. ', 'Cinq. ']) {
+    off.sockets[0].serve({ type: 'transcription.text.delta', text: t });
+    await pause(450);
+  }
+  assert.equal(notesCalls, 0);
+  const limited = await setup({ pair: ['fr', 'zh'], chatFail });
+  limited.hub.gapMs = 1100;
+  limited.hub.slowUntil = Date.now() + 60000;
+  limited.hub.lastNotesAt = -1e9;
+  limited.sockets[0].serve({ type: 'session.created' });
+  for (const t of ['Un. ', 'Deux. ', 'Trois. ', 'Quatre. ', 'Cinq. ']) {
+    limited.sockets[0].serve({ type: 'transcription.text.delta', text: t });
+    await pause(450);
+  }
+  assert.equal(notesCalls, 0);
+}).timeout?.(15000);

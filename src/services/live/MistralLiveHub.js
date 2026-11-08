@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, languageFits, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -8,6 +8,9 @@ const PAUSE_AFTER_SENTENCE_MS = 200; // the text already ends like a sentence: a
 const PAUSE_MID_SENTENCE_MS = 650; // no punctuation yet: wait for a real pause before cutting
 const PAUSE_FRAGMENT_MS = 3000; // one or two words alone: wait for the rest of the sentence (they were dropped as « not speech »)
 const QUIET_MS = 1500;
+const NOTES_EVERY = 4; // sentences between two updates of the notes
+const NOTES_MIN_GAP_MS = 40000;
+const NOTES_KEEP_MS = 30 * 60000; // the notes of a conversation are still valid when the listening restarts within half an hour
 const RATE_GAP_MS = 1100; // spacing between two requests once the plan's limit was hit
 const MAX_PARALLEL_CHAT = 2; // more at once triggers the per-second limit of the plans, and one 429 then stalls every sentence behind it
 const MODEL_ROUNDS = 2; // times every model is tried before giving up on a sentence
@@ -40,9 +43,11 @@ const NO_TEXT_AFTER_SEC = 8; // audio sent without a single word back: say so in
 export default class MistralLiveHub {
   /** model → time until which it is known to be refused or limited (shared by the hubs of every turn). */
   static blockedUntil = new Map();
+  /** The last notes found about the conversation: { text, at }. */
+  static sharedNotes = null;
 
-  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '' }) {
-    Object.assign(this, { apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak, preferFallback, glossary });
+  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '', autoContext = true }) {
+    Object.assign(this, { apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak, preferFallback, userGlossary: glossary, autoContext });
     this.models = modelsForQuality(quality); // the translation models, best first or fastest first // preferFallback: the other voice speaks EVERY language (e.g. one's own cloned voice) // fallbackSpeak(text, target) → { samples, rate } | null: another voice for the languages Mistral cannot speak
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.fetchImpl = fetchImpl ?? ((...args) => fetch(...args));
@@ -58,6 +63,13 @@ export default class MistralLiveHub {
     this.goodVoice = new Map(); // language → the voice id that worked
     this.failures = 0; // sentences in a row that could not be translated
     this.llmIndex = 0; // which model of MISTRAL_LLM_MODELS translates
+    // Notes found by the model itself (topic, names, terms): kept for the next turns of the same conversation.
+    const shared = MistralLiveHub.sharedNotes;
+    this.autoNotes = shared && this.now() - shared.at < NOTES_KEEP_MS ? shared.text : '';
+    this.heard = []; // { source, translation } of the last sentences, to update the notes
+    this.sinceNotes = 0;
+    this.lastNotesAt = 0;
+    this.updatingNotes = false;
     this.context = []; // the last sentences heard (source text), given to the translator for context
     this.lastVoiceAt = 0; // last microphone chunk that held a voice (to measure the delay after the last word)
     this.lastFrom = 'A'; // language of the previous sentence (numbers have none of their own)
@@ -289,6 +301,46 @@ export default class MistralLiveHub {
     this.tail = this.tail.then(() => job).then((result) => result && this.deliver(result));
   }
 
+  /** What the translator is told about the conversation: what the user typed, then what was found by itself. */
+  get glossary() {
+    return [this.userGlossary, this.autoContext ? this.autoNotes : ''].filter((x) => x && String(x).trim()).join(' | ');
+  }
+
+  /** Every few sentences, in the background (never in the way of a translation), ask a model to update the notes of the conversation. */
+  maybeUpdateNotes() {
+    if (!this.autoContext || this.updatingNotes || this.dead || this.closing) return;
+    if (this.sinceNotes < NOTES_EVERY || this.now() - this.lastNotesAt < NOTES_MIN_GAP_MS) return;
+    if (this.gapMs) return; // the plan's limit was hit: the translations come first
+    this.updatingNotes = true;
+    this.sinceNotes = 0;
+    this.lastNotesAt = this.now();
+    this.updateNotes()
+      .catch(() => {})
+      .finally(() => {
+        this.updatingNotes = false;
+      });
+  }
+
+  async updateNotes() {
+    const pair = this.pair;
+    if (!pair) return;
+    // A small, quick model is enough (and keeps the large ones for the translations): the first of the fast list not known to be limited.
+    const now = this.now();
+    const model = modelsForQuality('fast').find((m) => !(MistralLiveHub.blockedUntil.get(m) > now)) ?? modelsForQuality('fast')[0];
+    const chat = await this.post('/v1/chat/completions', {
+      model,
+      temperature: 0,
+      max_tokens: 300,
+      response_format: { type: 'json_object' },
+      messages: notesMessages({ a: this.languageName(pair.a), b: this.languageName(pair.b), exchanges: this.heard.slice(-10), previous: this.autoNotes }),
+    }, { retries: 0 });
+    const notes = parseNotes(chat?.choices?.[0]?.message?.content);
+    if (!notes) return;
+    this.autoNotes = notes;
+    MistralLiveHub.sharedNotes = { text: notes, at: this.now() };
+    this.note(`Mistral live : contexte détecté « ${notes.slice(0, 160)}${notes.length > 160 ? '…' : ''} »`);
+  }
+
   /** After a 429 the requests are spaced out for a while (the plans allow about one per second, and a sentence needs two). */
   slowDown() {
     if (!this.gapMs) this.note('Mistral live : limite de débit atteinte : les requêtes sont espacées pendant 90 s (formule limitée — voir console.mistral.ai)');
@@ -371,6 +423,10 @@ export default class MistralLiveHub {
     const session = thirdLanguage ? this.sessions.find((s) => s.target === pair.a) : this.sessions.find((s) => s.source === (verdict.from === 'A' ? pair.a : pair.b));
     if (!session) return null; // one direction only (tap mode) and the sentence is in the language it already speaks
     this.recent.push({ at: this.now(), text: verdict.text });
+    this.heard.push({ source: text, translation: verdict.text });
+    if (this.heard.length > 12) this.heard.shift();
+    this.sinceNotes++;
+    this.maybeUpdateNotes();
     const result = { session, input: text, output: verdict.text, samples: null, rate: 24000, llmMs, ttsMs: 0, startedAt: t0, speechEnd: meta.speechEnd, queuedAt: meta.queuedAt ?? t0 };
     const language = mistralVoiceLanguage(session.target);
     // Another voice (ElevenLabs) speaks the languages Mistral cannot — or every language when the user asked for it (own cloned voice).

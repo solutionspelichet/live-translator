@@ -45,6 +45,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
   const [elevenVoiceForAll, setElevenVoiceForAll] = useState(settings.elevenVoiceForAll);
   const [mistralQuality, setMistralQuality] = useState(settings.mistralQuality);
   const [mistralGlossary, setMistralGlossary] = useState(settings.mistralGlossary);
+  const [mistralAutoContext, setMistralAutoContext] = useState(settings.mistralAutoContext);
   const [report, setReport] = useState(null); // result of « Tester mes clés »
   const [testing, setTesting] = useState(false);
   const [voices, setVoices] = useState(null); // voices of the ElevenLabs account
@@ -299,7 +300,12 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
             <Text style={styles.hint}>
               « Meilleure » demande d'abord les grands modèles de Mistral (plus justes en chinois, avec les noms et les longues phrases, un peu plus lents) et passe automatiquement aux petits si votre compte est limité. « Plus rapide » part des petits modèles.
             </Text>
-            <Text style={styles.label}>Contexte et termes à respecter</Text>
+            <Text style={styles.label}>Contexte de la conversation</Text>
+            <Chip label={mistralAutoContext ? 'Détecté automatiquement (sujet, noms, termes)' : 'Détection automatique désactivée'} on={mistralAutoContext} onPress={() => setMistralAutoContext((v) => !v)} />
+            <Text style={styles.hint}>
+              Toutes les quelques phrases, Mistral relit ce qui vient d'être dit et tient à jour des notes : de quoi on parle, comment s'écrivent les noms de marques ou de personnes (même mal entendus), quel mot choisir pour chaque terme technique. Ces notes sont données au traducteur avec chaque phrase, et gardées une demi-heure si vous relancez l'écoute. Le journal écrit « contexte détecté ». Cela ajoute un petit appel toutes les 40 secondes au plus.
+            </Text>
+            <Text style={styles.label}>Termes à ajouter vous-même (facultatif)</Text>
             <TextInput
               style={[styles.input, { minHeight: 70 }]}
               value={mistralGlossary}
@@ -310,7 +316,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
               placeholderTextColor={palette().placeholder}
             />
             <Text style={styles.hint}>
-              Dites en une ou deux phrases de quoi parle la réunion et listez les noms de marques, de personnes ou les termes techniques : ils sont donnés au traducteur avec chaque phrase (600 caractères au plus).
+              Facultatif : ce que vous écrivez ici s'ajoute à ce qui est détecté (600 caractères au plus). Utile pour un nom que vous savez à l'avance.
             </Text>
             <Text style={styles.label}>Voix de Mistral live</Text>
             <Chip label={elevenVoiceForAll ? 'Mes voix ElevenLabs pour toutes les langues' : 'Voix Mistral (ElevenLabs seulement en secours)'} on={elevenVoiceForAll} onPress={() => setElevenVoiceForAll((v) => !v)} />
@@ -483,7 +489,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

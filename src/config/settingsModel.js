@@ -37,6 +37,7 @@ export function engineOptions(settings) {
     elevenVoiceForAll: Boolean(settings.elevenVoiceForAll),
     mistralQuality: settings.mistralQuality === 'fast' ? 'fast' : 'best',
     mistralGlossary: String(settings.mistralGlossary ?? ''),
+    mistralAutoContext: settings.mistralAutoContext !== false,
     endpointingMs,
     utteranceEndMs,
     flushAfterMs,
@@ -78,6 +79,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   recentPairs: Object.freeze([]), // last language pairs used: [{A, B}], newest first
   prices: Object.freeze({}), // unit prices overriding the defaults of the usage counter
   mistralQuality: 'best', // Mistral live translation: 'best' (larger models first) | 'fast' (small models first)
+  mistralAutoContext: true, // the translator finds the topic, names and terms of the conversation by itself
   mistralGlossary: '', // topic, names and terms of the meeting, given to the Mistral translator
   elevenVoiceForAll: false, // Mistral live: ElevenLabs (my voices, cloned ones included) speaks every language instead of Mistral's 9
   voiceBySpeaker: false, // the voice follows who is speaking (own cloned voice for own words) instead of the language heard
@@ -145,6 +147,7 @@ export function sanitizeSettings(raw) {
     prices: sanitizePrices(input.prices),
     voiceBySpeaker: typeof input.voiceBySpeaker === 'boolean' ? input.voiceBySpeaker : DEFAULT_SETTINGS.voiceBySpeaker,
     mistralQuality: input.mistralQuality === 'fast' ? 'fast' : 'best',
+    mistralAutoContext: input.mistralAutoContext !== false,
     mistralGlossary: typeof input.mistralGlossary === 'string' ? input.mistralGlossary.slice(0, 600) : '',
     elevenVoiceForAll: typeof input.elevenVoiceForAll === 'boolean' ? input.elevenVoiceForAll : DEFAULT_SETTINGS.elevenVoiceForAll,
     minutesLanguage: LANGUAGES[input.minutesLanguage] ? input.minutesLanguage : DEFAULT_SETTINGS.minutesLanguage,

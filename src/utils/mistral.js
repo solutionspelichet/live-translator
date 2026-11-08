@@ -17,7 +17,7 @@ export const modelsForQuality = (quality) => MISTRAL_QUALITY[quality] ?? MISTRAL
 
 /** What the user told about the meeting (topic, names, terms to keep): given to the translator, cut to a reasonable size. */
 export const glossaryLine = (text) => {
-  const t = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 600);
+  const t = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 1100);
   return t ? `About this conversation, from the user (topic, names, terms to keep or translate in a given way): ${t}` : null;
 };
 export const MISTRAL_TTS_MODEL = 'voxtral-mini-tts-latest';
@@ -260,6 +260,37 @@ export function languageFits(text, targetCode) {
 /** Three words or more with letters: enough to be a real sentence in a third language rather than a stray syllable of noise. */
 export function looksLikeSpeech(text) {
   return String(text ?? '').trim().split(/\s+/).filter((w) => /\p{L}/u.test(w)).length >= 3;
+}
+
+/**
+ * The notes the translator keeps about the conversation: topic, proper names and technical terms with the way each one is
+ * translated, found by a model from what was said (and how it was translated), so the user does not have to type them.
+ * Answer: {"notes": "<at most 450 characters>"}.
+ */
+export function notesMessages({ a, b, exchanges, previous = '' }) {
+  const lines = exchanges.map((e) => `- ${e.source} => ${e.translation}`).join('\n');
+  return [
+    {
+      role: 'system',
+      content: [
+        `You keep the notes of an interpreter between ${a} and ${b}. You receive the latest sentences (original => translation) and the current notes.`,
+        'Write the UPDATED notes in English, at most 450 characters, in one paragraph: (1) the topic in one short sentence; (2) proper names (people, companies, products, places) written exactly as they must be spelled, even when the speech recognition garbled them (e.g. a brand heard as another word); (3) technical terms with the translation that must stay the same each time.',
+        'Keep what is still true in the current notes, drop what is not, and fix a translation that is inconsistent or wrong. Do not invent anything that is not in the sentences.',
+        'Reply ONLY with a JSON object: {"notes":"<updated notes>"}.',
+      ].join('\n'),
+    },
+    { role: 'user', content: `Current notes: ${previous || '(none yet)'}\n\nLatest sentences:\n${lines}` },
+  ];
+}
+
+export function parseNotes(content) {
+  const json = String(content ?? '').match(/\{[\s\S]*\}/)?.[0];
+  if (!json) return '';
+  try {
+    return String(JSON.parse(json).notes ?? '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  } catch {
+    return '';
+  }
 }
 
 export function forcedMessages({ from, to, text, glossary = '' }) {
