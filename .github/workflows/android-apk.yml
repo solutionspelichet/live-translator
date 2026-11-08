@@ -37,7 +37,7 @@ jobs:
         working-directory: android
         run: |
           # services.gradle.org (the redirector) sometimes answers 504: ask the download host directly and retry for a few minutes.
-          sed -i 's#https\://services.gradle.org/distributions/#https\://downloads.gradle.org/distributions/#' gradle/wrapper/gradle-wrapper.properties
+          sed -i 's#https\\://services.gradle.org/distributions/#https\\://downloads.gradle.org/distributions/#' gradle/wrapper/gradle-wrapper.properties
           grep distributionUrl gradle/wrapper/gradle-wrapper.properties
           for attempt in 1 2 3 4 5 6; do
             ./gradlew --version --no-daemon && exit 0
