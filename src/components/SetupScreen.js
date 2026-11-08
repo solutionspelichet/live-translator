@@ -294,11 +294,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           <>
             <Text style={styles.label}>Qualité de la traduction (Mistral live)</Text>
             <View style={styles.chips}>
-              <Chip label="Meilleure (modèles plus puissants)" on={mistralQuality === 'best'} onPress={() => setMistralQuality('best')} />
+              <Chip label="Meilleure (modèle moyen d'abord)" on={mistralQuality === 'best'} onPress={() => setMistralQuality('best')} />
               <Chip label="Plus rapide" on={mistralQuality === 'fast'} onPress={() => setMistralQuality('fast')} />
             </View>
             <Text style={styles.hint}>
-              « Meilleure » demande d'abord les grands modèles de Mistral (plus justes en chinois, avec les noms et les longues phrases, un peu plus lents) et passe automatiquement aux petits si votre compte est limité. « Plus rapide » part des petits modèles.
+              « Meilleure » demande d'abord le modèle moyen de Mistral (plus juste en chinois, avec les noms et les longues phrases) et passe automatiquement aux petits si votre compte est limité. « Plus rapide » part du petit modèle : si le retard vous gêne, choisissez-le.
             </Text>
             <Text style={styles.label}>Contexte de la conversation</Text>
             <Chip label={mistralAutoContext ? 'Détecté automatiquement (sujet, noms, termes)' : 'Détection automatique désactivée'} on={mistralAutoContext} onPress={() => setMistralAutoContext((v) => !v)} />

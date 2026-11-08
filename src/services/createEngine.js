@@ -27,7 +27,8 @@ function mistralFallbackVoice(languages) {
   const base = (code) => String(code ?? '').toLowerCase().split('-')[0];
   return async (text, target) => {
     const voiceId = base(target) === base(languages[SIDE.A]) ? env.voiceA || env.voiceB : env.voiceB || env.voiceA;
-    const { data, sampleRate } = await eleven.synthesize(text, { voiceId, language: target });
+    // The quickest ElevenLabs model (it supports Chinese): this voice comes after the translation, every second counts.
+    const { data, sampleRate } = await eleven.synthesize(text, { voiceId, language: target, model: 'eleven_flash_v2_5' });
     UsageTracker.add({ elevenChars: text.length });
     return { samples: pcm16ToFloat(data), rate: sampleRate };
   };

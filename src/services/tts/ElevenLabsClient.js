@@ -13,7 +13,7 @@ const MODEL = 'eleven_turbo_v2_5';
  */
 export default class ElevenLabsClient {
   /** @returns {Promise<{data: ArrayBuffer, sampleRate: number}>} source for AudioRoutingService */
-  async synthesize(text, { voiceId, language }) {
+  async synthesize(text, { voiceId, language, model = MODEL }) {
     const url = `${env.elevenLabsBaseUrl}/v1/text-to-speech/${voiceId}?output_format=pcm_${TTS_SAMPLE_RATE}`;
     const res = await fetchWithRetry('ElevenLabs', () =>
       fetch(url, {
@@ -21,7 +21,7 @@ export default class ElevenLabsClient {
         headers: { 'xi-api-key': env.elevenLabsKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
-          model_id: MODEL,
+          model_id: model,
           language_code: getLanguage(language).eleven, // avoids wrong-language pronunciation on short phrases
         }),
       }),

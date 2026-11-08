@@ -7,10 +7,11 @@ export const MISTRAL_STT_MODEL = 'voxtral-mini-transcribe-realtime-2602';
 export const MISTRAL_LLM_MODEL = 'mistral-small-latest';
 // Rate limits are per model: when the first is limited (429) or unknown for the account, the next one is tried.
 export const MISTRAL_LLM_MODELS = Object.freeze(['mistral-small-latest', 'ministral-8b-latest', 'open-mistral-nemo', 'mistral-medium-latest']);
-// Translation quality: « best » asks the larger models first (a little slower, much better with Chinese, names, long sentences) and
-// falls back on the smaller ones when the account is limited; « fast » is the previous order.
+// Translation quality: « best » asks the medium model first (better with Chinese, names, long sentences than the small ones, and not
+// as slow as the large one, which added seconds to every sentence) and falls back on the smaller ones when the account is limited;
+// « fast » is the previous order.
 export const MISTRAL_QUALITY = Object.freeze({
-  best: Object.freeze(['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest', 'ministral-8b-latest', 'open-mistral-nemo']),
+  best: Object.freeze(['mistral-medium-latest', 'mistral-small-latest', 'ministral-8b-latest', 'open-mistral-nemo']),
   fast: MISTRAL_LLM_MODELS,
 });
 export const modelsForQuality = (quality) => MISTRAL_QUALITY[quality] ?? MISTRAL_QUALITY.best;

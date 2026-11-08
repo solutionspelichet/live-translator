@@ -505,7 +505,7 @@ test('the last sentences are given to the translator as context (fragments cut a
   assert.match(seen[1], /Context[^\n]*Le brevet est abandonné/);
 });
 
-test('quality « best » asks the larger models first and falls back on the smaller ones; the glossary goes into the prompt', async () => {
+test('quality « best » asks the medium model first and falls back on the smaller ones; the glossary goes into the prompt', async () => {
   const asked = [];
   const prompts = [];
   const { sockets, got } = await setup({
@@ -514,14 +514,14 @@ test('quality « best » asks the larger models first and falls back on the smal
     chatFail: (url, body, json) => {
       asked.push(body.model);
       prompts.push(body.messages[0].content);
-      if (body.model === 'mistral-large-latest') return { ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } };
+      if (body.model === 'mistral-medium-latest') return { ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } };
       return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hello.' }) } }] });
     },
   });
   sockets[0].serve({ type: 'session.created' });
   sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
   await pause(900);
-  assert.deepEqual(asked.slice(0, 2), ['mistral-large-latest', 'mistral-medium-latest']);
+  assert.deepEqual(asked.slice(0, 2), ['mistral-medium-latest', 'mistral-small-latest']);
   assert.equal(got.outText.length, 1);
   assert.match(prompts[0], /brevets\. Garder : Formlabs/);
 });
