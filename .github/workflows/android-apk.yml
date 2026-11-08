@@ -33,6 +33,31 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
 
+      - name: Gradle init script — Maven Central through Google's mirror
+        run: |
+          # On the GitHub runners repo.maven.apache.org redirects some jars (the Kotlin compiler) to github.com/…/releases, which has been
+          # answering 504: Google's public mirror of Maven Central serves the same files.
+          mkdir -p ~/.gradle/init.d
+          cat > ~/.gradle/init.d/central-mirror.gradle <<'EOF'
+          def mirror = 'https://maven-central.storage-download.googleapis.com/maven2/'
+          def swap = { repos ->
+            repos.all { repo ->
+              if (repo instanceof MavenArtifactRepository && repo.url.toString().contains('repo.maven.apache.org')) {
+                repo.setUrl(mirror)
+              }
+            }
+          }
+          beforeSettings { settings ->
+            swap(settings.pluginManagement.repositories)
+            swap(settings.dependencyResolutionManagement.repositories)
+          }
+          allprojects {
+            swap(buildscript.repositories)
+            swap(repositories)
+          }
+          EOF
+          cat ~/.gradle/init.d/central-mirror.gradle
+
       - name: Fetch Gradle (retries, official CDN host)
         working-directory: android
         run: |
