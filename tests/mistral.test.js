@@ -141,3 +141,13 @@ test('notesMessages gives the latest sentences and the current notes; parseNotes
   assert.equal(parseNotes('not json'), '');
   assert.equal(parseNotes(JSON.stringify({ notes: 'x'.repeat(900) })).length, 500);
 });
+
+test('guessDeeplTarget: Latin text goes towards the Chinese side, Chinese text towards the Latin side, same-script pairs towards B', async () => {
+  const { guessDeeplTarget } = await import('../src/utils/mistral.js');
+  assert.equal(guessDeeplTarget('Bonjour à tous, comment allez-vous', 'fr', 'zh'), 'zh');
+  assert.equal(guessDeeplTarget('大家好，今天我们开会', 'fr', 'zh'), 'fr');
+  assert.equal(guessDeeplTarget('左转', 'fr', 'zh'), 'fr');
+  assert.equal(guessDeeplTarget('你好', 'zh', 'fr'), 'fr');
+  assert.equal(guessDeeplTarget('Hello there', 'zh', 'fr'), 'zh');
+  assert.equal(guessDeeplTarget('Hello there my friend', 'fr', 'en'), 'en');
+});

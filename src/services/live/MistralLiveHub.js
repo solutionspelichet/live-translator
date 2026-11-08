@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 100;
@@ -55,7 +55,7 @@ export default class MistralLiveHub {
   /** The last notes found about the conversation: { text, at }. */
   static sharedNotes = null;
 
-  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '', autoContext = true, lowBandwidth = false }) {
+  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '', autoContext = true, lowBandwidth = false, deepl = null, translator = 'auto', deeplCode = (c) => c }) {
     Object.assign(this, { apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak, preferFallback, userGlossary: glossary, autoContext });
     this.models = modelsForQuality(quality); // the translation models, best first or fastest first // preferFallback: the other voice speaks EVERY language (e.g. one's own cloned voice) // fallbackSpeak(text, target) → { samples, rate } | null: another voice for the languages Mistral cannot speak
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
@@ -81,6 +81,11 @@ export default class MistralLiveHub {
     this.updatingNotes = false;
     this.textTail = Promise.resolve(); // the translations are SHOWN in order as soon as they are ready, before their voice
     this.lowBandwidth = lowBandwidth;
+    // DeepL as the translator: always (translator 'deepl') or as the way out when Mistral refuses the sentence (translator 'auto').
+    this.deepl = translator === 'mistral' ? null : deepl;
+    this.translatorMode = translator;
+    this.deeplCode = deeplCode; // app language → the code DeepL answers with (« detected_source_language »)
+    this.deeplFallbackNoted = false;
     this.requestTimeoutMs = lowBandwidth ? REQUEST_TIMEOUT_MS * 2 : REQUEST_TIMEOUT_MS; // low bandwidth: more patience
     this.slow = false; // the network is slow: shorter patience for the voices, no background notes
     this.slowStreak = 0;
@@ -437,6 +442,35 @@ export default class MistralLiveHub {
     }
   }
 
+  /**
+   * DeepL: no language identification by an LLM. The sentence is translated with source auto-detection towards the most likely
+   * language; DeepL says what it detected, which tells the direction (and a third language, translated for person A).
+   */
+  async translateWithDeepl(text, pair) {
+    const code = (c) => this.deeplCode(c);
+    const count = (chars) => pair && this.sessions[0]?.onUsage?.({ deeplChars: chars });
+    if (hasNoLetters(text)) {
+      // A number: no language of its own, the one of the previous sentence.
+      const from = this.lastFrom === 'B' ? 'B' : 'A';
+      const r = await this.deepl.translateAuto(text, from === 'A' ? pair.b : pair.a);
+      count(text.length);
+      return { from, text: r.text, third: false };
+    }
+    const first = guessDeeplTarget(text, pair.a, pair.b);
+    const r1 = await this.deepl.translateAuto(text, first);
+    count(text.length);
+    const detected = String(r1.detected || '').toUpperCase();
+    const isA = detected === code(pair.a);
+    const isB = detected === code(pair.b);
+    const want = isA ? pair.b : pair.a; // from A → B, from B or a third language → A
+    let out = r1.text;
+    if (first !== want) {
+      out = (await this.deepl.translateAuto(text, want)).text;
+      count(text.length);
+    }
+    return { from: isA ? 'A' : isB ? 'B' : 'other', text: out, third: !isA && !isB };
+  }
+
   async process(text, meta = {}) {
     const pair = this.pair;
     if (!pair) return null;
@@ -445,11 +479,26 @@ export default class MistralLiveHub {
       return null;
     }
     const t0 = this.now();
-    const chat = await this.interpret(interpreterMessages({ a: this.languageName(pair.a), b: this.languageName(pair.b), text, context: this.context.slice(-3), glossary: this.glossary }));
+    let verdict = null;
+    let viaDeepl = this.translatorMode === 'deepl' && !!this.deepl;
+    if (!viaDeepl) {
+      try {
+        const chat = await this.interpret(interpreterMessages({ a: this.languageName(pair.a), b: this.languageName(pair.b), text, context: this.context.slice(-3), glossary: this.glossary }));
+        verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
+      } catch (error) {
+        // Mistral refuses (limits per model, a model not in the subscription…): DeepL translates this sentence instead of losing it.
+        if (!this.deepl || !(isModelRefusal(error) || error?.timeout)) throw error;
+        viaDeepl = true;
+        if (!this.deeplFallbackNoted) {
+          this.deeplFallbackNoted = true;
+          this.note(`Mistral live : Mistral refuse la traduction (${error.status ?? 'délai'}) : DeepL traduit à la place`);
+        }
+      }
+    }
     this.context.push(text);
     if (this.context.length > 6) this.context.shift();
-    let verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
-    if (verdict.from === 'other' && hasNoLetters(text)) {
+    if (viaDeepl) verdict = await this.translateWithDeepl(text, pair);
+    if (!viaDeepl && verdict.from === 'other' && hasNoLetters(text)) {
       // A counting, a number: no word tells the language, so it is the one of the previous sentence (the same speaker goes on).
       const from = this.lastFrom === 'B' ? pair.b : pair.a;
       const to = this.lastFrom === 'B' ? pair.a : pair.b;
@@ -457,7 +506,7 @@ export default class MistralLiveHub {
       const answer = parseInterpretation(forced?.choices?.[0]?.message?.content);
       if (answer.text) verdict = { from: this.lastFrom, text: answer.text };
     }
-    if (verdict.from === 'other' && !verdict.text && !hasNoLetters(text) && looksLikeSpeech(text)) {
+    if (!viaDeepl && verdict.from === 'other' && !verdict.text && !hasNoLetters(text) && looksLikeSpeech(text)) {
       // The small models answer « other » with an empty text for English in a French↔Chinese pair: translate it for person A anyway.
       const third = await this.interpret(forcedMessages({ from: 'the language of the sentence', to: this.languageName(pair.a), text, glossary: this.glossary }));
       const answer = parseInterpretation(third?.choices?.[0]?.message?.content);
@@ -481,6 +530,7 @@ export default class MistralLiveHub {
       if (!languageFits(verdict.text, toCode)) {
         const fromCode = thirdLanguage ? null : verdict.from === 'A' ? pair.a : pair.b;
         this.note(`Mistral live : traduction dans la mauvaise langue (« ${verdict.text.slice(0, 40)} ») : nouvel essai vers ${toCode}`);
+        if (viaDeepl) return null; // DeepL does not answer in the wrong language: nothing to ask again
         const again = await this.interpret(forcedMessages({ from: fromCode ? this.languageName(fromCode) : 'the language of the sentence', to: this.languageName(toCode), text, glossary: this.glossary }));
         const answer = parseInterpretation(again?.choices?.[0]?.message?.content);
         if (answer.text && languageFits(answer.text, toCode)) verdict = { ...verdict, text: answer.text };

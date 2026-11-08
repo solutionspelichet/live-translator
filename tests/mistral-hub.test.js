@@ -28,7 +28,7 @@ function wavBytes(samples, rate = 24000) {
   return bytes;
 }
 
-async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null, speech = null, chatFail = null, quality = null, glossary = '' } = {}) {
+async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null, speech = null, chatFail = null, quality = null, glossary = '', deepl = null, translator = 'auto' } = {}) {
   MistralLiveHub.sharedNotes = null;
   MistralLiveHub.blockedUntil.clear(); // the memory of refused models is shared by hubs: each test starts clean
   const sockets = [];
@@ -62,7 +62,7 @@ async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices =
     if (url.includes('/v1/audio/speech')) return json({ audio_data: Buffer.from(wavBytes([1000, 2000, 3000])).toString('base64') });
     return { ok: false, status: 404, text: async () => 'nope' };
   };
-  const hub = new MistralLiveHub({ apiKey: 'key-test', baseUrl: 'https://api.test', wsUrl: 'wss://stt.test/realtime', languageName: (c) => c, WebSocketImpl: FakeSocket, fetchImpl, quietMs: 40, quality: quality ?? 'fast', glossary });
+  const hub = new MistralLiveHub({ apiKey: 'key-test', baseUrl: 'https://api.test', wsUrl: 'wss://stt.test/realtime', languageName: (c) => c, WebSocketImpl: FakeSocket, fetchImpl, quietMs: 40, quality: quality ?? 'fast', glossary, deepl, translator, deeplCode: (c) => String(c).toUpperCase() });
   const got = { audio: [], inText: [], outText: [], notes: [], errors: [], usage: [] };
   const make = (source, target, transcribeInput) =>
     new MistralLiveSession({
@@ -653,3 +653,66 @@ test('three sentences in a row refused by the account limit warn the user once (
   assert.equal(got.errors.length, 0);
   assert.equal(hub.dead, false);
 }).timeout?.(20000);
+
+function fakeDeepl(detect) {
+  const calls = [];
+  return {
+    calls,
+    async translateAuto(text, target) {
+      calls.push({ text, target });
+      return { text: target === 'zh' ? '大家好，欢迎参加今天的会议。' : 'Bonjour à tous, bienvenue à la réunion.', detected: detect(text) };
+    },
+  };
+}
+
+test('DeepL as the translator: the direction comes from the language it detects (A → B, B → A), one call when the first guess is right', async () => {
+  const deepl = fakeDeepl((t) => (/[\u4e00-\u9fff]/.test(t) ? 'ZH' : 'FR'));
+  const { sockets, got } = await setup({ pair: ['fr', 'zh'], translator: 'deepl', deepl });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(500);
+  sockets[0].serve({ type: 'transcription.text.delta', text: '谢谢各位，我们现在开始。 ' });
+  await pause(500);
+  assert.deepEqual(deepl.calls.map((c) => c.target), ['zh', 'fr'], 'one call each: the first guess (the other script) was right');
+  assert.deepEqual(got.outText.map((o) => o.target), ['zh', 'fr']);
+  assert.match(got.outText[0].t, /大家好/);
+  assert.match(got.outText[1].t, /Bonjour à tous, bienvenue/);
+});
+
+test('DeepL as the translator: a third language (English in a French↔Chinese pair) is translated for A only, with a second call', async () => {
+  const deepl = fakeDeepl(() => 'EN');
+  const { sockets, got } = await setup({ pair: ['fr', 'zh'], translator: 'deepl', deepl });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'So if I speak in English now, do you hear it? ' });
+  await pause(700);
+  assert.deepEqual(deepl.calls.map((c) => c.target), ['zh', 'fr']);
+  assert.equal(got.outText.length, 1);
+  assert.equal(got.outText[0].target, 'fr');
+});
+
+test('auto: when Mistral refuses every model, DeepL translates the sentence instead of losing it (said once in the journal)', async () => {
+  const deepl = fakeDeepl((t) => (/[\u4e00-\u9fff]/.test(t) ? 'ZH' : 'FR'));
+  const { sockets, got } = await setup({
+    pair: ['fr', 'zh'],
+    deepl,
+    translator: 'auto',
+    chatFail: () => ({ ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded","type":"rate_limited"}', headers: { get: () => null } }),
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(2500);
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Merci beaucoup. ' });
+  await pause(1500);
+  assert.equal(got.outText.length, 2, 'both sentences were translated');
+  assert.equal(got.notes.filter((n) => /DeepL traduit à la place/.test(n)).length, 1);
+  assert.equal(got.errors.length, 0);
+}).timeout?.(15000);
+
+test('translator « mistral » never uses DeepL', async () => {
+  const deepl = fakeDeepl(() => 'FR');
+  const { sockets } = await setup({ pair: ['fr', 'zh'], translator: 'mistral', deepl, answer: { from: 'A', text: '你好。' } });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(600);
+  assert.equal(deepl.calls.length, 0);
+});

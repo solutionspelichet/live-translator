@@ -74,7 +74,7 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       lowBandwidth: options.lowBandwidth,
       createSession: (opts) => {
         if (opts.transcribeInput || !hub) {
-          hub = new MistralLiveHub({ apiKey: env.mistralKey, baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl, languageName: (code) => getLanguage(code).label, timers: BackgroundTimers, fallbackSpeak: mistralFallbackVoice(languages, options.lowBandwidth), preferFallback: Boolean(options.elevenVoiceForAll), quality: options.mistralQuality, glossary: options.mistralGlossary, autoContext: options.mistralAutoContext && !options.lowBandwidth, lowBandwidth: options.lowBandwidth });
+          hub = new MistralLiveHub({ apiKey: env.mistralKey, baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl, languageName: (code) => getLanguage(code).label, timers: BackgroundTimers, fallbackSpeak: mistralFallbackVoice(languages, options.lowBandwidth), preferFallback: Boolean(options.elevenVoiceForAll), quality: options.mistralQuality, glossary: options.mistralGlossary, autoContext: options.mistralAutoContext && !options.lowBandwidth, lowBandwidth: options.lowBandwidth, translator: options.mistralTranslator, deepl: env.deeplKey ? new DeepLClient() : null, deeplCode: (c) => getLanguage(c).deeplSource });
         }
         return new MistralLiveSession({ ...opts, hub });
       },

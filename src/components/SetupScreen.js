@@ -45,6 +45,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
   const [elevenVoiceForAll, setElevenVoiceForAll] = useState(settings.elevenVoiceForAll);
   const [mistralQuality, setMistralQuality] = useState(settings.mistralQuality);
   const [lowBandwidth, setLowBandwidth] = useState(settings.lowBandwidth);
+  const [mistralTranslator, setMistralTranslator] = useState(settings.mistralTranslator);
   const [mistralGlossary, setMistralGlossary] = useState(settings.mistralGlossary);
   const [mistralAutoContext, setMistralAutoContext] = useState(settings.mistralAutoContext);
   const [report, setReport] = useState(null); // result of « Tester mes clés »
@@ -293,6 +294,15 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
 
         {strategy === 'mistral' && (
           <>
+            <Text style={styles.label}>Qui traduit dans Mistral live</Text>
+            <View style={styles.chips}>
+              <Chip label="Auto (Mistral, DeepL s'il refuse)" on={mistralTranslator === 'auto'} onPress={() => setMistralTranslator('auto')} />
+              <Chip label="Toujours DeepL" on={mistralTranslator === 'deepl'} onPress={() => setMistralTranslator('deepl')} />
+              <Chip label="Toujours Mistral" on={mistralTranslator === 'mistral'} onPress={() => setMistralTranslator('mistral')} />
+            </View>
+            <Text style={styles.hint}>
+              La reconnaissance et la voix restent celles de Mistral. Pour la traduction, DeepL (votre clé DeepL, saisie pour le mode Classique) évite les limites des modèles de Mistral : il reconnaît lui-même la langue de chaque phrase. « Auto » essaie d'abord Mistral et prend DeepL quand Mistral refuse (limite, modèle absent de votre abonnement). « Toujours DeepL » est le plus fiable si votre compte Mistral est limité.
+            </Text>
             <Text style={styles.label}>Qualité de la traduction (Mistral live)</Text>
             <View style={styles.chips}>
               <Chip label="Meilleure (modèle moyen d'abord)" on={mistralQuality === 'best'} onPress={() => setMistralQuality('best')} />
@@ -496,7 +506,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, lowBandwidth, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

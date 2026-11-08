@@ -1,7 +1,7 @@
 // Mistral (Voxtral) cascade — pure helpers, unit-tested. Pipeline: realtime transcription → Mistral Small (language + translation,
 // one JSON answer) → Voxtral TTS. The voice exists in 9 languages only; any other language is shown as text.
 import { ApiError, fetchWithRetry } from './http.js';
-import { cjkShare, isPassthrough, scriptOf } from './live.js';
+import { cjkShare, isPassthrough, scriptOf, shortCjkShare } from './live.js';
 
 export const MISTRAL_STT_MODEL = 'voxtral-mini-transcribe-realtime-2602';
 export const MISTRAL_LLM_MODEL = 'mistral-small-latest';
@@ -300,6 +300,23 @@ export function parseNotes(content) {
   } catch {
     return '';
   }
+}
+
+/**
+ * Which language to translate INTO first when the translator is DeepL (it detects the source itself, but a wrong first guess costs a
+ * second call): a Chinese-script sentence in a pair with one Chinese-script language goes to the other one, anything else towards B.
+ */
+export function guessDeeplTarget(text, a, b) {
+  const sa = scriptOf(a);
+  const sb = scriptOf(b);
+  if (sa && sb && sa !== sb) {
+    const share = cjkShare(String(text ?? ''));
+    const cjkText = share !== null ? share >= 0.5 : shortCjkShare(String(text ?? '')) === 1;
+    const cjkSide = sa === 'cjk' ? a : b;
+    const latinSide = sa === 'cjk' ? b : a;
+    return cjkText ? latinSide : cjkSide === b ? b : a; // Latin text: towards the CJK language
+  }
+  return b;
 }
 
 export function forcedMessages({ from, to, text, glossary = '' }) {
