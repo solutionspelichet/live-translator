@@ -78,6 +78,8 @@ export default class MistralLiveHub {
     this.slow = false; // the network is slow: shorter patience for the voices, no background notes
     this.slowStreak = 0;
     this.fastStreak = 0;
+    this.limitedStreak = 0; // sentences in a row refused by the account's rate limit
+    this.limitWarned = false;
     this.context = []; // the last sentences heard (source text), given to the translator for context
     this.lastVoiceAt = 0; // last microphone chunk that held a voice (to measure the delay after the last word)
     this.lastFrom = 'A'; // language of the previous sentence (numbers have none of their own)
@@ -104,6 +106,12 @@ export default class MistralLiveHub {
 
   note(text) {
     this.lead?.onNote?.(text);
+  }
+
+  /** Something the user must know (shown once, without stopping the turn). */
+  warn(text) {
+    this.note(text);
+    this.lead?.onWarning?.(text);
   }
 
   setStatus(status) {
@@ -296,7 +304,10 @@ export default class MistralLiveHub {
     });
     meta.onTranslated = (result) => showText(result);
     const job = this.process(text, meta).then((result) => {
-      if (result) this.failures = 0;
+      if (result) {
+        this.failures = 0;
+        this.limitedStreak = 0;
+      }
       return result;
     }).catch((error) => {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) this.fail(error);
@@ -311,6 +322,11 @@ export default class MistralLiveHub {
           // The plan's rate limit is not a broken app: keep listening (the next sentences go through once the window passes) and
           // slow the requests down, instead of stopping the turn with an alert in the middle of a conversation.
           this.slowDown();
+          // Everything refused for several sentences, with no burst of ours to blame: the account itself is out of quota.
+          if (++this.limitedStreak >= 3 && !this.limitWarned) {
+            this.limitWarned = true;
+            this.warn('Mistral refuse toutes les demandes (« Rate limit exceeded ») : la limite ou le quota de votre compte est atteint. Vérifiez votre usage et vos limites sur console.mistral.ai, ou choisissez un autre service dans ⚙︎ (Doubao en appui sur une zone, OpenAI, Gemini). L\'écoute continue : les phrases passeront dès que la limite sera levée.');
+          }
           return null;
         }
         // Several in a row: the user must be told (a silent screen looks like a broken app), not left waiting.

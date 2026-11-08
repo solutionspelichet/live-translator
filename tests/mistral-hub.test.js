@@ -633,3 +633,21 @@ test('a rate limit of the whole account does not walk through the other models (
   assert.ok(hub.gapMs > 0);
   assert.equal(MistralLiveHub.blockedUntil.size, 0, 'no model is blamed for the account limit');
 }).timeout?.(10000);
+
+test('three sentences in a row refused by the account limit warn the user once (the turn goes on)', async () => {
+  const warnings = [];
+  const { hub, sockets, got } = await setup({
+    chatFail: () => ({ ok: false, status: 429, text: async () => '{"object":"error","message":"Rate limit exceeded","type":"rate_limited","code":"1300"}', headers: { get: () => null } }),
+  });
+  hub.sessions[0].onWarning = (t) => warnings.push(t);
+  sockets[0].serve({ type: 'session.created' });
+  for (const t of ['Un. ', 'Deux. ', 'Trois. ', 'Quatre. ']) {
+    sockets[0].serve({ type: 'transcription.text.delta', text: t });
+    await pause(60);
+  }
+  await pause(9000);
+  assert.equal(warnings.length, 1, 'one warning, not one per sentence');
+  assert.match(warnings[0], /console\.mistral\.ai/);
+  assert.equal(got.errors.length, 0);
+  assert.equal(hub.dead, false);
+}).timeout?.(20000);

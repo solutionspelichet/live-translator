@@ -153,6 +153,7 @@ export default class LiveTranslationEngine {
         onOutputText: (text) => this.onText(turn, d, 'out', text),
         onStatus: (status) => status !== 'connecting' && this.emit({ type: 'note', text: `${this.profile.label} ${label} : ${status}` }),
         onNote: (text) => this.emit({ type: 'note', text }),
+        onWarning: (text) => this.emit({ type: 'warning', text }), // something to tell the user, without stopping the turn
         onTiming: (ms) => d.delays.push(ms), // pipelines that know how long a sentence took (Mistral): shown in the history
         onUsage: (delta) => this.recordUsage(delta), // services that bill by something else than audio seconds (Mistral voice: characters)
         onError: (error) => this.fail(id, error),
