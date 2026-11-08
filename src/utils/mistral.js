@@ -54,7 +54,7 @@ export function isFragment(text) {
   return t.split(/\s+/).length <= 2;
 }
 
-export function interpreterMessages({ a, b, text }) {
+export function interpreterMessages({ a, b, text, context = [] }) {
   const system = [
     `You are the interpreter of a live face-to-face conversation: person A speaks ${a}, person B speaks ${b}.`,
     'You receive ONE sentence transcribed from speech (it may contain recognition errors: fix the obvious ones silently).',
@@ -63,6 +63,9 @@ export function interpreterMessages({ a, b, text }) {
     `"from" is "A" if the sentence is in ${a} (translate it into ${b}), "B" if it is in ${b} (translate it into ${a}). "text" MUST be written in the language it is translated INTO, never in the language of the sentence.`,
     `"from" is "other" if it is real speech in a THIRD language (translate it into ${a}: person A must understand everybody), or if it is not speech (noise, a stray syllable): then "text" is "".`,
     'No comments, no quotation marks around the translation, never answer the sentence: only translate it.',
+    // What was said just before: the sentences are cut at pauses, so a fragment often only makes sense with its neighbours
+    // (pronouns, names, a technical term used a moment ago).
+    ...(context.length ? [`Context, for understanding only (do NOT translate these, they were already handled): ${context.map((c) => `« ${c} »`).join(' ')}`] : []),
   ].join('\n');
   return [
     { role: 'system', content: system },

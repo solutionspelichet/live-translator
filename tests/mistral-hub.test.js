@@ -29,6 +29,7 @@ function wavBytes(samples, rate = 24000) {
 }
 
 async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null, speech = null, chatFail = null } = {}) {
+  MistralLiveHub.blockedUntil.clear(); // the memory of refused models is shared by hubs: each test starts clean
   const sockets = [];
   class FakeSocket {
     constructor(url, protocols, options) {
@@ -462,3 +463,43 @@ test('a rate limit (429 on every model) never stops the turn: the sentence is dr
   assert.ok(hub.gapMs > 0, 'requests spaced');
   assert.equal(hub.dead, false);
 }).timeout?.(12000);
+
+test('a model refused one moment ago is tried last by the next turn (no failed round trip at every start)', async () => {
+  const asked = [];
+  const chatFail = (url, body, json) => {
+    asked.push(body.model);
+    if (body.model === 'mistral-small-latest') return { ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } };
+    return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Hello.' }) } }] });
+  };
+  const a = await setup({ chatFail });
+  a.sockets[0].serve({ type: 'session.created' });
+  a.sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(900);
+  assert.equal(asked[0], 'mistral-small-latest');
+  // A NEW hub (next turn) with the memory of the previous one
+  const before = asked.length;
+  const keep = new Map(MistralLiveHub.blockedUntil);
+  const b = await setup({ chatFail });
+  for (const [k, v] of keep) MistralLiveHub.blockedUntil.set(k, v);
+  b.sockets[0].serve({ type: 'session.created' });
+  b.sockets[0].serve({ type: 'transcription.text.delta', text: 'Merci beaucoup. ' });
+  await pause(900);
+  assert.notEqual(asked[before], 'mistral-small-latest', 'the limited model is not asked first');
+});
+
+test('the last sentences are given to the translator as context (fragments cut at a pause need their neighbours)', async () => {
+  const seen = [];
+  const { sockets } = await setup({
+    chatFail: (url, body, json) => {
+      seen.push(body.messages[0].content);
+      return json({ choices: [{ message: { content: JSON.stringify({ from: 'A', text: 'Ok.' }) } }] });
+    },
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Le brevet est abandonné. ' });
+  await pause(500);
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Il coûte trop cher. ' });
+  await pause(500);
+  assert.ok(!/Context/.test(seen[0]), 'nothing before the first sentence');
+  assert.match(seen[1], /Context[^\n]*Le brevet est abandonné/);
+});

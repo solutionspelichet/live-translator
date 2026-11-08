@@ -111,3 +111,10 @@ test('languageFits: a Latin target must not come back in Chinese, a Chinese targ
   assert.equal(languageFits('Oui.', 'fr'), true, 'too short to judge');
   assert.equal(languageFits('anything', 'ar'), true, 'other scripts are not judged');
 });
+
+test('interpreterMessages adds the previous sentences as context only when there are some', () => {
+  assert.ok(!/Context/.test(interpreterMessages({ a: 'Français', b: 'English', text: 'Oui' })[0].content));
+  const withContext = interpreterMessages({ a: 'Français', b: 'English', text: 'Oui', context: ['Le brevet est abandonné.', 'Il coûte cher.'] })[0].content;
+  assert.match(withContext, /Context, for understanding only/);
+  assert.match(withContext, /« Le brevet est abandonné\. » « Il coûte cher\. »/);
+});
