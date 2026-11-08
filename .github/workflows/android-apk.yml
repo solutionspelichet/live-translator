@@ -48,7 +48,15 @@ jobs:
 
       - name: Build release APK (JS bundled, signed with the debug key — fine for sideloading)
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          # The dependencies are downloaded from Maven Central / GitHub releases, which sometimes answer 504: what was already
+          # downloaded stays in the Gradle cache, so a second and a third pass only fetch what is missing.
+          for attempt in 1 2 3; do
+            ./gradlew assembleRelease --no-daemon && exit 0
+            echo "Gradle build failed (attempt $attempt), waiting before the next one"
+            sleep $((attempt * 30))
+          done
+          exit 1
 
       - uses: actions/upload-artifact@v4
         with:
