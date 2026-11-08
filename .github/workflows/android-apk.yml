@@ -33,6 +33,14 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
 
+      - name: react-native-audio-api without its prebuilt FFmpeg / codec libraries
+        run: |
+          # The library downloads ~tens of MB of prebuilt libs (FFmpeg, opus, vorbis) from github.com/…/releases while building; that host has
+          # been answering 504 and the build then fails on a missing libavcodec.so. The app decodes nothing compressed (the voices
+          # are PCM/WAV decoded in JavaScript, the microphone is raw PCM): the library supports switching them off.
+          printf '\ndisableAudioapiFFmpeg=true\ndisableAudioapiStaticExternalLibs=true\n' >> android/gradle.properties
+          tail -4 android/gradle.properties
+
       - name: Gradle init script — Maven Central through Google's mirror
         run: |
           # On the GitHub runners repo.maven.apache.org redirects some jars (the Kotlin compiler) to github.com/…/releases, which has been
