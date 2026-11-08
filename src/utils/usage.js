@@ -8,6 +8,7 @@
 export const emptyUsage = () => ({
   dgNova2Sec: 0,
   dgNova3Sec: 0,
+  dgNova3MultiSec: 0, // Nova-3 multilingual (meetings in mixed languages): billed higher than monolingual
   dgPreSec: 0, // pre-recorded transcription (meetings, second pass)
   deeplChars: 0,
   elevenChars: 0,
@@ -86,24 +87,25 @@ export function parseUsageState(raw, now = new Date()) {
  */
 export const DEFAULT_PRICES = Object.freeze({
   deepgramNova2PerMin: 0.0058,
-  deepgramNova3PerMin: 0.0077,
+  deepgramNova3PerMin: 0.0077, // Nova-3 monolingual streaming
+  deepgramNova3MultiPerMin: 0.0092, // Nova-3 multilingual streaming
   deepgramPrePerMin: 0.0043,
   deeplPerMillionChars: 25,
-  elevenPerThousandChars: 0.04,
+  elevenPerThousandChars: 0.05, // Flash / Turbo, ElevenLabs API price list ($0.10 for Multilingual v2 / v3)
   openaiLivePerMin: 0.034, // gpt-realtime-translate, per minute of audio sent
   openaiTranscribePerMin: 0.017, // gpt-realtime-whisper (source transcript), per minute
   geminiInPerMin: 0.0053, // gemini-3.5-live-translate-preview, audio in (25 tokens/s × $3.50 per million); a free tier exists
   geminiOutPerMin: 0.0315, // same, audio out ($21 per million tokens)
   mistralSttPerMin: 0.008, // Voxtral Mini Transcribe Realtime
   mistralTtsPerKChars: 0.016, // Voxtral TTS, per 1 000 characters (the translation by Mistral Small is a fraction of a cent, not counted)
-  doubaoPerMin: 0, // BytePlus AST: price not published in what was found — fill it in from the BytePlus console
+  doubaoPerMin: 0, // BytePlus AST: no public price found — UNKNOWN, fill it in from the BytePlus console (the screen says the total is incomplete)
 });
 
 /** Estimated cost per service and in total. `prices` overrides DEFAULT_PRICES key by key. */
 export function estimateCost(rawUsage, prices = {}) {
   const usage = addUsage(emptyUsage(), rawUsage); // tolerate counters stored before a unit existed
   const p = { ...DEFAULT_PRICES, ...prices };
-  const deepgram = ((usage.dgNova2Sec / 60) * p.deepgramNova2PerMin) + ((usage.dgNova3Sec / 60) * p.deepgramNova3PerMin);
+  const deepgram = ((usage.dgNova2Sec / 60) * p.deepgramNova2PerMin) + ((usage.dgNova3Sec / 60) * p.deepgramNova3PerMin) + ((usage.dgNova3MultiSec / 60) * p.deepgramNova3MultiPerMin);
   const deepgramPre = (usage.dgPreSec / 60) * p.deepgramPrePerMin;
   const deepl = (usage.deeplChars / 1e6) * p.deeplPerMillionChars;
   const eleven = (usage.elevenChars / 1000) * p.elevenPerThousandChars;
@@ -112,7 +114,9 @@ export function estimateCost(rawUsage, prices = {}) {
   const geminiLive = (usage.geminiInSec / 60) * p.geminiInPerMin + (usage.geminiOutSec / 60) * p.geminiOutPerMin;
   const doubaoLive = (usage.doubaoSec / 60) * p.doubaoPerMin;
   const mistralLive = (usage.mistralSttSec / 60) * p.mistralSttPerMin + (usage.mistralTtsChars / 1000) * p.mistralTtsPerKChars;
-  return { deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, openaiLive, geminiLive, doubaoLive, mistralLive, total: deepgram + deepgramPre + deepl + eleven + openrouter + openaiLive + geminiLive + doubaoLive + mistralLive };
+  // A service used but with no price: the total is incomplete and the screen must say so (0 $ looks like « free »).
+  const unpriced = [usage.doubaoSec > 0 && !p.doubaoPerMin ? 'Doubao live' : null].filter(Boolean);
+  return { unpriced, deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, openaiLive, geminiLive, doubaoLive, mistralLive, total: deepgram + deepgramPre + deepl + eleven + openrouter + openaiLive + geminiLive + doubaoLive + mistralLive };
 }
 
 export function formatDuration(seconds) {
@@ -129,4 +133,4 @@ export const formatCount = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?
 export const formatMoney = (n) => `${n < 0.01 && n > 0 ? '<0,01' : n.toFixed(2).replace('.', ',')} $`;
 
 /** Total streamed audio, whichever model. */
-export const deepgramSeconds = (usage) => (usage.dgNova2Sec || 0) + (usage.dgNova3Sec || 0) + (usage.dgPreSec || 0);
+export const deepgramSeconds = (usage) => (usage.dgNova2Sec || 0) + (usage.dgNova3Sec || 0) + (usage.dgNova3MultiSec || 0) + (usage.dgPreSec || 0);

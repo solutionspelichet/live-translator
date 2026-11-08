@@ -10,6 +10,7 @@ import { palette, themedStyles } from '../theme';
 const PRICE_LABELS = {
   deepgramNova2PerMin: 'Deepgram Nova-2 — $ par minute',
   deepgramNova3PerMin: 'Deepgram Nova-3 (arabe) — $ par minute',
+  deepgramNova3MultiPerMin: 'Deepgram Nova-3 multilingue (réunions) — $ par minute',
   deepgramPrePerMin: 'Deepgram différé (réunions) — $ par minute',
   deeplPerMillionChars: 'DeepL — $ par million de caractères',
   elevenPerThousandChars: 'ElevenLabs — $ par 1 000 caractères',
@@ -72,6 +73,9 @@ export default function UsageScreen({ visible, usage, prices, onPrices, onReset,
                 <Row label="OpenRouter (comptes rendus)" value={`${formatCount(u.orTokens)} jetons`} money={cost.openrouter} />
                 <View style={styles.sep} />
                 <Row label="Estimation totale" value="" money={cost.total} bold />
+                {cost.unpriced.length > 0 && (
+                  <Text style={styles.note}>{`Incomplète : prix non renseigné pour ${cost.unpriced.join(', ')} (saisissez-le plus bas, à lire dans la console du service).`}</Text>
+                )}
               </View>
             );
           })}
