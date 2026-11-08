@@ -2,7 +2,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Haptics from 'expo-haptics';
-import { Alert, AppState, Pressable, Share, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Alert, AppState, Pressable, ScrollView, Share, StyleSheet, Text, useColorScheme, View } from 'react-native';
 
 import HistoryScreen from './src/components/HistoryScreen';
 import MeetingsScreen from './src/components/MeetingsScreen';
@@ -398,6 +398,10 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       />
       {diag && (
         <View style={styles.diag} pointerEvents="box-none">
+          <View style={styles.diagBar}>
+            <Pressable style={styles.diagClose} onPress={() => setDiag(null)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Fermer le journal">
+              <Text style={styles.diagCloseText}>✕ Fermer</Text>
+            </Pressable>
           <Pressable
             style={styles.diagShare}
             onPress={async () => {
@@ -414,6 +418,8 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
           >
             <Text style={styles.diagShareText}>Partager le journal complet</Text>
           </Pressable>
+          </View>
+          <ScrollView style={styles.diagScroll} nestedScrollEnabled>
           <Text style={styles.diagText}>
             {`micro: ${diag.micRunning ? 'ouvert' : 'FERMÉ'} · paquets: ${diag.chunks}`}
             {diag.msSinceChunk != null ? ` · dernier il y a ${diag.msSinceChunk} ms` : ' · aucun paquet reçu'}
@@ -425,6 +431,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
             {diag.micError ? `\nerreur micro: ${diag.micError}` : ''}
             {`\n— journal —\n${EventLog.last(10).join('\n') || '(vide)'}`}
           </Text>
+          </ScrollView>
         </View>
       )}
     </View>
@@ -459,9 +466,14 @@ const styles = themedStyles((c) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  diag: { position: 'absolute', left: 8, right: 8, bottom: 24, backgroundColor: c.overlayStrong, borderRadius: 8, padding: 8 },
+  diag: { position: 'absolute', left: 8, right: 8, bottom: 24, maxHeight: '42%', backgroundColor: c.overlayStrong, borderRadius: 8, padding: 8 },
   diagText: { color: c.success, fontFamily: 'Courier', fontSize: 11 },
-  diagShare: { alignSelf: 'flex-end', backgroundColor: c.accent, borderRadius: 12, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 6 },
+  // The panel stays under the controls (it used to cover the gear that opens it: no way to close it) and has its own close button.
+  diagBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  diagClose: { backgroundColor: c.overlayStrong, borderColor: c.accent, borderWidth: 1, borderRadius: 12, paddingVertical: 6, paddingHorizontal: 12 },
+  diagCloseText: { color: c.success, fontSize: 12, fontWeight: '700' },
+  diagScroll: { maxHeight: 220 },
+  diagShare: { alignSelf: 'flex-end', backgroundColor: c.accent, borderRadius: 12, paddingVertical: 6, paddingHorizontal: 12 },
   diagShareText: { color: c.onAccent, fontSize: 12, fontWeight: '700' },
   gearText: { color: c.onAccent, fontSize: 20 },
 }));

@@ -627,10 +627,13 @@ export default class MistralLiveHub {
             if (!isModelRefusal(error)) throw error;
             // The limits are per model: 429 = this model for a minute (its tokens a minute or its requests a second), 404/403 = this
             // account cannot use it, much longer. The next model is asked at once; the reason is written once so the journal says why.
-            const until = this.now() + (error.status === 429 ? 60000 : 30 * 60000);
-            if (!(MistralLiveHub.blockedUntil.get(model) > this.now())) this.note(`Mistral live : modèle « ${model} » refusé (${error.status} : ${String(error.detail ?? '').replace(/\s+/g, ' ').slice(0, 110)}) → ${error.status === 429 ? '1 min' : '30 min'} de pause pour ce modèle`);
+            // With DeepL as the way out, a limited model is left alone longer (5 min): asking again every minute wasted three requests
+            // and slowed everything down (spacing of 1.1 s) for nothing, the sentences being translated by DeepL meanwhile.
+            const pause = error.status === 429 ? (this.deepl ? 5 * 60000 : 60000) : 30 * 60000;
+            const until = this.now() + pause;
+            if (!(MistralLiveHub.blockedUntil.get(model) > this.now())) this.note(`Mistral live : modèle « ${model} » refusé (${error.status} : ${String(error.detail ?? '').replace(/\s+/g, ' ').slice(0, 110)}) → ${Math.round(pause / 60000)} min de pause pour ce modèle`);
             MistralLiveHub.blockedUntil.set(model, until);
-            this.slowDown();
+            if (!this.deepl) this.slowDown(); // DeepL translates the next sentences: no need to space the Mistral requests (voice, transcription)
             refusal = error;
             this.lastRefusal = error;
             if (++tried >= MAX_MODELS_PER_ROUND) break; // a few models are enough: each ask counts against the limits

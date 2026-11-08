@@ -716,3 +716,19 @@ test('translator « mistral » never uses DeepL', async () => {
   await pause(600);
   assert.equal(deepl.calls.length, 0);
 });
+
+test('with DeepL as the way out a limited model is left alone for 5 minutes and the requests are not slowed down', async () => {
+  const deepl = fakeDeepl(() => 'FR');
+  const { hub, sockets } = await setup({
+    pair: ['fr', 'zh'],
+    deepl,
+    translator: 'auto',
+    chatFail: () => ({ ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded","type":"rate_limited"}', headers: { get: () => null } }),
+  });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(2500);
+  const until = MistralLiveHub.blockedUntil.get('mistral-small-latest');
+  assert.ok(until - Date.now() > 4 * 60000, 'paused for about 5 minutes');
+  assert.ok(!hub.gapMs, 'no spacing of the requests: DeepL translates meanwhile');
+}).timeout?.(10000);
