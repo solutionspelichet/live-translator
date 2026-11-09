@@ -170,3 +170,21 @@ test('a payload refused by the service (1007) fails at once with its reason, ins
   assert.equal(got.errors[0].status, 400);
   assert.match(String(got.errors[0].message), /Unknown name/);
 });
+
+test('goAway: a new connection is opened before the end, and a close for the session duration is not fatal', async () => {
+  const { session, sockets, got } = make({ timers: { setTimeout: (fn) => setTimeout(fn, 1), clearTimeout } });
+  session.connect();
+  sockets[0].open();
+  sockets[0].message({ setupComplete: {} });
+  sockets[0].message({ goAway: { timeLeft: '9s' } });
+  await pause(40);
+  assert.equal(sockets.length, 2, 'a second socket was opened');
+  assert.equal(sockets[0].closed, true);
+  sockets[1].open();
+  sockets[1].message({ setupComplete: {} });
+  // the late close of the old socket and a duration close of the new one never end the turn
+  sockets[0].onclose?.({ code: 1007, reason: 'Connection aborted because the client failed to close the connection after receiving a GoAway signal once the session duration' });
+  sockets[1].onclose?.({ code: 1007, reason: 'GoAway signal once the session duration limit' });
+  await pause(20);
+  assert.deepEqual(got.errors, []);
+});

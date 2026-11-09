@@ -112,6 +112,8 @@ export default class GeminiLiveSession {
       const reason = String(e?.reason ?? '').replace(this.apiKey ?? '', '…');
       if (KEY_PROBLEM.test(reason)) return this.fail(new ApiError('Gemini', 401, reason || 'clé refusée'));
       // 1007 = the server rejected what we sent (invalid payload), 1008 = policy: retrying the same thing cannot help.
+      // The session reached its maximum duration (GoAway): a normal end, open a new one.
+      if (/goaway|session dura/i.test(reason)) return this.lost(`durée maximale de session (${e?.code ?? ''})`);
       if (e?.code === 1007 || e?.code === 1008) return this.fail(new ApiError('Gemini', 400, reason || `refusé par le service (${e.code})`));
       this.lost(`${e?.code ?? ''} ${reason}`.trim());
     };
@@ -148,6 +150,7 @@ export default class GeminiLiveSession {
     }
     if (msg.goAway) {
       this.onNote?.(`Gemini live : le service annonce la fin de la connexion (${JSON.stringify(msg.goAway).slice(0, 80)}) → reconnexion`);
+      this.renew(msg.goAway.timeLeft);
       return;
     }
     const content = msg.serverContent;
@@ -189,6 +192,28 @@ export default class GeminiLiveSession {
       return;
     }
     this.send({ realtimeInput: { audio: { data: base64Pcm16, mimeType: 'audio/pcm;rate=16000' } } });
+  }
+
+  /**
+   * The service announces the end of the connection (`goAway.timeLeft`, e.g. "50s"): open the next one a little before, so the
+   * talk goes on without the "client failed to close the connection after a GoAway" error that ended the whole turn.
+   */
+  renew(timeLeft) {
+    if (this.dead || this.closing || this.renewing) return;
+    const seconds = Number.parseFloat(String(timeLeft ?? '')) || 20;
+    this.renewing = true;
+    const wait = Math.max(500, (seconds - 8) * 1000);
+    this.timers.setTimeout(() => {
+      this.renewing = false;
+      if (this.dead || this.closing) return;
+      const old = this.ws;
+      this.ready = false; // the audio is held until the new session is ready
+      this.attempts = 0;
+      this.connect(); // this.ws is now the new socket: the old one's messages are ignored
+      try {
+        old?.close();
+      } catch {}
+    }, wait);
   }
 
   lost(reason) {
