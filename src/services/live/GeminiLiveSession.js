@@ -6,6 +6,7 @@ const MAX_PENDING = 100; // audio chunks kept while the socket is (re)connecting
 const MAX_ATTEMPTS = 30;
 const OUTPUT_RATE = 24000; // Gemini Live speaks 24 kHz mono PCM16
 const MODEL = 'models/gemini-3.5-live-translate-preview';
+const SWAP_QUIET_MS = 1200; // the live connection is handed over when nothing came from it for this long
 const QUIET_MS = 1500; // after the end of the stream: the last words are over when nothing came for this long
 const KEY_PROBLEM = /api key|api_key|permission|unauthori|unauthenticated|credential|invalid argument.*key/i;
 
@@ -49,8 +50,8 @@ function decodeText(data) {
  * @param {Function} [opts.WebSocketImpl]
  */
 export default class GeminiLiveSession {
-  constructor({ target, transcribeInput = false, echo = false, apiKey, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS }) {
-    Object.assign(this, { target, transcribeInput, echo, apiKey, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers, quietMs });
+  constructor({ target, transcribeInput = false, echo = false, apiKey, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS, swapQuietMs = SWAP_QUIET_MS }) {
+    Object.assign(this, { target, transcribeInput, echo, apiKey, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers, quietMs, swapQuietMs });
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.ws = null;
     this.ready = false; // setupComplete received
@@ -70,7 +71,8 @@ export default class GeminiLiveSession {
     this.onStatus?.(status);
   }
 
-  connect() {
+  /** @param {boolean} [standby]  open the NEXT connection beside the live one (end of a session announced by the service) */
+  connect(standby = false) {
     if (this.dead) return;
     let ws;
     try {
@@ -79,9 +81,12 @@ export default class GeminiLiveSession {
     } catch (error) {
       return this.lost(String(error?.message ?? error).replace(this.apiKey ?? '', '…'));
     }
-    this.ws = ws;
+    if (standby) {
+      this.next = ws;
+      this.nextReady = false;
+    } else this.ws = ws;
     ws.onopen = () => {
-      if (this.ws !== ws) return;
+      if (this.ws !== ws && this.next !== ws) return;
       // The transcription switches belong to `setup` itself (the server rejects them inside generationConfig, error 1007);
       // the translation settings belong to generationConfig.
       const setup = {
@@ -96,17 +101,24 @@ export default class GeminiLiveSession {
       this.send({ setup });
     };
     ws.onmessage = (e) => {
-      if (this.ws !== ws) return;
-      if (typeof e.data === 'string') return this.handle(e.data);
+      if (this.ws !== ws && this.next !== ws) return;
+      const deliver = (text) => (this.next === ws ? this.handleStandby(text) : this.handle(text));
+      if (typeof e.data === 'string') return deliver(e.data);
       this.decoding = this.decoding.then(() => {
-        if (this.ws !== ws) return;
+        if (this.ws !== ws && this.next !== ws) return;
         const text = decodeText(e.data);
-        if (text != null) this.handle(text);
+        if (text != null) deliver(text);
       });
     };
     ws.onerror = () => {};
     ws.onclose = (e) => {
+      if (this.next === ws) {
+        this.next = null; // the standby connection failed: the live one goes on (and is replaced when it ends)
+        this.nextReady = false;
+        return;
+      }
       if (this.ws !== ws) return;
+      if (this.nextReady && !this.closing && !this.dead) return this.swap(); // the live one ended: the standby takes over
       this.ready = false;
       if (this.closing || this.dead) return this.finishClose();
       const reason = String(e?.reason ?? '').replace(this.apiKey ?? '', '…');
@@ -191,7 +203,15 @@ export default class GeminiLiveSession {
       if (this.pending.length > MAX_PENDING) this.pending.shift();
       return;
     }
-    this.send({ realtimeInput: { audio: { data: base64Pcm16, mimeType: 'audio/pcm;rate=16000' } } });
+    const frame = JSON.stringify({ realtimeInput: { audio: { data: base64Pcm16, mimeType: 'audio/pcm;rate=16000' } } });
+    try {
+      this.ws?.send(frame);
+    } catch {}
+    if (this.nextReady) {
+      try {
+        this.next?.send(frame);
+      } catch {}
+    }
   }
 
   /**
@@ -202,18 +222,56 @@ export default class GeminiLiveSession {
     if (this.dead || this.closing || this.renewing) return;
     const seconds = Number.parseFloat(String(timeLeft ?? '')) || 20;
     this.renewing = true;
-    const wait = Math.max(500, (seconds - 8) * 1000);
-    this.timers.setTimeout(() => {
-      this.renewing = false;
+    const deadline = Date.now() + Math.max(1500, (seconds - 4) * 1000);
+    // The next connection is opened BESIDE the live one right away; both hear the audio, only the live one speaks. When the next
+    // one is ready and the live one is quiet (a sentence is not cut in the middle), the next one takes over: nothing is lost.
+    this.connect(true);
+    const tick = () => {
       if (this.dead || this.closing) return;
-      const old = this.ws;
-      this.ready = false; // the audio is held until the new session is ready
-      this.attempts = 0;
-      this.connect(); // this.ws is now the new socket: the old one's messages are ignored
-      try {
-        old?.close();
-      } catch {}
-    }, wait);
+      if (!this.next) { // the standby failed to open: fall back on a plain reconnection at the end
+        this.renewing = false;
+        return;
+      }
+      const quiet = Date.now() - this.lastMessageAt >= this.swapQuietMs;
+      if (this.nextReady && (quiet || Date.now() >= deadline)) return this.swap();
+      if (Date.now() >= deadline + 3000) { // never ready in time: let the end of the session reconnect as before
+        this.renewing = false;
+        return;
+      }
+      this.timers.setTimeout(tick, 200);
+    };
+    this.timers.setTimeout(tick, 200);
+  }
+
+  /** The standby connection becomes the live one. */
+  swap() {
+    const old = this.ws;
+    this.ws = this.next;
+    this.next = null;
+    this.nextReady = false;
+    this.renewing = false;
+    this.ready = true;
+    this.attempts = 0;
+    this.onNote?.('Gemini live : nouvelle connexion prête, bascule sans coupure');
+    try {
+      old?.close();
+    } catch {}
+  }
+
+  /** What the standby connection sends is not played: only its readiness counts. */
+  handleStandby(data) {
+    try {
+      const msg = JSON.parse(data);
+      if (msg.setupComplete !== undefined) this.nextReady = true;
+      else if (msg.error) {
+        const ws = this.next;
+        this.next = null;
+        this.nextReady = false;
+        try {
+          ws?.close();
+        } catch {}
+      }
+    } catch {}
   }
 
   lost(reason) {
@@ -264,6 +322,10 @@ export default class GeminiLiveSession {
     this.timers.clearTimeout(this.closeTimer);
     this.setStatus('closed');
     try {
+      this.next?.close();
+    } catch {}
+    this.next = null;
+    try {
       this.ws?.close();
     } catch {}
     this.resolveClosed?.();
@@ -276,6 +338,10 @@ export default class GeminiLiveSession {
     this.timers.clearTimeout(this.closeTimer);
     const ws = this.ws;
     this.ws = null;
+    try {
+      this.next?.close();
+    } catch {}
+    this.next = null;
     try {
       ws?.close();
     } catch {}
