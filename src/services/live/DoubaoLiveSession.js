@@ -135,9 +135,21 @@ export default class DoubaoLiveSession {
       case 'finished':
         if (this.closing) this.finishClose();
         return;
-      case 'failed':
-        this.fail(new ApiError('Doubao', msg.code || 500, msg.message || 'session refusée'));
+      case 'failed': {
+        // The service's own hiccups (55xxxxxx "Server processing timeout", 45000081 and any timeout) end ITS session, not the
+        // conversation: start a new session instead of stopping the turn with an alert.
+        const transient = msg.code >= 50000000 || msg.code === 45000081 || /timeout|timed out/i.test(String(msg.message ?? ''));
+        if (!transient) return this.fail(new ApiError('Doubao', msg.code || 500, msg.message || 'session refusée'));
+        this.onNote?.(`Doubao live : session terminée par le service (${msg.code} ${String(msg.message ?? '').slice(0, 80)}) → nouvelle session`);
+        const old = this.ws;
+        this.ws = null; // the old socket's close is not a second loss
+        this.ready = false;
+        try {
+          old?.close();
+        } catch {}
+        this.lost(`erreur ${msg.code}`);
         return;
+      }
       default:
     }
   }
