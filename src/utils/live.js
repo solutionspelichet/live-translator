@@ -72,12 +72,22 @@ const STOPWORDS = {
 };
 const STOP_SETS = Object.fromEntries(Object.entries(STOPWORDS).map(([k, v]) => [k, new Set(v)]));
 
+// Letters that only Vietnamese uses (tone marks stacked on a vowel, đ, ơ, ư): French/Spanish/etc. text never has them.
+const VIETNAMESE_ONLY = /[đơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i;
+
+/** Is this text Vietnamese? Several words with letters only Vietnamese uses. */
+export function looksVietnamese(text) {
+  const words = tokens(String(text ?? ''));
+  return words.length >= 2 && words.filter((w) => VIETNAMESE_ONLY.test(w)).length >= 2;
+}
+
 /**
  * Is this Latin-script text clearly in ANOTHER Latin language than `code` (e.g. English heard in a French↔Chinese pair)?
  * Counts common function words per language; needs a few of them and a clear lead over `code`. false when unsure.
  */
 export function isForeignLatin(text, code) {
   const own = String(code ?? '').toLowerCase().split(/[-_]/)[0];
+  if (own !== 'vi' && looksVietnamese(text)) return true;
   const words = tokens(String(text ?? '').replace(/[’]/g, "'"));
   if (words.length < 3) return false;
   const score = (lang) => words.reduce((n, w) => n + (STOP_SETS[lang]?.has(w) ? 1 : 0), 0);

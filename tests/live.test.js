@@ -242,3 +242,12 @@ test('LiveGate: two Chinese characters alone are already Chinese — the Chinese
   fr.flush(1300);
   assert.equal(fr.mode, 'play');
 });
+
+test('isForeignLatin: Vietnamese (a third language with Latin letters) is foreign to French, French is not', async () => {
+  const { isForeignLatin, looksVietnamese } = await import('../src/utils/live.js');
+  assert.equal(looksVietnamese('Rồi, thế còn cái này thì sao? Chắc chắn rồi.'), true);
+  assert.equal(isForeignLatin('Đấy lõm đấy. Không phải không phải là cái', 'fr'), true);
+  assert.equal(isForeignLatin('là cái lỗ rồi', 'fr'), true);
+  assert.equal(looksVietnamese("Bonjour, ça va très bien, où êtes-vous allé ? À côté de l'hôtel."), false);
+  assert.equal(isForeignLatin("Il est très français, même à l'étranger.", 'fr'), false);
+});
