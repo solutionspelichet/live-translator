@@ -270,6 +270,7 @@ export default class LiveTranslationEngine {
       d.stats.inChars += delta.length;
       this.armIdleStop(turn);
       d.inText += delta;
+      for (const x of turn.dirs) if (x !== d) x.gate?.hear(delta);
       const released = d.gate ? d.gate.text('in', delta) : [];
       released.forEach((samples) => this.play(turn, d, samples));
       this.armBurst(turn, d);

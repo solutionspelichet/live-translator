@@ -136,6 +136,7 @@ export default class LiveGate {
     Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback });
     this.trace = []; // decisions taken (for the journal): { at, mode, basis, why }
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
+    this.peerLog = []; // what the OTHER direction's session transcribed (it hears the same speech, with its own language settings)
     this.reset();
   }
 
@@ -152,6 +153,16 @@ export default class LiveGate {
 
   get playing() {
     return this.mode === 'play';
+  }
+
+  /**
+   * The other direction's transcript of the same speech. A service whose sessions each hear one fixed language (Doubao) makes
+   * the English session write an English "transcript" of Chinese speech: only the Chinese session's text tells the truth, so the
+   * script of the speech is judged on both texts (Chinese in either one = Chinese speech).
+   */
+  hear(delta, now = Date.now()) {
+    this.peerLog.push({ at: now, text: delta });
+    this.peerLog = this.peerLog.filter((e) => e.at >= now - this.windowMs * 3);
   }
 
   /** What was said lately (source transcript of the last `windowMs`). */
@@ -174,7 +185,10 @@ export default class LiveGate {
     if (this.scriptRule) {
       const short = this.reference(now, this.shortWindowMs);
       // A few characters are enough when they are all Chinese: waiting for more text let both directions speak (Chinese heard twice).
-      const share = cjkShare(short) ?? cjkShare(ref) ?? shortCjkShare(short) ?? shortCjkShare(ref);
+      const own = cjkShare(short) ?? cjkShare(ref) ?? shortCjkShare(short) ?? shortCjkShare(ref);
+      const peerText = this.peerLog.filter((e) => e.at >= now - this.shortWindowMs).map((e) => e.text).join('');
+      const peer = peerText ? cjkShare(peerText) ?? shortCjkShare(peerText) : null;
+      const share = own === null && peer === null ? null : Math.max(own ?? 0, peer ?? 0);
       if (share !== null) {
         const outCjk = CJK.test(output);
         const pct = Math.round(share * 100);

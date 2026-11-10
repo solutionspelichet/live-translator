@@ -251,3 +251,16 @@ test('isForeignLatin: Vietnamese (a third language with Latin letters) is foreig
   assert.equal(looksVietnamese("Bonjour, ça va très bien, où êtes-vous allé ? À côté de l'hôtel."), false);
   assert.equal(isForeignLatin("Il est très français, même à l'étranger.", 'fr'), false);
 });
+
+test('gate: Chinese speech heard as English by one session is Chinese when the other session transcribed it in Chinese', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const gate = new LiveGate({ scriptRule: true });
+  gate.text('in', 'This did not translate from Chinese to English.', 1000); // the English session's invented "transcript"
+  gate.hear('这没有从中文翻译成英文。', 1000); // the Chinese session's true one
+  assert.equal(gate.repeats(gate.reference(1500), '这没有从中文翻译成英文。', 1500), true, 'a Chinese output repeats Chinese speech');
+  assert.equal(gate.repeats(gate.reference(1500), 'It was not translated from the Chinese into English.', 1500), false);
+  const english = new LiveGate({ scriptRule: true });
+  english.text('in', 'What does priority testing mean?', 1000);
+  english.hear('What does priority testing mean?', 1000);
+  assert.equal(english.repeats(english.reference(1500), '优先测试是什么意思？', 1500), false, 'English speech: the Chinese output is the translation');
+});
