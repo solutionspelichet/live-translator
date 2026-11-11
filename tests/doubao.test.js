@@ -67,3 +67,25 @@ test('languages: Chinese or English on one side, standard Arabic for the dialect
   assert.match(doubaoPairProblem('fr', 'de'), /chinois ou l'anglais/);
   assert.match(doubaoPairProblem('fr', 'fr'), /identiques/);
 });
+
+test('startSession: a cloned voice by default, a preset voice (experiment) with the TTS resource and the custom flag off', async () => {
+  const { startSession, DOUBAO_TTS_PRESET_RESOURCE } = await import('../src/utils/doubao.js');
+  const { doubaoVoicesFor, defaultDoubaoVoice } = await import('../src/utils/doubaoVoices.js');
+  const clone = startSession({ sessionId: 'x', source: 'zh', target: 'fr', speakerId: 'S_abc' });
+  const preset = startSession({ sessionId: 'x', source: 'zh', target: 'fr', speakerId: 'fr_female_fr_f47_uranus_bigtts', ttsResourceId: DOUBAO_TTS_PRESET_RESOURCE, custom: false });
+  const text = (b) => Buffer.from(b).toString('latin1');
+  assert.ok(text(clone).includes('seed-icl-2.0'));
+  assert.ok(text(preset).includes('seed-tts-2.0') && text(preset).includes('fr_female_fr_f47_uranus_bigtts'));
+  assert.notDeepEqual([...clone], [...preset]);
+  assert.equal(doubaoVoicesFor('fr').length, 3);
+  assert.equal(defaultDoubaoVoice('zh'), 'zh_female_vv_uranus_bigtts');
+  assert.equal(defaultDoubaoVoice('xx'), null);
+});
+
+test('settings: the preset voice choice is sanitised', async () => {
+  const { sanitizeSettings } = await import('../src/config/settingsModel.js');
+  const s = sanitizeSettings({ doubaoVoiceKind: 'preset', doubaoVoices: { zh: 'zh_female_vv_uranus_bigtts', xx: 'bad id!', fr: 3 } });
+  assert.equal(s.doubaoVoiceKind, 'preset');
+  assert.deepEqual(s.doubaoVoices, { zh: 'zh_female_vv_uranus_bigtts' });
+  assert.equal(sanitizeSettings({}).doubaoVoiceKind, 'clone');
+});

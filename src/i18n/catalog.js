@@ -355,4 +355,9 @@ export default [
   ["Doubao exige que l'une des deux langues soit le chinois ou l'anglais", "Doubao requires one of the two languages to be Chinese or English", "豆包要求两种语言中必须有一种是中文或英语"],
   ["les deux langues sont identiques", "both languages are the same", "两种语言相同"],
   ["Envoyer", "Send", "发送"],
+  ["Voix de Doubao", "Doubao voices", "豆包的声音"],
+  ["Ma voix clonée (identifiant speaker_id)", "My cloned voice (speaker_id)", "我的克隆声音（speaker_id）"],
+  ["Voix prédéfinie de la liste (expérimental)", "Preset voice from the list (experimental)", "列表中的预设声音（实验性）"],
+  ["Pas de voix prédéfinie pour {lang}", "No preset voice for {lang}", "{lang} 没有预设声音"],
+  ["Expérimental : la documentation de BytePlus ne dit pas si l'interprétation simultanée accepte les voix prédéfinies de sa liste. Si Doubao refuse la session, le journal le dit : repassez alors sur « Ma voix clonée ». La voix choisie est celle qui PARLE chaque langue.", "Experimental: the BytePlus documentation does not say whether live interpretation accepts the preset voices of its list. If Doubao refuses the session, the log says so: then switch back to “My cloned voice”. The chosen voice is the one that SPEAKS each language.", "实验性：BytePlus 文档没有说明实时同传是否支持其列表中的预设声音。如果豆包拒绝会话，日志里会有说明：此时请切回“我的克隆声音”。所选声音就是用来朗读每种语言的声音。"],
 ];

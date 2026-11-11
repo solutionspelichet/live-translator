@@ -43,8 +43,8 @@ function pcmToFloat(bytes) {
  * @param {string} opts.url  wss://voice.ap-southeast-1.bytepluses.com/api/v4/ast/v2/translate
  */
 export default class DoubaoLiveSession {
-  constructor({ target, source, apiKey, resourceId, speakerId, ttsResourceId = DOUBAO_TTS_RESOURCE, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS }) {
-    Object.assign(this, { target, source, apiKey, resourceId, speakerId, ttsResourceId, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers, quietMs });
+  constructor({ target, source, apiKey, resourceId, speakerId, ttsResourceId = DOUBAO_TTS_RESOURCE, custom = true, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS }) {
+    Object.assign(this, { target, source, apiKey, resourceId, speakerId, ttsResourceId, custom, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers, quietMs });
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.ws = null;
     this.ready = false; // SessionStarted received
@@ -77,7 +77,7 @@ export default class DoubaoLiveSession {
     this.sessionId = uuid();
     ws.onopen = () => {
       if (this.ws !== ws) return;
-      this.send(startSession({ sessionId: this.sessionId, source: this.source, target: this.target, speakerId: this.speakerId, ttsResourceId: this.ttsResourceId }));
+      this.send(startSession({ sessionId: this.sessionId, source: this.source, target: this.target, speakerId: this.speakerId, ttsResourceId: this.ttsResourceId, custom: this.custom }));
     };
     ws.onmessage = (e) => {
       if (this.ws !== ws || typeof e.data === 'string') return; // the service speaks binary only

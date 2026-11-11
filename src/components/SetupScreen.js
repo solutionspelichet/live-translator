@@ -8,6 +8,7 @@ import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, STRA
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 import { doubaoCode, doubaoPairProblem } from '../utils/doubao';
+import { defaultDoubaoVoice, doubaoVoicesFor } from '../utils/doubaoVoices';
 import { OUTPUT_MODES } from '../utils/outputRoute';
 import { mistralVoiceLanguage } from '../utils/mistral';
 import { checkMistral } from '../utils/mistralCheck';
@@ -37,6 +38,8 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
   const [inputs, setInputs] = useState([]);
   const [strategy, setStrategy] = useState(settings.strategy);
   const [theme, setThemeChoice] = useState(settings.theme);
+  const [doubaoVoiceKind, setDoubaoVoiceKind] = useState(settings.doubaoVoiceKind);
+  const [doubaoVoices, setDoubaoVoices] = useState(settings.doubaoVoices ?? {});
   const [uiLang, setUiLang] = useState(settings.uiLang ?? defaultLocale());
   const live = strategy !== 'classic'; // one live-translation service (OpenAI or Gemini) instead of the Deepgram → DeepL → ElevenLabs chain
   const LIVE_FIELDS = { openai: ['EXPO_PUBLIC_OPENAI_API_KEY'], gemini: ['EXPO_PUBLIC_GEMINI_API_KEY'], mistral: ['EXPO_PUBLIC_MISTRAL_API_KEY'], doubao: ['EXPO_PUBLIC_BYTEPLUS_API_KEY', 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID'] };
@@ -61,7 +64,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
     audio.listInputs().then(setInputs);
   }, []);
   const [saving, setSaving] = useState(false);
-  const complete = requiredFields(strategy).every((name) => values[name]?.trim());
+  const complete = requiredFields(strategy, { doubaoPreset: doubaoVoiceKind === 'preset' }).every((name) => values[name]?.trim());
   // Open: what you change most (translation); the keys when something is missing. The rest unfolds on demand.
   const [openSection, setOpenSection] = useState({ translation: true, keys: !requiredFields(settings.strategy).every((name) => currentValues()[name]?.trim()) });
   const toggle = (key) => setOpenSection((o) => ({ ...o, [key]: !o[key] }));
@@ -126,6 +129,39 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           const problem = !a || !b ? t("{lang} n'est pas prise en charge par Doubao", { lang: getLanguage(!a ? languages.A : languages.B).label }) : doubaoPairProblem(a, b);
           return problem ? <Text style={styles.bad}>{`⚠ ${t(problem)}. ${t("Choisissez d'autres langues ci-dessous, ou changez de stratégie.")}`}</Text> : null;
         })()}
+        {strategy === 'doubao' && (
+          <>
+            <Text style={styles.label}>Voix de Doubao</Text>
+            <View style={styles.chips}>
+              <Chip label="Ma voix clonée (identifiant speaker_id)" on={doubaoVoiceKind === 'clone'} onPress={() => setDoubaoVoiceKind('clone')} />
+              <Chip label="Voix prédéfinie de la liste (expérimental)" on={doubaoVoiceKind === 'preset'} onPress={() => setDoubaoVoiceKind('preset')} />
+            </View>
+            {doubaoVoiceKind === 'preset' && [...new Set([languages.A, languages.B].map((c) => doubaoCode(c)).filter(Boolean))].map((base) => {
+              const list = doubaoVoicesFor(base);
+              const chosen = doubaoVoices[base] ?? defaultDoubaoVoice(base);
+              const owner = [languages.A, languages.B].find((c) => doubaoCode(c) === base);
+              return (
+                <View key={base}>
+                  <Text style={styles.hint}>{`${getLanguage(owner).flag} ${getLanguage(owner).label}`}</Text>
+                  {list.length === 0 ? (
+                    <Text style={styles.hint}>{t('Pas de voix prédéfinie pour {lang}', { lang: getLanguage(owner).label })}</Text>
+                  ) : (
+                    <ScrollView style={{ maxHeight: 190 }} nestedScrollEnabled>
+                      <View style={styles.chips}>
+                        {list.map((v) => (
+                          <Chip key={v.id} label={`${v.name} ${v.gender === 'F' ? '♀' : '♂'}`} on={chosen === v.id} onPress={() => setDoubaoVoices((cur) => ({ ...cur, [base]: v.id }))} />
+                        ))}
+                      </View>
+                    </ScrollView>
+                  )}
+                </View>
+              );
+            })}
+            <Text style={styles.hint}>
+              Expérimental : la documentation de BytePlus ne dit pas si l'interprétation simultanée accepte les voix prédéfinies de sa liste. Si Doubao refuse la session, le journal le dit : repassez alors sur « Ma voix clonée ». La voix choisie est celle qui PARLE chaque langue.
+            </Text>
+          </>
+        )}
         <View style={styles.chips}>
           <Chip label="⇄ Inverser A et B" on={false} onPress={() => setLanguages((l) => ({ A: l.B, B: l.A }))} />
           {settings.recentPairs
@@ -518,7 +554,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, doubaoVoiceKind, doubaoVoices, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

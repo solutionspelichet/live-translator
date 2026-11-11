@@ -1,5 +1,6 @@
 // Pure part of the persisted settings (no React Native import → unit-testable).
 import { normalizeLocale } from '../i18n/index.js';
+import { DOUBAO_VOICE_ID } from '../utils/doubaoVoices.js';
 import { TEMPLATE_IDS } from '../utils/minutes.js';
 import { LANGUAGES } from './languages.js';
 
@@ -39,6 +40,8 @@ export function engineOptions(settings) {
     mistralQuality: settings.mistralQuality === 'fast' ? 'fast' : 'best',
     lowBandwidth: Boolean(settings.lowBandwidth),
     mistralTranslator: ['deepl', 'mistral'].includes(settings.mistralTranslator) ? settings.mistralTranslator : 'auto',
+    doubaoVoiceKind: settings.doubaoVoiceKind === 'preset' ? 'preset' : 'clone',
+    doubaoVoices: sanitizeDoubaoVoices(settings.doubaoVoices),
     mistralGlossary: String(settings.mistralGlossary ?? ''),
     mistralAutoContext: settings.mistralAutoContext !== false,
     endpointingMs,
@@ -67,6 +70,8 @@ export const STRATEGIES = Object.freeze({
 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
+  doubaoVoiceKind: 'clone', // 'clone' (the cloned voice of the BytePlus console) | 'preset' (a voice of the BytePlus list — experiment)
+  doubaoVoices: Object.freeze({}), // preset voice chosen per language spoken: { fr: 'fr_female_…', zh: 'zh_female_…' }
   uiLang: null, // interface language chosen with the flags: 'fr' | 'en' | 'zh' (null = follow the phone: Chinese or English if the phone is set so, else French)
   strategy: 'classic', // see STRATEGIES
   theme: 'system', // 'system' (follows the phone) | 'light' | 'dark'
@@ -127,6 +132,16 @@ function sanitizeInput(raw) {
 }
 
 /** Turn whatever was stored (possibly old/corrupt) into a valid settings object. */
+function sanitizeDoubaoVoices(raw) {
+  const out = {};
+  if (raw && typeof raw === 'object') {
+    for (const [code, id] of Object.entries(raw)) {
+      if (/^[a-z]{2}$/.test(code) && typeof id === 'string' && DOUBAO_VOICE_ID.test(id)) out[code] = id;
+    }
+  }
+  return out;
+}
+
 export function sanitizeSettings(raw) {
   const input = raw && typeof raw === 'object' ? raw : {};
   const a = LANGUAGES[input.languages?.A] ? input.languages.A : DEFAULT_SETTINGS.languages.A;
@@ -141,6 +156,8 @@ export function sanitizeSettings(raw) {
   return {
     languages: { A: a, B: b },
     uiLang: normalizeLocale(input.uiLang),
+    doubaoVoiceKind: input.doubaoVoiceKind === 'preset' ? 'preset' : 'clone',
+    doubaoVoices: sanitizeDoubaoVoices(input.doubaoVoices),
     theme: ['system', 'light', 'dark'].includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
     strategy: STRATEGIES[input.strategy] && STRATEGIES[input.strategy].available !== false ? input.strategy : DEFAULT_SETTINGS.strategy,
     autoStop: typeof input.autoStop === 'boolean' ? input.autoStop : DEFAULT_SETTINGS.autoStop,

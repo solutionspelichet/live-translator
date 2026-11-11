@@ -156,16 +156,16 @@ export async function saveKeys(values) {
 }
 
 /** Names of the settings the chosen strategy cannot work without. */
-export function requiredFields(strategy = 'classic') {
+export function requiredFields(strategy = 'classic', { doubaoPreset = false } = {}) {
   if (strategy === 'openai') return ['EXPO_PUBLIC_OPENAI_API_KEY'];
   if (strategy === 'gemini') return ['EXPO_PUBLIC_GEMINI_API_KEY'];
   if (strategy === 'mistral') return ['EXPO_PUBLIC_MISTRAL_API_KEY'];
-  if (strategy === 'doubao') return ['EXPO_PUBLIC_BYTEPLUS_API_KEY', 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID'];
+  if (strategy === 'doubao') return doubaoPreset ? ['EXPO_PUBLIC_BYTEPLUS_API_KEY'] : ['EXPO_PUBLIC_BYTEPLUS_API_KEY', 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID'];
   return SETUP_FIELDS.filter((f) => !f.optional).map((f) => f.name);
 }
 
 /** Names of required settings that are still empty. */
-export function missingEnv(strategy = 'classic') {
+export function missingEnv(strategy = 'classic', options) {
   const values = currentValues();
-  return requiredFields(strategy).filter((name) => !values[name]);
+  return requiredFields(strategy, options).filter((name) => !values[name]);
 }

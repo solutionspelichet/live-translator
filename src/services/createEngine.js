@@ -1,3 +1,5 @@
+import { defaultDoubaoVoice } from '../utils/doubaoVoices';
+import { DOUBAO_TTS_PRESET_RESOURCE } from '../utils/doubao';
 import { env } from '../config/env';
 import { getLanguage, SIDE } from '../config/languages';
 import { pcm16ToFloat } from '../utils/pcm';
@@ -89,8 +91,21 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       profile: DOUBAO_LIVE,
       muteWhilePlaying: options.muteWhilePlaying,
       lowBandwidth: options.lowBandwidth,
-      createSession: (opts) =>
-        new DoubaoLiveSession({ ...opts, url: env.doubaoWsUrl, apiKey: env.byteplusKey, resourceId: env.doubaoResourceId, speakerId: env.doubaoSpeakerId, timers: BackgroundTimers }),
+      createSession: (opts) => {
+        // A preset voice of the list (experiment) is chosen per language spoken (the target of this direction); otherwise the cloned voice.
+        const preset = options.doubaoVoiceKind === 'preset';
+        const voice = preset ? options.doubaoVoices?.[opts.target] ?? defaultDoubaoVoice(opts.target) : null;
+        return new DoubaoLiveSession({
+          ...opts,
+          url: env.doubaoWsUrl,
+          apiKey: env.byteplusKey,
+          resourceId: env.doubaoResourceId,
+          speakerId: preset ? voice : env.doubaoSpeakerId,
+          ttsResourceId: preset ? DOUBAO_TTS_PRESET_RESOURCE : undefined,
+          custom: !preset,
+          timers: BackgroundTimers,
+        });
+      },
     });
   }
   return new TranslationEngine({

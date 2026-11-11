@@ -42,6 +42,8 @@ test('sanitizeSettings keeps valid values', () => {
     strategy: 'classic',
     theme: 'system',
     uiLang: null,
+    doubaoVoiceKind: 'clone',
+    doubaoVoices: {},
     autoStop: false,
     background: false,
     micGain: 16,
