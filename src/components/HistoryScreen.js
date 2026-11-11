@@ -1,8 +1,10 @@
-import { FlatList, Modal, Pressable, SafeAreaView, Share, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Modal, Pressable, SafeAreaView, Share, StyleSheet, Text as RNText, View } from 'react-native';
 
 import { getLanguage } from '../config/languages';
 import { formatConversation } from '../utils/history';
 import { palette, themedStyles } from '../theme';
+import { Text } from '../i18n/Text';
+import { t } from '../i18n';
 
 /**
  * Everything translated since the app was opened, newest first: the original sentence and its
@@ -23,7 +25,7 @@ export default function HistoryScreen({ visible, items, languages, onClear, onCl
             onPress={() =>
               Share.share({
                 message: formatConversation(items, (i, which) => describe(i, which)),
-                title: 'Conversation DualCast Translate',
+                title: t('Conversation DualCast Translate'),
               }).catch(() => {})
             }
             hitSlop={12}
@@ -49,8 +51,8 @@ export default function HistoryScreen({ visible, items, languages, onClear, onCl
               <Text style={styles.meta}>
                 {`${time(item.at)} · ${describe(item, 'from').flag} → ${describe(item, 'to').flag}`}
               </Text>
-              <Text style={styles.source}>{item.source}</Text>
-              <Text style={styles.translated}>{item.translated}</Text>
+              <RNText style={styles.source}>{item.source}</RNText>
+              <RNText style={styles.translated}>{item.translated}</RNText>
             </View>
           )}
         />

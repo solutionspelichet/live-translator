@@ -1,3 +1,4 @@
+import { t } from '../i18n/index.js';
 // Speaker-labelled transcripts (pure → unit-tested).
 // A segment is { speaker: number, start: seconds, end: seconds, text }.
 
@@ -11,7 +12,7 @@ export const formatClock = (seconds) => {
 };
 
 /** Name shown for a speaker: the one the user gave, else "Intervenant 1", "Intervenant 2"… */
-export const speakerName = (names, speaker) => (names?.[speaker]?.trim() ? names[speaker].trim() : `Intervenant ${Number(speaker) + 1}`);
+export const speakerName = (names, speaker) => (names?.[speaker]?.trim() ? names[speaker].trim() : t('Intervenant {n}', { n: Number(speaker) + 1 }));
 
 /**
  * Deepgram words ([{ word, punctuated_word, start, end, speaker }]) → segments, one per run of words by the

@@ -1,4 +1,5 @@
 // Voice cloning (ElevenLabs "instant voice clone"): the rules around the sample and the reading of the server's answer.
+import { t } from '../i18n/index.js';
 import { ApiError } from './http.js';
 
 export const CLONE_MIN_SEC = 30; // below this the clone is poor
@@ -22,9 +23,9 @@ export function cloneName(name, now = new Date()) {
 /** A line shown under the sample while it is recorded. */
 export function sampleHint(seconds) {
   const quality = sampleQuality(seconds);
-  if (quality === 'short') return `encore ${Math.ceil(CLONE_MIN_SEC - seconds)} s au minimum — parlez naturellement, sans bruit autour`;
-  if (quality === 'ok') return `suffisant · ${Math.ceil(CLONE_GOOD_SEC - seconds)} s de plus pour un meilleur résultat`;
-  return 'longueur idéale atteinte — vous pouvez arrêter';
+  if (quality === 'short') return t('encore {n} s au minimum — parlez naturellement, sans bruit autour', { n: Math.ceil(CLONE_MIN_SEC - seconds) });
+  if (quality === 'ok') return t('suffisant · {n} s de plus pour un meilleur résultat', { n: Math.ceil(CLONE_GOOD_SEC - seconds) });
+  return t('longueur idéale atteinte — vous pouvez arrêter');
 }
 
 /**

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, View } from 'react-native';
 
 import { currentValues, env, requiredFields, saveKeys, SETUP_FIELDS } from '../config/env';
 import { getLanguage, LANGUAGES, LIVE_OUTPUT_LANGUAGES } from '../config/languages';
@@ -15,6 +15,9 @@ import { describeError } from '../utils/http';
 import VoiceCloneCard from './VoiceCloneCard';
 import { listVoices, testGeminiKey, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
 import { palette, THEME_CHOICES, themedStyles } from '../theme';
+import { Text, TextInput } from '../i18n/Text';
+import { defaultLocale, t } from '../i18n';
+import LanguageFlags from '../i18n/LanguageFlags';
 
 /**
  * First-launch / settings form. API keys and preferences (languages, auto-send) are stored in
@@ -22,7 +25,7 @@ import { palette, THEME_CHOICES, themedStyles } from '../theme';
  * @param {{languages: {A: string, B: string}, autoStop: boolean}} props.settings
  * @param {(settings) => void} props.onDone  called with the saved settings
  */
-export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
+export default function SetupScreen({ settings, onDone, onPreviewTheme, onPreviewLang }) {
   const [values, setValues] = useState(currentValues());
   const [languages, setLanguages] = useState(settings.languages);
   const [background, setBackground] = useState(settings.background);
@@ -34,6 +37,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
   const [inputs, setInputs] = useState([]);
   const [strategy, setStrategy] = useState(settings.strategy);
   const [theme, setThemeChoice] = useState(settings.theme);
+  const [uiLang, setUiLang] = useState(settings.uiLang ?? defaultLocale());
   const live = strategy !== 'classic'; // one live-translation service (OpenAI or Gemini) instead of the Deepgram → DeepL → ElevenLabs chain
   const LIVE_FIELDS = { openai: ['EXPO_PUBLIC_OPENAI_API_KEY'], gemini: ['EXPO_PUBLIC_GEMINI_API_KEY'], mistral: ['EXPO_PUBLIC_MISTRAL_API_KEY'], doubao: ['EXPO_PUBLIC_BYTEPLUS_API_KEY', 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID'] };
   const OTHER_LIVE_FIELDS = Object.values(LIVE_FIELDS).flat();
@@ -66,6 +70,14 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
     <SafeAreaView style={styles.root}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Réglages</Text>
+        <LanguageFlags
+          value={uiLang}
+          onChange={(code) => {
+            setUiLang(code);
+            onPreviewLang?.(code); // the whole interface changes at once; saved with the rest
+          }}
+          style={styles.flags}
+        />
 
         <View style={styles.summary}>
           <SummaryLine label="Mode" value={STRATEGIES[strategy].label} />
@@ -74,7 +86,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           <SummaryLine label="Apparence" value={THEME_CHOICES[theme].label} />
         </View>
 
-        <Section title="Traduction" subtitle={`${STRATEGIES[strategy].label} · ${getLanguage(languages.A).flag} ↔ ${getLanguage(languages.B).flag}`} open={!!openSection.translation} onToggle={() => toggle('translation')}>
+        <Section title="Traduction" subtitle={`${t(STRATEGIES[strategy].label)} · ${getLanguage(languages.A).flag} ↔ ${getLanguage(languages.B).flag}`} open={!!openSection.translation} onToggle={() => toggle('translation')}>
         <View style={styles.chips}>
           {Object.entries(STRATEGIES).map(([key, st]) => (
             <Chip
@@ -95,24 +107,24 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
             ? ' Gemini traduit directement la parole en parole (modèle gemini-3.5-live-translate-preview, environ 0,005 $ par minute d\'audio envoyé et 0,03 $ par minute de voix traduite, un niveau gratuit existe ; deux sessions en mains libres). Il est censé rester muet quand on parle déjà la langue cible ; un filtre coupe les répétitions qui restent. Vos voix ElevenLabs, DeepL et Deepgram ne servent pas dans ce mode. Fonction nouvelle, en préversion chez Google : renvoyez-moi le journal si quelque chose cloche.'
             : ''}
           {strategy === 'openai'
-            ? ` OpenAI traduit directement la parole en parole (modèle gpt-realtime-translate, environ 0,034 $ par minute d'audio envoyé, deux fois plus en mains libres). Langues parlées possibles : ${LIVE_OUTPUT_LANGUAGES.map((c) => getLanguage(c).label).join(', ')}. Vos voix ElevenLabs, DeepL et Deepgram ne servent pas dans ce mode. Fonction nouvelle : renvoyez-moi le journal si quelque chose cloche.`
+            ? ` ${t("OpenAI traduit directement la parole en parole (modèle gpt-realtime-translate, environ 0,034 $ par minute d'audio envoyé, deux fois plus en mains libres). Langues parlées possibles : {list}. Vos voix ElevenLabs, DeepL et Deepgram ne servent pas dans ce mode. Fonction nouvelle : renvoyez-moi le journal si quelque chose cloche.", { list: LIVE_OUTPUT_LANGUAGES.map((c) => getLanguage(c).label).join(', ') })}`
             : ''}
         </Text>
 
         {strategy === 'openai' && [languages.A, languages.B].some((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)) && (
           <Text style={styles.bad}>
-            {`⚠ ${[languages.A, languages.B].filter((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)).map((c) => getLanguage(c).label).join(' et ')} : cette langue ne peut pas être parlée par OpenAI live. Choisissez-en une autre ci-dessous, ou repassez en « Classique ».`}
+            {`⚠ ${t('{langs} : cette langue ne peut pas être parlée par OpenAI live. Choisissez-en une autre ci-dessous, ou repassez en « Classique ».', { langs: [languages.A, languages.B].filter((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)).map((c) => getLanguage(c).label).join(` ${t('et')} `) })}`}
           </Text>
         )}
         {strategy === 'mistral' && [languages.A, languages.B].some((c) => !mistralVoiceLanguage(c)) && (
           <Text style={styles.hint}>
-            {`ℹ︎ ${[languages.A, languages.B].filter((c) => !mistralVoiceLanguage(c)).map((c) => getLanguage(c).label).join(' et ')} : pas de voix Mistral dans cette langue, la traduction s'affichera sans être lue.`}
+            {`ℹ︎ ${t("{langs} : pas de voix Mistral dans cette langue, la traduction s'affichera sans être lue.", { langs: [languages.A, languages.B].filter((c) => !mistralVoiceLanguage(c)).map((c) => getLanguage(c).label).join(` ${t('et')} `) })}`}
           </Text>
         )}
         {strategy === 'doubao' && (() => {
           const [a, b] = [doubaoCode(languages.A), doubaoCode(languages.B)];
-          const problem = !a || !b ? `${getLanguage(!a ? languages.A : languages.B).label} n'est pas prise en charge par Doubao` : doubaoPairProblem(a, b);
-          return problem ? <Text style={styles.bad}>{`⚠ ${problem}. Choisissez d'autres langues ci-dessous, ou changez de stratégie.`}</Text> : null;
+          const problem = !a || !b ? t("{lang} n'est pas prise en charge par Doubao", { lang: getLanguage(!a ? languages.A : languages.B).label }) : doubaoPairProblem(a, b);
+          return problem ? <Text style={styles.bad}>{`⚠ ${t(problem)}. ${t("Choisissez d'autres langues ci-dessous, ou changez de stratégie.")}`}</Text> : null;
         })()}
         <View style={styles.chips}>
           <Chip label="⇄ Inverser A et B" on={false} onPress={() => setLanguages((l) => ({ A: l.B, B: l.A }))} />
@@ -227,7 +239,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
         ))}
         </Section>
 
-        <Section title="Micro" subtitle={`${MIC_SOURCES[micSource].label} · sensibilité ${micGain === 'auto' ? 'auto' : `×${micGain}`}`} open={!!openSection.mic} onToggle={() => toggle('mic')}>
+        <Section title="Micro" subtitle={`${t(MIC_SOURCES[micSource].label)} · ${t('sensibilité {g}', { g: micGain === 'auto' ? t('auto') : `×${micGain}` })}`} open={!!openSection.mic} onToggle={() => toggle('mic')}>
         <Text style={styles.label}>Source du micro</Text>
         <View style={styles.chips}>
           {Object.entries(MIC_SOURCES).map(([key, src]) => (
@@ -356,7 +368,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
         </Text>
         </Section>
 
-        <Section title="Voix" subtitle={`volume ${voiceVolume === 1 ? 'normal' : `×${voiceVolume}`}${live ? '' : ' · ElevenLabs'}`} open={!!openSection.voice} onToggle={() => toggle('voice')}>
+        <Section title="Voix" subtitle={`${t('volume {v}', { v: voiceVolume === 1 ? t('normal') : `×${voiceVolume}` })}${live ? '' : ' · ElevenLabs'}`} open={!!openSection.voice} onToggle={() => toggle('voice')}>
         <Text style={styles.label}>Volume de la voix traduite</Text>
         <View style={styles.chips}>
           {VOICE_VOLUME_CHOICES.map((v) => (
@@ -455,10 +467,10 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
 
         <Section title="Apparence" subtitle={THEME_CHOICES[theme].label} open={!!openSection.look} onToggle={() => toggle('look')}>
           <View style={styles.chips}>
-            {Object.entries(THEME_CHOICES).map(([key, t]) => (
+            {Object.entries(THEME_CHOICES).map(([key, choice]) => (
               <Chip
                 key={key}
-                label={t.hint ? `${t.label} (${t.hint})` : t.label}
+                label={choice.hint ? `${t(choice.label)} (${t(choice.hint)})` : t(choice.label)}
                 on={theme === key}
                 onPress={() => {
                   setThemeChoice(key);
@@ -506,7 +518,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme }) {
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}
@@ -588,6 +600,7 @@ function LanguagePicker({ title, selected, onSelect }) {
 const styles = themedStyles((c) => StyleSheet.create({
   section: { color: c.text, fontSize: 18, fontWeight: '700', marginTop: 24 },
   summary: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 14, padding: 14, marginTop: 16, gap: 6 },
+  flags: { marginTop: 12, marginBottom: 4 },
   summaryLine: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   summaryLabel: { color: c.textMuted, fontSize: 14, width: 84 },
   summaryValue: { color: c.text, fontSize: 15, fontWeight: '600', flex: 1 },

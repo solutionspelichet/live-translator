@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text as RNText, View } from 'react-native';
 
 import { env } from '../config/env';
 import { getLanguage, LANGUAGES } from '../config/languages';
@@ -16,8 +16,10 @@ import { formatDuration } from '../utils/usage';
 import { wavMegabytes } from '../utils/wav';
 import { palette, themedStyles } from '../theme';
 import MarkdownText from './MarkdownText';
+import { Text, TextInput } from '../i18n/Text';
+import { dateLocale, t } from '../i18n';
 
-const languageLabel = (code) => (code === MULTI ? 'Plusieurs langues' : getLanguage(code).label);
+const languageLabel = (code) => (code === MULTI ? t('Plusieurs langues') : getLanguage(code).label);
 
 /**
  * One saved meeting: transcript by speaker (rename the speakers), more accurate second pass, minutes written by a
@@ -50,27 +52,27 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
   const shares = useMemo(() => talkShare(meeting.segments), [meeting.segments]);
   const translated = meeting.source === 'translator'; // made while translating: no audio, each line has its translation
   const transcriptText = (timestamps = true, withTranslation = false) => formatTranscript(meeting.segments, names, { timestamps, withTranslation });
-  const dateText = new Date(meeting.createdAt).toLocaleString('fr-FR');
+  const dateText = new Date(meeting.createdAt).toLocaleString(dateLocale());
 
   const refine = () => {
-    if (!meeting.audioUri) return Alert.alert('Pas d’audio', 'L’enregistrement audio de cette réunion est introuvable.');
+    if (!meeting.audioUri) return Alert.alert(t('Pas d’audio'), t('L’enregistrement audio de cette réunion est introuvable.'));
     const mb = Math.round(wavMegabytes(meeting.durationSec));
     Alert.alert(
-      'Transcription précise',
-      `L’enregistrement (≈ ${mb} Mo) va être envoyé à Deepgram pour une transcription plus fiable, avec une meilleure séparation des intervenants. Utilisez de préférence le Wi-Fi. Les noms d’intervenants déjà saisis seront à resaisir.`,
+      t('Transcription précise'),
+      t('L’enregistrement (≈ {mb} Mo) va être envoyé à Deepgram pour une transcription plus fiable, avec une meilleure séparation des intervenants. Utilisez de préférence le Wi-Fi. Les noms d’intervenants déjà saisis seront à resaisir.', { mb }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('Annuler'), style: 'cancel' },
         {
-          text: 'Envoyer',
+          text: t('Envoyer'),
           onPress: async () => {
-            setBusy('Envoi et transcription…');
+            setBusy(t('Envoi et transcription…'));
             setProgress(0);
             try {
               const r = await transcribeRecording(meeting.audioUri, { language: meeting.language, onProgress: setProgress });
               UsageTracker.add({ dgPreSec: meeting.durationSec });
               await update({ ...meeting, segments: r.segments, speakers: {}, source: 'precise' });
             } catch (error) {
-              Alert.alert('Transcription impossible', describeError(error));
+              Alert.alert(t('Transcription impossible'), describeError(error));
             }
             setBusy(null);
             setProgress(null);
@@ -81,9 +83,9 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
   };
 
   const writeMinutes = async () => {
-    if (!meeting.segments.length) return Alert.alert('Transcription vide', 'Il n’y a aucun texte à résumer.');
-    if (!chosenModel) return Alert.alert('Modèle', 'Choisissez un modèle (liste ou identifiant OpenRouter).');
-    setBusy('Rédaction du compte rendu…');
+    if (!meeting.segments.length) return Alert.alert(t('Transcription vide'), t('Il n’y a aucun texte à résumer.'));
+    if (!chosenModel) return Alert.alert(t('Modèle'), t('Choisissez un modèle (liste ou identifiant OpenRouter).'));
+    setBusy(t('Rédaction du compte rendu…'));
     try {
       const lang = getLanguage(language);
       const result = await generateMinutes({
@@ -103,15 +105,15 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
       await update({ ...meeting, minutes: [note, ...meeting.minutes] });
       onSettingsChange({ ...settings, minutesLanguage: language, minutesTemplate: template, minutesModel: model });
       setShowMinutesForm(false);
-      if (result.truncated) Alert.alert('Compte rendu peut-être incomplet', 'Le modèle a atteint sa limite de longueur même après plusieurs reprises. Choisissez un modèle qui écrit plus long ou ajoutez la consigne « sois plus concis ».');
+      if (result.truncated) Alert.alert(t('Compte rendu peut-être incomplet'), t('Le modèle a atteint sa limite de longueur même après plusieurs reprises. Choisissez un modèle qui écrit plus long ou ajoutez la consigne « sois plus concis ».'));
     } catch (error) {
-      Alert.alert('Compte rendu impossible', describeError(error));
+      Alert.alert(t('Compte rendu impossible'), describeError(error));
     }
     setBusy(null);
   };
 
   const exportNote = async (kind, n) => {
-    setBusy(kind === 'pdf' ? 'Création du PDF…' : 'Création du document Word…');
+    setBusy(kind === 'pdf' ? t('Création du PDF…') : t('Création du document Word…'));
     try {
       const lang = n.language ? languageLabel(n.language) : '';
       await exportMinutes(kind, {
@@ -120,7 +122,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
         text: n.text,
       });
     } catch (error) {
-      Alert.alert('Export impossible', describeError(error));
+      Alert.alert(t('Export impossible'), describeError(error));
     }
     setBusy(null);
   };
@@ -133,9 +135,9 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
   };
 
   const confirmDelete = () =>
-    Alert.alert('Supprimer cette réunion ?', 'La transcription, les comptes rendus et l’enregistrement audio seront effacés du téléphone.', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: async () => { await MeetingStore.remove(meeting.id); onDeleted(); } },
+    Alert.alert(t('Supprimer cette réunion ?'), t('La transcription, les comptes rendus et l’enregistrement audio seront effacés du téléphone.'), [
+      { text: t('Annuler'), style: 'cancel' },
+      { text: t('Supprimer'), style: 'destructive', onPress: async () => { await MeetingStore.remove(meeting.id); onDeleted(); } },
     ]);
 
   return (
@@ -157,9 +159,9 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
           placeholderTextColor={palette().placeholder}
         />
         <Text style={styles.meta}>
-          {`${dateText} · ${formatDuration(meeting.durationSec)} · ${languageLabel(meeting.language)} · ${translated ? 'enregistrée pendant la traduction' : `transcription ${meeting.source === 'precise' ? 'précise ✓' : 'en direct (provisoire)'}`}`}
+          {`${dateText} · ${formatDuration(meeting.durationSec)} · ${languageLabel(meeting.language)} · ${translated ? t('enregistrée pendant la traduction') : `${t('transcription')} ${meeting.source === 'precise' ? t('précise ✓') : t('en direct (provisoire)')}`}`}
         </Text>
-        {!!meeting.liveError && <Text style={styles.warn}>{`Transcription en direct indisponible : ${meeting.liveError}. Lancez la transcription précise.`}</Text>}
+        {!!meeting.liveError && <Text style={styles.warn}>{t('Transcription en direct indisponible : {err}. Lancez la transcription précise.', { err: meeting.liveError })}</Text>}
 
         {!!busy && (
           <View style={styles.busy}>
@@ -196,7 +198,7 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
               value={extra}
               onChangeText={setExtra}
               multiline
-              placeholder={template === 'libre' ? 'Décrivez ce que vous voulez obtenir' : 'ex. insister sur le budget ; noms des clients en gras'}
+              placeholder={template === 'libre' ? t('Décrivez ce que vous voulez obtenir') : t('ex. insister sur le budget ; noms des clients en gras')}
               placeholderTextColor={palette().placeholder}
             />
             <Text style={styles.label}>Modèle OpenRouter</Text>
@@ -211,20 +213,20 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
               onChangeText={setModel}
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder={chosenModel ? `par défaut : ${chosenModel}` : 'ex. anthropic/claude-sonnet-4.5'}
+              placeholder={chosenModel ? t('par défaut : {model}', { model: chosenModel }) : 'ex. anthropic/claude-sonnet-4.5'}
               placeholderTextColor={palette().placeholder}
             />
             <Text style={styles.hint}>
               Le texte de la transcription est envoyé à OpenRouter puis au fournisseur du modèle choisi. Le coût réel est affiché dans 📊.
             </Text>
-            <Btn label={busy ? 'Rédaction en cours…' : 'Générer'} onPress={writeMinutes} disabled={!!busy || !hasKey} primary />
+            <Btn label={busy ? t('Rédaction en cours…') : t('Générer')} onPress={writeMinutes} disabled={!!busy || !hasKey} primary />
           </View>
         )}
 
         {meeting.minutes.map((n) => (
           <View key={n.id} style={styles.card}>
-            <Text style={styles.cardTitle}>{`Compte rendu — ${n.language ? languageLabel(n.language) : ''} · ${TEMPLATES[n.template]?.label ?? n.template}`}</Text>
-            <Text style={styles.metaSmall}>{`${new Date(n.createdAt).toLocaleString('fr-FR')} · ${n.model}`}</Text>
+            <Text style={styles.cardTitle}>{`${t('Compte rendu')} — ${n.language ? languageLabel(n.language) : ''} · ${t(TEMPLATES[n.template]?.label ?? n.template)}`}</Text>
+            <Text style={styles.metaSmall}>{`${new Date(n.createdAt).toLocaleString(dateLocale())} · ${n.model}`}</Text>
             <MarkdownText text={n.text} />
             <View style={styles.actions}>
               <Btn label="Partager" onPress={() => Share.share({ title: meeting.title, message: n.text }).catch(() => {})} />
@@ -259,13 +261,13 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
         )}
 
         <Text style={styles.section}>Transcription</Text>
-        {meeting.segments.length === 0 && <Text style={styles.hint}>{translated ? 'Aucun texte.' : 'Aucun texte. Lancez la transcription précise pour transcrire l’enregistrement.'}</Text>}
+        {meeting.segments.length === 0 && <Text style={styles.hint}>{translated ? t('Aucun texte.') : t('Aucun texte. Lancez la transcription précise pour transcrire l’enregistrement.')}</Text>}
         {meeting.segments.map((s, i) => (
           <View key={i} style={styles.segment}>
             <Text style={styles.segHead}>{`${formatClock(s.start)} · ${speakerName(names, s.speaker)}`}</Text>
-            <Text style={styles.segText} selectable>
+            <RNText style={styles.segText} selectable>
               {s.text}
-            </Text>
+            </RNText>
             {!!s.translated && (
               <Text style={styles.segTrans} selectable>
                 {`→ ${s.translated}`}

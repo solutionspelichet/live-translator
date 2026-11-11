@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { env } from '../config/env';
 import VoiceSampleRecorder from '../services/VoiceSampleRecorder';
 import { describeError } from '../utils/http';
 import { CLONE_GOOD_SEC, CLONE_MIN_SEC, CONSENT_TEXT, cloneErrorMessage, sampleHint, sampleQuality } from '../utils/voiceClone';
 import { palette, themedStyles } from '../theme';
+import { Text, TextInput } from '../i18n/Text';
+import { t } from '../i18n';
 
 /**
  * Record about a minute of a voice and create an ElevenLabs clone from it.
@@ -57,8 +59,8 @@ export default function VoiceCloneCard({ apiKey, settings, onCreated }) {
     setError('');
     try {
       const { voiceId } = await recorder.current.upload({ apiKey, base: env.elevenLabsBaseUrl, name });
-      const label = name.trim() || 'Ma voix';
-      setMessage(`✓ Voix « ${label} » créée. Choisissez-la ci-dessus pour la langue A ou B.`);
+      const label = name.trim() || t('Ma voix');
+      setMessage(t('✓ Voix « {label} » créée. Choisissez-la ci-dessus pour la langue A ou B.', { label }));
       onCreated({ id: voiceId, name: label, hint: 'clonée' });
       await recorder.current.discard();
       recorder.current = null;
@@ -108,7 +110,7 @@ export default function VoiceCloneCard({ apiKey, settings, onCreated }) {
       )}
       {phase === 'recorded' && (
         <Text style={[styles.hint, quality === 'short' && { color: c.danger }]}>
-          {Math.floor(seconds)} s enregistrées{quality === 'short' ? ` — il en faut au moins ${CLONE_MIN_SEC}` : ''}
+          {t('{n} s enregistrées', { n: Math.floor(seconds) })}{quality === 'short' ? ` — ${t('il en faut au moins {n}', { n: CLONE_MIN_SEC })}` : ''}
         </Text>
       )}
       {phase === 'sending' && <Text style={styles.hint}>Envoi à ElevenLabs…</Text>}

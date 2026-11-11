@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text as RNText, View } from 'react-native';
 
 import { LANGUAGES } from '../config/languages';
 import MeetingStore from '../services/MeetingStore';
@@ -12,8 +12,10 @@ import { formatDuration } from '../utils/usage';
 import { wavMegabytes } from '../utils/wav';
 import MeetingDetail from './MeetingDetail';
 import { palette, themedStyles } from '../theme';
+import { Text, TextInput } from '../i18n/Text';
+import { dateLocale, t } from '../i18n';
 
-const langName = (code) => (code === MULTI ? 'Plusieurs langues' : LANGUAGES[code]?.label ?? code);
+const langName = (code) => (code === MULTI ? t('Plusieurs langues') : LANGUAGES[code]?.label ?? code);
 
 /**
  * Meetings: list of recordings, a form to start a new one (title, language, consent reminder), the live recording
@@ -31,7 +33,7 @@ export default function MeetingsScreen({ settings, onSettingsChange, onClose }) 
 
   const open = async (id) => {
     const meeting = await MeetingStore.load(id);
-    if (!meeting) return Alert.alert('Réunion introuvable', 'Cette réunion ne peut plus être lue.');
+    if (!meeting) return Alert.alert(t('Réunion introuvable'), t('Cette réunion ne peut plus être lue.'));
     setCurrent(meeting);
     setView('detail');
   };
@@ -110,9 +112,9 @@ export default function MeetingsScreen({ settings, onSettingsChange, onClose }) 
         }
         renderItem={({ item }) => (
           <Pressable style={styles.item} onPress={() => open(item.id)} accessibilityRole="button">
-            <Text style={styles.itemTitle}>{item.title}</Text>
+            <RNText style={styles.itemTitle}>{item.title}</RNText>
             <Text style={styles.itemMeta}>
-              {`${new Date(item.createdAt).toLocaleString('fr-FR')} · ${formatDuration(item.durationSec)} · ${item.source === 'translator' ? 'traduction' : langName(item.language)}${item.hasMinutes ? ' · compte rendu ✓' : ''}`}
+              {`${new Date(item.createdAt).toLocaleString(dateLocale())} · ${formatDuration(item.durationSec)} · ${item.source === 'translator' ? t('traduction') : langName(item.language)}${item.hasMinutes ? ` · ${t('compte rendu ✓')}` : ''}`}
             </Text>
           </Pressable>
         )}
@@ -142,7 +144,7 @@ function NewMeeting({ settings, onCancel, onStarted }) {
     } catch (error) {
       await recorder.discard();
       setStarting(false);
-      Alert.alert('Enregistrement impossible', describeError(error));
+      Alert.alert(t('Enregistrement impossible'), describeError(error));
     }
   };
 
@@ -176,7 +178,7 @@ function NewMeeting({ settings, onCancel, onStarted }) {
           compte rendu. Posez le téléphone au centre de la table, micro dégagé. L'écran peut s'éteindre : l'enregistrement continue.
         </Text>
         <Pressable style={[styles.start, (!consent || starting) && styles.off]} disabled={!consent || starting} onPress={start} accessibilityRole="button">
-          <Text style={styles.startText}>{starting ? 'Démarrage…' : '● Démarrer l’enregistrement'}</Text>
+          <Text style={styles.startText}>{starting ? t('Démarrage…') : t('● Démarrer l’enregistrement')}</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -203,14 +205,14 @@ function Recording({ recorder, onSaved, onDiscarded }) {
       onSaved(await recorder.stop());
     } catch (error) {
       setSaving(false);
-      Alert.alert('Erreur', describeError(error));
+      Alert.alert(t('Erreur'), describeError(error));
     }
   };
 
   const cancel = () =>
-    Alert.alert('Abandonner cet enregistrement ?', 'Tout ce qui a été enregistré sera effacé.', [
-      { text: 'Continuer', style: 'cancel' },
-      { text: 'Abandonner', style: 'destructive', onPress: async () => { await recorder.discard(); onDiscarded(); } },
+    Alert.alert(t('Abandonner cet enregistrement ?'), t('Tout ce qui a été enregistré sera effacé.'), [
+      { text: t('Continuer'), style: 'cancel' },
+      { text: t('Abandonner'), style: 'destructive', onPress: async () => { await recorder.discard(); onDiscarded(); } },
     ]);
 
   const recent = state.segments.slice(-14);
@@ -232,22 +234,22 @@ function Recording({ recorder, onSaved, onDiscarded }) {
         </View>
       </View>
       <Text style={styles.meta}>
-        {`≈ ${Math.round(wavMegabytes(state.elapsedSec))} Mo · transcription en direct : ${state.liveError ? 'indisponible' : state.liveStatus}`}
+        {t('≈ {mb} Mo · transcription en direct : {status}', { mb: Math.round(wavMegabytes(state.elapsedSec)), status: state.liveError ? t('indisponible') : state.liveStatus })}
       </Text>
-      {!!state.liveError && <Text style={styles.warn}>{`${state.liveError} — l'enregistrement continue ; transcrivez-le ensuite avec « Transcription précise ».`}</Text>}
-      {!!state.writeError && <Text style={styles.warn}>{`Écriture de l'audio impossible : ${state.writeError}. Libérez de l'espace.`}</Text>}
+      {!!state.liveError && <Text style={styles.warn}>{`${state.liveError} — ${t("l'enregistrement continue ; transcrivez-le ensuite avec « Transcription précise ».")}`}</Text>}
+      {!!state.writeError && <Text style={styles.warn}>{t("Écriture de l'audio impossible : {err}. Libérez de l'espace.", { err: state.writeError })}</Text>}
       <ScrollView ref={scroll} style={styles.live} contentContainerStyle={{ padding: 16 }} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })}>
         {recent.map((s, i) => (
           <View key={i} style={{ marginBottom: 10 }}>
             <Text style={styles.segHead}>{`${formatClock(s.start)} · ${speakerName({}, s.speaker)}`}</Text>
-            <Text style={styles.segText}>{s.text}</Text>
+            <RNText style={styles.segText}>{s.text}</RNText>
           </View>
         ))}
-        {!!state.interim && <Text style={[styles.segText, styles.interim]}>{state.interim}</Text>}
+        {!!state.interim && <RNText style={[styles.segText, styles.interim]}>{state.interim}</RNText>}
         {!recent.length && !state.interim && <Text style={styles.hint}>Parlez : le texte apparaît ici (provisoire, les intervenants sont affinés à la fin).</Text>}
       </ScrollView>
       <Pressable style={[styles.stop, saving && styles.off]} onPress={stop} disabled={saving} accessibilityRole="button">
-        <Text style={styles.startText}>{saving ? 'Enregistrement du fichier…' : '■ Terminer et enregistrer'}</Text>
+        <Text style={styles.startText}>{saving ? t('Enregistrement du fichier…') : t('■ Terminer et enregistrer')}</Text>
       </Pressable>
     </SafeAreaView>
   );

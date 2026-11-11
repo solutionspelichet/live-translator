@@ -41,6 +41,7 @@ test('sanitizeSettings keeps valid values', () => {
     languages: { A: 'de', B: 'es' },
     strategy: 'classic',
     theme: 'system',
+    uiLang: null,
     autoStop: false,
     background: false,
     micGain: 16,
@@ -220,4 +221,15 @@ test('outputMode accepts only stereo or split', () => {
   assert.equal(sanitizeSettings({ outputMode: 'split' }).outputMode, 'split');
   assert.equal(sanitizeSettings({ outputMode: 'both' }).outputMode, 'stereo');
   assert.equal(sanitizeSettings({}).outputMode, 'stereo');
+});
+
+test('interface language: only fr / en / zh are kept, the phone language is the default', async () => {
+  const { sanitizeSettings } = await import('../src/config/settingsModel.js');
+  const { defaultLocale, normalizeLocale } = await import('../src/i18n/index.js');
+  assert.equal(sanitizeSettings({ uiLang: 'zh' }).uiLang, 'zh');
+  assert.equal(sanitizeSettings({ uiLang: 'de' }).uiLang, null);
+  assert.equal(normalizeLocale('en'), 'en');
+  assert.equal(defaultLocale('zh-CN'), 'zh');
+  assert.equal(defaultLocale('en-GB'), 'en');
+  assert.equal(defaultLocale('de-DE'), 'fr');
 });

@@ -2,7 +2,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Haptics from 'expo-haptics';
-import { Alert, AppState, Pressable, ScrollView, Share, StyleSheet, Text, useColorScheme, View } from 'react-native';
+import { Alert, AppState, Pressable, ScrollView, Share, StyleSheet, useColorScheme, View } from 'react-native';
 
 import HistoryScreen from './src/components/HistoryScreen';
 import MeetingsScreen from './src/components/MeetingsScreen';
@@ -30,6 +30,9 @@ import { describeError } from './src/utils/http';
 import MicIdleController from './src/utils/micIdle';
 import { deepgramSeconds } from './src/utils/usage';
 import { palette, resolveTheme, setTheme, themedStyles } from './src/theme';
+import LanguageFlags from './src/i18n/LanguageFlags';
+import { Text } from './src/i18n/Text';
+import { defaultLocale, setLocale, t } from './src/i18n';
 
 export default function App() {
   useKeepAwake();
@@ -44,7 +47,9 @@ export default function App() {
   // when they render, so changing it just re-renders the tree (no remount: the settings form keeps what was typed).
   const systemScheme = useColorScheme();
   const [previewTheme, setPreviewTheme] = useState(null);
+  const [previewLang, setPreviewLang] = useState(null); // the flags of the settings screen: the interface changes at once, saved with the rest
   setTheme(resolveTheme(previewTheme ?? settings.theme, systemScheme));
+  setLocale(previewLang ?? settings.uiLang ?? defaultLocale()); // the interface language (flags), read by every screen when it renders
 
   useEffect(() => {
     Promise.all([loadStoredKeys(), loadSettings().then(setSettings), UsageTracker.load(), EventLog.load()]).finally(() => setReady(true));
@@ -59,8 +64,10 @@ export default function App() {
       <SetupScreen
         settings={settings}
         onPreviewTheme={setPreviewTheme}
+        onPreviewLang={setPreviewLang}
         onDone={(saved) => {
           setPreviewTheme(null);
+          setPreviewLang(null);
           setSettings(saved);
           setVersion((v) => v + 1);
           setEditing(false);
@@ -153,7 +160,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         if (settings.background) BackgroundService.start();
       })
       .then(() => audio.hasHeadphones())
-      .then((ok) => ok || Alert.alert('Écouteurs requis', 'Connectez les écouteurs Bluetooth : sans eux, la voix sortira du haut-parleur sur les deux canaux.'))
+      .then((ok) => ok || Alert.alert(t('Écouteurs requis'), t('Connectez les écouteurs Bluetooth : sans eux, la voix sortira du haut-parleur sur les deux canaux.')))
       .catch((e) => Alert.alert('Audio', String(e.message ?? e)));
 
     // Going to the background / turning the screen off must NOT stop anything: the foreground
@@ -192,11 +199,11 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       } else if (ev.type === 'idle-stop') {
         EventLog.add(`mains libres arrêté : aucun mot depuis ${ev.minutes} min`);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-        Alert.alert('Mains libres arrêté', `Aucune parole détectée depuis ${ev.minutes} minutes : l'écoute s'est arrêtée pour économiser la batterie et la transcription. Touchez l'écran pour reprendre.`);
+        Alert.alert(t('Mains libres arrêté'), t("Aucune parole détectée depuis {minutes} minutes : l'écoute s'est arrêtée pour économiser la batterie et la transcription. Touchez l'écran pour reprendre.", { minutes: ev.minutes }));
       } else if (ev.type === 'warning') {
         EventLog.add(`AVERTISSEMENT: ${ev.text}`);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-        Alert.alert('Attention', ev.text);
+        Alert.alert(t('Attention'), t(ev.text));
       } else if (ev.type === 'mic-stuck') {
         // Android keeps the microphone muted while the app is in the background: renew the foreground service + wake locks and buzz,
         // the screen being off the user has no other way to know.
@@ -206,7 +213,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         EventLog.add(ev.text);
       } else if (ev.type === 'error') {
         EventLog.add(`ERREUR: ${String(ev.error?.message ?? ev.error)}`);
-        Alert.alert('Erreur', describeError(ev.error));
+        Alert.alert(t('Erreur'), describeError(ev.error));
       }
     });
     return () => {
@@ -267,13 +274,13 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     }
     const record = await TranslationMeetingService.stop();
     if (!record || record.empty) {
-      Alert.alert('Réunion vide', "Aucune phrase n'a été traduite pendant l'enregistrement : rien n'a été gardé.");
+      Alert.alert(t('Réunion vide'), t("Aucune phrase n'a été traduite pendant l'enregistrement : rien n'a été gardé."));
       return;
     }
     Alert.alert(
-      'Conversation enregistrée',
-      `${record.segments.length} passages gardés. Ouvrez 📝 Réunions pour la relire et rédiger le compte rendu.`,
-      [{ text: 'Plus tard' }, { text: 'Ouvrir 📝', onPress: onOpenMeetings }],
+      t('Conversation enregistrée'),
+      t('{n} passages gardés. Ouvrez 📝 Réunions pour la relire et rédiger le compte rendu.', { n: record.segments.length }),
+      [{ text: t('Plus tard') }, { text: t('Ouvrir 📝'), onPress: onOpenMeetings }],
     );
   };
 
@@ -318,6 +325,11 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         onPress={(side) => engine.toggle(handsFree ? AUTO : side)}
       />
       <View style={styles.controls} pointerEvents="box-none">
+        <LanguageFlags
+          value={settings.uiLang ?? defaultLocale()}
+          onChange={(uiLang) => onSettingsChange({ ...settings, uiLang })}
+          style={styles.flags}
+        />
         <Pressable
           style={[styles.chip, handsFree && styles.chipOn]}
           onPress={() => {
@@ -326,7 +338,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
             onSettingsChange({ ...settings, handsFree: !handsFree });
           }}
           hitSlop={12}
-          accessibilityLabel="Mains libres : détection automatique de la langue"
+          accessibilityLabel={t('Mains libres : détection automatique de la langue')}
         >
           <Text style={styles.chipText}>{handsFree ? 'Mains libres ✓' : 'Mains libres'}</Text>
         </Pressable>
@@ -338,7 +350,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
             onSettingsChange({ ...settings, autoStop: !autoStop }); // remembered across launches
           }}
           hitSlop={12}
-          accessibilityLabel="Envoi automatique après une pause"
+          accessibilityLabel={t('Envoi automatique après une pause')}
         >
           <Text style={styles.chipText}>{autoStop ? 'Auto ✓' : 'Auto'}</Text>
         </Pressable>
@@ -346,19 +358,19 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
           style={[styles.chip, recording.active && styles.chipRec]}
           onPress={toggleMeeting}
           hitSlop={12}
-          accessibilityLabel="Enregistrer la conversation traduite comme réunion"
+          accessibilityLabel={t('Enregistrer la conversation traduite comme réunion')}
         >
           <Text style={styles.chipText}>
             {recording.active ? `⏺ ${formatClock(TranslationMeetingService.current?.elapsedSec ?? 0)} · ${recording.passages}` : '⏺ Réunion'}
           </Text>
         </Pressable>
-        <Pressable style={styles.chip} onPress={() => setShowUsage(true)} hitSlop={12} accessibilityLabel="Consommation facturée">
-          <Text style={styles.chipText}>{`📊 ${Math.round(deepgramSeconds(usage.today) / 60)} min`}</Text>
+        <Pressable style={styles.chip} onPress={() => setShowUsage(true)} hitSlop={12} accessibilityLabel={t('Consommation facturée')}>
+          <Text style={styles.chipText}>{`📊 ${Math.round(deepgramSeconds(usage.today) / 60)} ${t('min')}`}</Text>
         </Pressable>
-        <Pressable style={styles.gear} onPress={onOpenMeetings} hitSlop={12} accessibilityLabel="Réunions : enregistrer et résumer">
+        <Pressable style={styles.gear} onPress={onOpenMeetings} hitSlop={12} accessibilityLabel={t('Réunions : enregistrer et résumer')}>
           <Text style={styles.gearText}>📝</Text>
         </Pressable>
-        <Pressable style={styles.gear} onPress={() => setShowHistory(true)} hitSlop={12} accessibilityLabel="Historique">
+        <Pressable style={styles.gear} onPress={() => setShowHistory(true)} hitSlop={12} accessibilityLabel={t('Historique')}>
           <Text style={styles.gearText}>🕘</Text>
         </Pressable>
         <Pressable
@@ -373,7 +385,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
           }}
           delayLongPress={400}
           hitSlop={16}
-          accessibilityLabel="Réglages"
+          accessibilityLabel={t('Réglages')}
         >
           <Text style={styles.gearText}>⚙︎</Text>
         </Pressable>
@@ -399,7 +411,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       {diag && (
         <View style={styles.diag} pointerEvents="box-none">
           <View style={styles.diagBar}>
-            <Pressable style={styles.diagClose} onPress={() => setDiag(null)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Fermer le journal">
+            <Pressable style={styles.diagClose} onPress={() => setDiag(null)} hitSlop={12} accessibilityRole="button" accessibilityLabel={t('Fermer le journal')}>
               <Text style={styles.diagCloseText}>✕ Fermer</Text>
             </Pressable>
           <Pressable
@@ -446,13 +458,14 @@ const styles = themedStyles((c) => StyleSheet.create({
     left: 8,
     right: 8,
     top: '50%',
-    marginTop: -20,
+    marginTop: -44,
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
   },
+  flags: { marginBottom: 4 },
   chip: { height: 38, paddingHorizontal: 12, borderRadius: 19, backgroundColor: c.overlay, justifyContent: 'center' },
   chipOn: { backgroundColor: c.successStrong },
   chipDim: { opacity: 0.4 },

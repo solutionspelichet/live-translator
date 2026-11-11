@@ -1,5 +1,6 @@
 // Meeting records (pure → unit-tested): validation of what is stored, titles, language choices.
 import { LANGUAGES } from '../config/languages.js';
+import { getLocale, t } from '../i18n/index.js';
 
 export const MULTI = 'multi'; // several languages in the same meeting
 
@@ -9,7 +10,7 @@ export function newMeetingId(now = Date.now()) {
 
 export function defaultTitle(date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
-  return `Réunion du ${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} à ${pad(date.getHours())}h${pad(date.getMinutes())}`;
+  return t('Réunion du {d} à {h}', { d: `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`, h: `${pad(date.getHours())}${getLocale() === 'fr' ? 'h' : ':'}${pad(date.getMinutes())}` });
 }
 
 export function validLanguage(code) {

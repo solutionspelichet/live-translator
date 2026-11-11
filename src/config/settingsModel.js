@@ -1,4 +1,5 @@
 // Pure part of the persisted settings (no React Native import → unit-testable).
+import { normalizeLocale } from '../i18n/index.js';
 import { TEMPLATE_IDS } from '../utils/minutes.js';
 import { LANGUAGES } from './languages.js';
 
@@ -66,6 +67,7 @@ export const STRATEGIES = Object.freeze({
 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
+  uiLang: null, // interface language chosen with the flags: 'fr' | 'en' | 'zh' (null = follow the phone: Chinese or English if the phone is set so, else French)
   strategy: 'classic', // see STRATEGIES
   theme: 'system', // 'system' (follows the phone) | 'light' | 'dark'
   languages: Object.freeze({ A: 'fr', B: 'en' }),
@@ -138,6 +140,7 @@ export function sanitizeSettings(raw) {
 
   return {
     languages: { A: a, B: b },
+    uiLang: normalizeLocale(input.uiLang),
     theme: ['system', 'light', 'dark'].includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
     strategy: STRATEGIES[input.strategy] && STRATEGIES[input.strategy].available !== false ? input.strategy : DEFAULT_SETTINGS.strategy,
     autoStop: typeof input.autoStop === 'boolean' ? input.autoStop : DEFAULT_SETTINGS.autoStop,

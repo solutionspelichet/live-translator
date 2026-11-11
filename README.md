@@ -13,6 +13,12 @@ Le micro du téléphone capte la voix ; la traduction est restituée dans des é
                        AudioBufferSource ▶ StereoPanner(±1) ▶ sortie Bluetooth A2DP
 ```
 
+## Interface en français, anglais et chinois
+
+Trois drapeaux (🇫🇷 🇬🇧 🇨🇳) en haut des commandes de l'écran principal, et en haut des Réglages, changent la langue de l'application d'un seul toucher ; le choix est mémorisé. Sans choix, l'application suit la langue du téléphone (chinois ou anglais si le téléphone est réglé ainsi, français sinon).
+
+Technique : le texte français de l'application sert de clé (`t('Réglages')`, dossier `src/i18n`) ; le catalogue `src/i18n/catalog.js` donne la version anglaise et chinoise, et un texte absent du catalogue reste en français. Le composant `Text` de `src/i18n/Text.js` traduit les textes fixes tout seul ; les textes avec une variable utilisent des `{marqueurs}` (`t('{n} s enregistrées', { n: 3 })`). Un test vérifie que chaque entrée a ses deux traductions et les mêmes marqueurs. Restent en français : le journal de diagnostic, les messages détaillés des tests de clés, les alertes envoyées par les services (mise en garde Mistral, par exemple) et les consignes données aux modèles pour rédiger les comptes rendus.
+
 ## Arborescence
 
 ```

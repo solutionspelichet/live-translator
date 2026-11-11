@@ -1,8 +1,10 @@
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text as RNText, View } from 'react-native';
 
 import { getLanguage, SIDE } from '../config/languages';
+import { Text } from '../i18n/Text';
+import { t } from '../i18n';
 import { STATE } from '../services/TranslationEngine';
 import { palette, themedStyles } from '../theme';
 
@@ -70,13 +72,13 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
         onPress(side);
       }}
       accessibilityRole="button"
-      accessibilityLabel={`Parler en ${lang.label}`}
+      accessibilityLabel={t('Parler en {lang}', { lang: lang.label })}
     >
       <Text style={styles.flag}>{lang.flag}</Text>
       <Text style={[styles.label, live && { color: WHITE }]}>{lang.label}</Text>
-      <Text style={[styles.text, live && { color: WHITE }]} numberOfLines={6}>
+      <RNText style={[styles.text, live && { color: WHITE }]} numberOfLines={6}>
         {texts[side] || ' '}
-      </Text>
+      </RNText>
       <View style={styles.meterRow}>
         {live && <RecDot />}
         <View style={styles.meterTrack}>
