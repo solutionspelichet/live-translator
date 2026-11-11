@@ -40,7 +40,7 @@ export function engineOptions(settings) {
     mistralQuality: settings.mistralQuality === 'fast' ? 'fast' : 'best',
     lowBandwidth: Boolean(settings.lowBandwidth),
     mistralTranslator: ['deepl', 'mistral'].includes(settings.mistralTranslator) ? settings.mistralTranslator : 'auto',
-    doubaoVoiceKind: settings.doubaoVoiceKind === 'preset' ? 'preset' : 'clone',
+    doubaoVoiceKind: ['preset', 'auto'].includes(settings.doubaoVoiceKind) ? settings.doubaoVoiceKind : 'clone',
     doubaoVoices: sanitizeDoubaoVoices(settings.doubaoVoices),
     mistralGlossary: String(settings.mistralGlossary ?? ''),
     mistralAutoContext: settings.mistralAutoContext !== false,
@@ -70,7 +70,7 @@ export const STRATEGIES = Object.freeze({
 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  doubaoVoiceKind: 'clone', // 'clone' (the cloned voice of the BytePlus console) | 'preset' (a voice of the BytePlus list — experiment)
+  doubaoVoiceKind: 'clone', // 'clone' (the cloned voice of the BytePlus console) | 'preset' (a voice of the BytePlus list) | 'auto' (the model clones each speaker's voice by itself — experiment)
   doubaoVoices: Object.freeze({}), // preset voice chosen per language spoken: { fr: 'fr_female_…', zh: 'zh_female_…' }
   uiLang: null, // interface language chosen with the flags: 'fr' | 'en' | 'zh' (null = follow the phone: Chinese or English if the phone is set so, else French)
   strategy: 'classic', // see STRATEGIES
@@ -156,7 +156,7 @@ export function sanitizeSettings(raw) {
   return {
     languages: { A: a, B: b },
     uiLang: normalizeLocale(input.uiLang),
-    doubaoVoiceKind: input.doubaoVoiceKind === 'preset' ? 'preset' : 'clone',
+    doubaoVoiceKind: ['preset', 'auto'].includes(input.doubaoVoiceKind) ? input.doubaoVoiceKind : 'clone',
     doubaoVoices: sanitizeDoubaoVoices(input.doubaoVoices),
     theme: ['system', 'light', 'dark'].includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
     strategy: STRATEGIES[input.strategy] && STRATEGIES[input.strategy].available !== false ? input.strategy : DEFAULT_SETTINGS.strategy,

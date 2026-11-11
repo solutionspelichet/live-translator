@@ -57,7 +57,7 @@ export default function App() {
 
   if (!ready) return <View style={styles.missing} />;
   const bar = <StatusBar style={palette().scheme === 'dark' ? 'light' : 'dark'} />;
-  if (editing || missingEnv(settings.strategy, { doubaoPreset: settings.doubaoVoiceKind === 'preset' }).length) {
+  if (editing || missingEnv(settings.strategy, { doubaoPreset: settings.doubaoVoiceKind !== 'clone' }).length) {
     return (
       <>
         {bar}

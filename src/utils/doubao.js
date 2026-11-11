@@ -66,7 +66,7 @@ export function startSession({ sessionId, source, target, speakerId, ttsResource
       m.string(1, 's2s');
       m.string(2, source);
       m.string(3, target);
-      m.string(4, speakerId);
+      if (speakerId) m.string(4, speakerId); // none = automatic cloning of the speaker's own voice (experiment)
       m.int32(5, 0); // speech rate
       m.int32(7, custom ? 1 : 0); // 1 = custom (cloned) speaker, 0 = a preset voice (experiment)
       m.string(8, ttsResourceId);

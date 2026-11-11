@@ -64,7 +64,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
     audio.listInputs().then(setInputs);
   }, []);
   const [saving, setSaving] = useState(false);
-  const complete = requiredFields(strategy, { doubaoPreset: doubaoVoiceKind === 'preset' }).every((name) => values[name]?.trim());
+  const complete = requiredFields(strategy, { doubaoPreset: doubaoVoiceKind !== 'clone' }).every((name) => values[name]?.trim());
   // Open: what you change most (translation); the keys when something is missing. The rest unfolds on demand.
   const [openSection, setOpenSection] = useState({ translation: true, keys: !requiredFields(settings.strategy).every((name) => currentValues()[name]?.trim()) });
   const toggle = (key) => setOpenSection((o) => ({ ...o, [key]: !o[key] }));
@@ -135,6 +135,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             <View style={styles.chips}>
               <Chip label="Ma voix clonée (identifiant speaker_id)" on={doubaoVoiceKind === 'clone'} onPress={() => setDoubaoVoiceKind('clone')} />
               <Chip label="Voix prédéfinie de la liste (expérimental)" on={doubaoVoiceKind === 'preset'} onPress={() => setDoubaoVoiceKind('preset')} />
+              <Chip label="Clonage automatique de la voix de chaque locuteur (expérimental)" on={doubaoVoiceKind === 'auto'} onPress={() => setDoubaoVoiceKind('auto')} />
             </View>
             {doubaoVoiceKind === 'preset' && [...new Set([languages.A, languages.B].map((c) => doubaoCode(c)).filter(Boolean))].map((base) => {
               const list = doubaoVoicesFor(base);
@@ -157,6 +158,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
                 </View>
               );
             })}
+            {doubaoVoiceKind === 'auto' && (
+              <Text style={styles.hint}>
+                Le modèle imite lui-même la voix de la personne qui parle, sans identifiant ni enregistrement préalable (la documentation de BytePlus le décrit pour l'interprétation parole à parole). La requête exacte n'est pas documentée : l'application n'envoie simplement aucune voix. Si Doubao refuse la session, le journal le dit.
+              </Text>
+            )}
             <Text style={styles.hint}>
               Expérimental : la documentation de BytePlus ne dit pas si l'interprétation simultanée accepte les voix prédéfinies de sa liste. Si Doubao refuse la session, le journal le dit : repassez alors sur « Ma voix clonée ». La voix choisie est celle qui PARLE chaque langue.
             </Text>

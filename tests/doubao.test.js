@@ -89,3 +89,13 @@ test('settings: the preset voice choice is sanitised', async () => {
   assert.deepEqual(s.doubaoVoices, { zh: 'zh_female_vv_uranus_bigtts' });
   assert.equal(sanitizeSettings({}).doubaoVoiceKind, 'clone');
 });
+
+test('startSession: no speaker id at all asks for the automatic cloning of the speaker\'s own voice', async () => {
+  const { startSession } = await import('../src/utils/doubao.js');
+  const auto = startSession({ sessionId: 'x', source: 'zh', target: 'fr', speakerId: '' });
+  const clone = startSession({ sessionId: 'x', source: 'zh', target: 'fr', speakerId: 'S_abc' });
+  assert.ok(!Buffer.from(auto).toString('latin1').includes('S_abc'));
+  assert.ok(auto.length < clone.length);
+  const { sanitizeSettings } = await import('../src/config/settingsModel.js');
+  assert.equal(sanitizeSettings({ doubaoVoiceKind: 'auto' }).doubaoVoiceKind, 'auto');
+});

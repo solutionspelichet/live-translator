@@ -100,7 +100,7 @@ export default function createEngine(languages, options = {}, strategy = 'classi
           url: env.doubaoWsUrl,
           apiKey: env.byteplusKey,
           resourceId: env.doubaoResourceId,
-          speakerId: preset ? voice : env.doubaoSpeakerId,
+          speakerId: preset ? voice : options.doubaoVoiceKind === 'auto' ? '' : env.doubaoSpeakerId,
           ttsResourceId: preset ? DOUBAO_TTS_PRESET_RESOURCE : undefined,
           custom: !preset,
           timers: BackgroundTimers,
