@@ -176,6 +176,13 @@ export default class LiveTranslationEngine {
             const latin = codes.find((c) => scriptOf(c) === 'latin');
             return latin && codes.some((c) => scriptOf(c) === 'cjk') ? { code: latin, toUser: to === 'A' } : null;
           })(),
+          // Doubao (one fixed language per session): the session whose language is Chinese (else English) writes what was really said.
+          faithful: (() => {
+            if (!this.profile.ownTranscript) return null;
+            const base = (k) => String(this.profile.outputCode(this.languages[k]) ?? '').split('-')[0];
+            const anchor = [base(from), base(to)].includes('zh') ? 'zh' : 'en';
+            return base(from) === anchor;
+          })(),
           ...this.gateOptions,
           fallback: () => {
             const sibling = turn.dirs.find((x) => x !== d);
@@ -270,7 +277,7 @@ export default class LiveTranslationEngine {
       d.stats.inChars += delta.length;
       this.armIdleStop(turn);
       d.inText += delta;
-      for (const x of turn.dirs) if (x !== d) x.gate?.hear(delta);
+      if (d.gate?.faithful !== false) for (const x of turn.dirs) if (x !== d) x.gate?.hear(delta); // only a faithful transcript tells the language spoken
       const released = d.gate ? d.gate.text('in', delta) : [];
       released.forEach((samples) => this.play(turn, d, samples));
       this.armBurst(turn, d);

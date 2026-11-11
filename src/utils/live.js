@@ -146,8 +146,8 @@ export default class LiveGate {
    *   user's language: Latin speech in another language is then translated for the user only
    *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback, faithful });
     this.trace = []; // decisions taken (for the journal): { at, mode, basis, why }
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
     this.peerLog = []; // what the OTHER direction's session transcribed (it hears the same speech, with its own language settings)
@@ -179,6 +179,11 @@ export default class LiveGate {
     this.peerLog = this.peerLog.filter((e) => e.at >= now - this.windowMs * 3);
   }
 
+  /** What the other direction's session transcribed in the last seconds. */
+  peerText(now = Date.now()) {
+    return this.peerLog.filter((e) => e.at >= now - this.shortWindowMs).map((e) => e.text).join('');
+  }
+
   /** What was said lately (source transcript of the last `windowMs`). */
   reference(now = Date.now(), windowMs = this.windowMs) {
     return this.log.filter((e) => e.at >= now - windowMs).map((e) => e.text).join('');
@@ -199,7 +204,11 @@ export default class LiveGate {
     if (!this.scriptRule) {
       // Two Latin languages (French↔English): an output in the language that was JUST spoken repeats it, even before the
       // transcript of the new sentence has arrived (the words compared above may belong to an earlier sentence).
-      const said = latinLanguageOf(this.reference(now, this.shortWindowMs) || ref);
+      // Doubao: each session hears one fixed language; only the session of the ANCHOR language (the one that is Chinese or English)
+      // writes what was really said (it hands another language back as it is), the other one invents a text in its own language.
+      // `faithful` says which one this direction is: the witness of the language spoken is then the faithful session's transcript.
+      const witness = this.faithful === null || this.faithful ? this.reference(now, this.shortWindowMs) || ref : this.peerText(now);
+      const said = latinLanguageOf(witness);
       const heard = latinLanguageOf(output);
       if (said && heard && said === heard) {
         this.why = `même langue que le texte dit (${said})`;

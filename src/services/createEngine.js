@@ -103,6 +103,7 @@ export default function createEngine(languages, options = {}, strategy = 'classi
           speakerId: preset ? voice : options.doubaoVoiceKind === 'auto' ? '' : env.doubaoSpeakerId,
           ttsResourceId: preset ? DOUBAO_TTS_PRESET_RESOURCE : undefined,
           custom: !preset,
+          voiceLabel: preset ? `prédéfinie ${voice}` : options.doubaoVoiceKind === 'auto' ? 'clonage automatique (aucun identifiant envoyé)' : `clonée ${env.doubaoSpeakerId ? 'speaker_id saisi' : 'sans speaker_id'}`,
           timers: BackgroundTimers,
         });
       },

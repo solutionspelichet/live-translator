@@ -277,3 +277,24 @@ test('gate (two Latin languages): an output in the language just spoken repeats 
   assert.equal(gate.repeats(gate.reference(9500), 'I think that the understanding of the appliance is what we need', 9500), true);
   assert.equal(gate.repeats(gate.reference(9500), "Je pense que c'est la compréhension de l'appareil que nous avons", 9500), false);
 });
+
+test('gate (Doubao, French ↔ English): English heard by the French session is not replayed in English', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  // the French session (not faithful) invents a French text for English speech; the English session (faithful) wrote the English
+  const fr = new LiveGate({ faithful: false });
+  fr.text('in', 'Avec un arbon qu\'on a à gauche ici', 1000);
+  fr.hear('With charcoal, which we have on the left here', 1000);
+  assert.equal(fr.repeats(fr.reference(1500), 'With a charcoal that we have on the left here', 1500), true, 'English output of English speech is muted');
+  // French speech: the English session hands the French back as it is; the French session plays its English translation
+  const fr2 = new LiveGate({ faithful: false });
+  fr2.text('in', 'On a volontairement pas remis ça dans le classement', 1000);
+  fr2.hear('On a volontairement pas remis ça dans le classement', 1000);
+  assert.equal(fr2.repeats(fr2.reference(1500), 'We deliberately did not put it back in the ranking', 1500), false);
+  // the faithful English session: English speech → French output plays, French speech → French output (repetition) is muted
+  const en = new LiveGate({ faithful: true });
+  en.text('in', 'we can see that charcoal is cheaper in cash', 1000);
+  assert.equal(en.repeats(en.reference(1500), 'nous pouvons voir que le charbon est moins cher en espèces', 1500), false);
+  const en2 = new LiveGate({ faithful: true });
+  en2.text('in', 'On va aller voir rapidement les benchmarks pour nous', 1000);
+  assert.equal(en2.repeats(en2.reference(1500), 'On va aller voir rapidement les benchmarks pour nous', 1500), true);
+});
