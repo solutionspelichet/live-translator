@@ -8,6 +8,8 @@ const OUTPUT_RATE = 24000; // Gemini Live speaks 24 kHz mono PCM16
 const MODEL = 'models/gemini-3.5-live-translate-preview';
 const SWAP_QUIET_MS = 1200; // the live connection is handed over when nothing came from it for this long
 const QUIET_MS = 1500; // after the end of the stream: the last words are over when nothing came for this long
+// The account has no credit left (« Your prepayment credits are depleted », close code 1011): retrying cannot help, the user must top up.
+const NO_CREDIT = /prepayment credits|credits are depleted|billing account|insufficient (?:funds|credit)|resource_exhausted|quota/i;
 const KEY_PROBLEM = /api key|api_key|permission|unauthori|unauthenticated|credential|invalid argument.*key/i;
 
 function decodeText(data) {
@@ -122,6 +124,7 @@ export default class GeminiLiveSession {
       this.ready = false;
       if (this.closing || this.dead) return this.finishClose();
       const reason = String(e?.reason ?? '').replace(this.apiKey ?? '', '…');
+      if (NO_CREDIT.test(reason)) return this.fail(new ApiError('Gemini', 402, `${reason} — rechargez le crédit sur AI Studio (aistudio.google.com)`));
       if (KEY_PROBLEM.test(reason)) return this.fail(new ApiError('Gemini', 401, reason || 'clé refusée'));
       // 1007 = the server rejected what we sent (invalid payload), 1008 = policy: retrying the same thing cannot help.
       // The session reached its maximum duration (GoAway): a normal end, open a new one.
@@ -157,7 +160,7 @@ export default class GeminiLiveSession {
     if (msg.error) {
       const detail = msg.error.message ?? JSON.stringify(msg.error).slice(0, 200);
       this.onNote?.(`Gemini live : erreur reçue ${JSON.stringify(msg.error).slice(0, 300)}`);
-      this.fail(new ApiError('Gemini', KEY_PROBLEM.test(String(detail)) ? 401 : 500, String(detail)));
+      this.fail(new ApiError('Gemini', NO_CREDIT.test(String(detail)) ? 402 : KEY_PROBLEM.test(String(detail)) ? 401 : 500, String(detail)));
       return;
     }
     if (msg.goAway) {

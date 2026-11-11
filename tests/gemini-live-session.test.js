@@ -206,3 +206,12 @@ test('goAway: if the live connection ends before the handover, the standby takes
   assert.equal(sockets[1].sent.filter((m) => m.realtimeInput).length, 1);
   assert.deepEqual(got.errors, []);
 });
+
+test('depleted prepayment credits end the turn with a clear error instead of reconnecting forever', () => {
+  const { session, sockets, got } = make();
+  session.connect();
+  sockets[0].onclose?.({ code: 1011, reason: 'Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing.' });
+  assert.equal(got.errors.length, 1);
+  assert.equal(got.errors[0].status, 402);
+  assert.equal(sockets.length, 1, 'no reconnection');
+});
