@@ -264,3 +264,16 @@ test('gate: Chinese speech heard as English by one session is Chinese when the o
   english.hear('What does priority testing mean?', 1000);
   assert.equal(english.repeats(english.reference(1500), '优先测试是什么意思？', 1500), false, 'English speech: the Chinese output is the translation');
 });
+
+test('gate (two Latin languages): an output in the language just spoken repeats it, a translation does not', async () => {
+  const { default: LiveGate, latinLanguageOf } = await import('../src/utils/live.js');
+  assert.equal(latinLanguageOf('And for other parts, especially the features for the AI that apply'), 'en');
+  assert.equal(latinLanguageOf("Je pense que c'est la compréhension de l'appareil, pour nous"), 'fr');
+  assert.equal(latinLanguageOf('Taobao'), null);
+  const gate = new LiveGate({ scriptRule: false });
+  // an earlier sentence in another language is still in the window; the new English sentence has not been transcribed yet
+  gate.text('in', 'Um tecnicamente, eu não sei muito sobre isso', 1000);
+  gate.text('in', 'I think it is the understanding of the appliance and the team', 9000);
+  assert.equal(gate.repeats(gate.reference(9500), 'I think that the understanding of the appliance is what we need', 9500), true);
+  assert.equal(gate.repeats(gate.reference(9500), "Je pense que c'est la compréhension de l'appareil que nous avons", 9500), false);
+});

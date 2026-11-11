@@ -97,6 +97,20 @@ export function isForeignLatin(text, code) {
   return best >= 3 && best >= mine * 2 + 2;
 }
 
+/**
+ * The Latin-script language of a text, by its function words: 'en', 'fr'…, or null when unsure (needs two of them and a lead).
+ * Used for pairs of two Latin languages (French↔English), where the script cannot tell a translation from a repetition.
+ */
+export function latinLanguageOf(text) {
+  const words = tokens(String(text ?? '').replace(/[’]/g, "'"));
+  if (words.length < 2) return null;
+  const scores = Object.keys(STOP_SETS)
+    .map((lang) => [lang, words.reduce((n, w) => n + (STOP_SETS[lang].has(w) ? 1 : 0), 0)])
+    .sort((a, b) => b[1] - a[1]);
+  const [best, second] = scores;
+  return best[1] >= 2 && best[1] >= second[1] + 1 ? best[0] : null;
+}
+
 /** A very short text with Chinese characters and no Latin word (« 左转， », « 没有。 ») is Chinese, whatever its length: 1, else null. */
 export function shortCjkShare(text) {
   const t = String(text ?? '');
@@ -181,6 +195,16 @@ export default class LiveGate {
     if (isPassthrough(ref, output, this.threshold)) {
       this.why = 'mots communs avec le texte dit';
       return true;
+    }
+    if (!this.scriptRule) {
+      // Two Latin languages (French↔English): an output in the language that was JUST spoken repeats it, even before the
+      // transcript of the new sentence has arrived (the words compared above may belong to an earlier sentence).
+      const said = latinLanguageOf(this.reference(now, this.shortWindowMs) || ref);
+      const heard = latinLanguageOf(output);
+      if (said && heard && said === heard) {
+        this.why = `même langue que le texte dit (${said})`;
+        return true;
+      }
     }
     if (this.scriptRule) {
       const short = this.reference(now, this.shortWindowMs);
