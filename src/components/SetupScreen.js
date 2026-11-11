@@ -160,7 +160,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             })}
             {doubaoVoiceKind === 'auto' && (
               <Text style={styles.hint}>
-                Le modèle imite lui-même la voix de la personne qui parle, sans identifiant ni enregistrement préalable (la documentation de BytePlus le décrit pour l'interprétation parole à parole). La requête exacte n'est pas documentée : l'application n'envoie simplement aucune voix. Si Doubao refuse la session, le journal le dit.
+                Le modèle imite lui-même la voix de la personne qui parle, sans identifiant ni enregistrement préalable (la documentation de BytePlus le décrit pour l'interprétation parole à parole). La requête exacte n'est pas documentée : l'application n'envoie simplement aucune voix. Si Doubao répond « group model … not found », ce choix n'est pas accepté : prenez une voix prédéfinie.
               </Text>
             )}
             <Text style={styles.hint}>

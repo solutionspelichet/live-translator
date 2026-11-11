@@ -298,3 +298,22 @@ test('gate (Doubao, French ↔ English): English heard by the French session is 
   en2.text('in', 'On va aller voir rapidement les benchmarks pour nous', 1000);
   assert.equal(en2.repeats(en2.reference(1500), 'On va aller voir rapidement les benchmarks pour nous', 1500), true);
 });
+
+test('gate: pairs with another script (Russian, Arabic, Thai…) work like Chinese, and more Latin languages are recognised', async () => {
+  const { default: LiveGate, cjkShare, latinLanguageOf, scriptOf } = await import('../src/utils/live.js');
+  assert.equal(scriptOf('ru'), 'cjk');
+  assert.equal(scriptOf('th'), 'cjk');
+  assert.equal(scriptOf('en'), 'latin');
+  assert.ok(cjkShare('Сегодня мы посмотрим на результаты') > 0.9);
+  assert.ok(cjkShare('We will look at the results today') < 0.1);
+  assert.equal(latinLanguageOf('Ik denk dat het een goed idee is en we hebben er over gepraat'), 'nl');
+  assert.equal(latinLanguageOf('Saya tidak tahu apa yang akan kita lakukan dengan ini'), null, 'Indonesian and Malay share their function words: unsure');
+  assert.equal(latinLanguageOf('Bence bu çok güzel bir fikir ve ben de katılıyorum'), 'tr');
+  assert.equal(latinLanguageOf('Tôi nghĩ đó là một ý tưởng rất hay và chúng ta nên làm'), 'vi');
+  // English ↔ Russian with Doubao: the English session (anchor) is faithful
+  const ru = new LiveGate({ scriptRule: true, faithful: false }); // the Russian session: its own text is made up
+  ru.text('in', 'Мы смотрим на результаты сегодня и потом', 1000);
+  ru.hear('We are looking at the results today and then', 1000);
+  assert.equal(ru.repeats(ru.reference(1500), 'Мы смотрим на результаты сегодня', 1500), false, 'English was spoken: the Russian output is the translation');
+  assert.equal(ru.repeats(ru.reference(1500), 'We are looking at the results today', 1500), true, 'the English output of English speech is a repetition');
+});

@@ -54,12 +54,16 @@ export function isPassthrough(input, output, threshold = 0.6) {
   return ratio >= threshold && Math.max(sharedOut, sharedIn) >= (cjk ? 3 : 2);
 }
 
+// Languages written with another script than Latin or Chinese/Japanese/Korean (Cyrillic, Arabic, Thai, Devanagari, Greek, Hebrew): for the
+// gate they count like Chinese — "not Latin" — when the other language of the pair is written in Latin letters.
+const NONLATIN = /[\p{Script=Cyrillic}\p{Script=Arabic}\p{Script=Thai}\p{Script=Devanagari}\p{Script=Greek}\p{Script=Hebrew}]/u;
+const NONLATIN_LANGS = new Set(['ru', 'uk', 'bg', 'el', 'ar', 'th', 'hi', 'he', 'fa']);
 const CJK_LANGS = new Set(['zh', 'ja', 'ko']);
-const LATIN_LANGS = new Set(['en', 'fr', 'es', 'pt', 'de', 'it', 'id', 'vi']);
+const LATIN_LANGS = new Set(['en', 'fr', 'es', 'pt', 'de', 'it', 'id', 'vi', 'ms', 'nl', 'pl', 'tr', 'ro', 'cs', 'sv', 'da', 'no', 'fi', 'hu', 'sk', 'tl']);
 /** 'cjk' | 'latin' | null (other scripts) */
 export function scriptOf(code) {
   const base = String(code ?? '').toLowerCase().split(/[-_]/)[0];
-  return CJK_LANGS.has(base) ? 'cjk' : LATIN_LANGS.has(base) ? 'latin' : null;
+  return CJK_LANGS.has(base) || NONLATIN_LANGS.has(base) ? 'cjk' : LATIN_LANGS.has(base) ? 'latin' : null;
 }
 
 const STOPWORDS = {
@@ -69,6 +73,13 @@ const STOPWORDS = {
   de: 'der die das und ist nicht ein eine ich sie wir mit für auf aber auch wie ja nein sehr oder wenn dann das'.split(' '),
   it: 'il lo gli che non per con una sono ma come anche molto perché quando questo questa io tu noi sì bene del della'.split(' '),
   pt: 'os as uma que não para com mas como também muito porque quando isto eu você nós sim bem do da são está'.split(' '),
+  nl: 'de het een en van dat niet ik je we zijn maar ook voor met op te die dit er wel naar nog dan hebben heeft wat als'.split(' '),
+  id: 'yang dan di ini itu dengan untuk tidak dari ke saya kamu kita akan juga ada pada adalah atau bisa sudah karena kalau'.split(' '),
+  ms: 'yang dan di ini itu dengan untuk tidak dari ke saya awak kita akan juga ada pada adalah atau boleh sudah kerana kalau'.split(' '),
+  tr: 'bir ve bu da de için ile ben sen biz çok ama gibi daha var yok olarak ne mi mı değil evet hayır'.split(' '),
+  pl: 'i w nie na to jest że się z do jak ale tak ja ty my czy co tylko już dla przez może bardzo'.split(' '),
+  ro: 'și în nu este cu pe la de un o care că să sunt mai dar foarte eu tu noi ce din pentru ca'.split(' '),
+  cs: 'a je se na to že v s do ne jak ale tak já ty my co jen už pro by být velmi'.split(' '),
 };
 const STOP_SETS = Object.fromEntries(Object.entries(STOPWORDS).map(([k, v]) => [k, new Set(v)]));
 
@@ -102,6 +113,7 @@ export function isForeignLatin(text, code) {
  * Used for pairs of two Latin languages (French↔English), where the script cannot tell a translation from a repetition.
  */
 export function latinLanguageOf(text) {
+  if (looksVietnamese(text)) return 'vi';
   const words = tokens(String(text ?? '').replace(/[’]/g, "'"));
   if (words.length < 2) return null;
   const scores = Object.keys(STOP_SETS)
@@ -114,15 +126,17 @@ export function latinLanguageOf(text) {
 /** A very short text with Chinese characters and no Latin word (« 左转， », « 没有。 ») is Chinese, whatever its length: 1, else null. */
 export function shortCjkShare(text) {
   const t = String(text ?? '');
-  const hasCjk = [...t].some((c) => CJK.test(c));
-  const hasLatin = tokens(t.replace(/[぀-ヿ㐀-鿿가-힯]/gu, ' ')).some((w) => /\p{L}/u.test(w));
+  const hasCjk = [...t].some((c) => CJK.test(c)) || NONLATIN.test(t);
+  const hasLatin = tokens(t.replace(/[぀-ヿ㐀-鿿가-힯]/gu, ' ')).some((w) => /\p{L}/u.test(w) && !NONLATIN.test(w));
   return hasCjk && !hasLatin ? 1 : null;
 }
 
 /** Share of CJK in a text, counting a Latin word as ~1.7 characters; null when there is too little text. */
 export function cjkShare(text) {
-  const cjk = [...text].filter((c) => CJK.test(c)).length;
-  const latin = tokens(text.replace(/[぀-ヿ㐀-鿿가-힯]/gu, ' ')).filter((t) => /\p{L}/u.test(t)).length * 1.7;
+  const words = tokens(text.replace(/[぀-ヿ㐀-鿿가-힯]/gu, ' ')).filter((t) => /\p{L}/u.test(t));
+  const alphabetic = words.filter((w) => NONLATIN.test(w)).length * 1.7; // a Cyrillic / Arabic / Thai… word weighs like a Latin one
+  const cjk = [...text].filter((c) => CJK.test(c)).length + alphabetic;
+  const latin = (words.length - words.filter((w) => NONLATIN.test(w)).length) * 1.7;
   return cjk + latin < 4 ? null : cjk / (cjk + latin);
 }
 
@@ -197,7 +211,10 @@ export default class LiveGate {
    * `this.why` keeps the reason for the journal.
    */
   repeats(ref, output, now = Date.now()) {
-    if (isPassthrough(ref, output, this.threshold)) {
+    // A session that is not the faithful one writes a text of its own: comparing its output with that text proves nothing (a real
+    // translation can match the text it invented). When the faithful session already wrote something, the language rules decide.
+    const ownIsReliable = !(this.faithful === false && this.peerText(now));
+    if (ownIsReliable && isPassthrough(ref, output, this.threshold)) {
       this.why = 'mots communs avec le texte dit';
       return true;
     }
@@ -219,11 +236,13 @@ export default class LiveGate {
       const short = this.reference(now, this.shortWindowMs);
       // A few characters are enough when they are all Chinese: waiting for more text let both directions speak (Chinese heard twice).
       const own = cjkShare(short) ?? cjkShare(ref) ?? shortCjkShare(short) ?? shortCjkShare(ref);
-      const peerText = this.peerLog.filter((e) => e.at >= now - this.shortWindowMs).map((e) => e.text).join('');
+      const peerText = this.peerText(now);
       const peer = peerText ? cjkShare(peerText) ?? shortCjkShare(peerText) : null;
-      const share = own === null && peer === null ? null : Math.max(own ?? 0, peer ?? 0);
+      // Doubao: the transcript of the session of the ANCHOR language (Chinese, else English) tells what was said; the other session
+      // invents a text in its own language. Services that share one transcript (or none): both texts count.
+      const share = this.faithful === null ? (own === null && peer === null ? null : Math.max(own ?? 0, peer ?? 0)) : this.faithful ? own : peer;
       if (share !== null) {
-        const outCjk = CJK.test(output);
+        const outCjk = CJK.test(output) || NONLATIN.test(output);
         const pct = Math.round(share * 100);
         if (share >= 0.45) {
           this.why = `texte dit à ${pct} % en CJK`;
