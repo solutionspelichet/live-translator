@@ -100,7 +100,11 @@ export default class GeminiLiveSession {
         outputAudioTranscription: {},
       };
       if (this.transcribeInput) setup.inputAudioTranscription = {};
-      this.send({ setup });
+      // On ITS OWN socket: the standby connection's setup went into the live one (`this.send` writes to this.ws), the service refused a
+      // second setup in a running session (« Request contains an invalid argument ») and the turn ended 3 s after every GoAway.
+      try {
+        ws.send(JSON.stringify({ setup }));
+      } catch {}
     };
     ws.onmessage = (e) => {
       if (this.ws !== ws && this.next !== ws) return;

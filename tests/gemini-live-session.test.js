@@ -180,6 +180,8 @@ test('goAway: the next connection opens beside the live one and takes over when 
   assert.equal(sockets.length, 2, 'the second socket is opened at once');
   assert.equal(sockets[0].closed, false, 'the live one keeps working meanwhile');
   sockets[1].open();
+  assert.ok(sockets[1].sent.some((m) => m.setup), 'the standby connection sends its own setup');
+  assert.equal(sockets[0].sent.filter((m) => m.setup).length, 1, 'the live connection never gets a second setup');
   sockets[1].message({ setupComplete: {} });
   session.sendAudio('AAAA');
   const audioFrames = (s) => s.sent.filter((m) => m.realtimeInput).length;
