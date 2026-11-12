@@ -129,6 +129,15 @@ export default class GeminiLiveSession {
       // 1007 = the server rejected what we sent (invalid payload), 1008 = policy: retrying the same thing cannot help.
       // The session reached its maximum duration (GoAway): a normal end, open a new one.
       if (/goaway|session dura/i.test(reason)) return this.lost(`durée maximale de session (${e?.code ?? ''})`);
+      this.onNote?.(`Gemini live : socket fermé (${e?.code ?? '?'} ${reason.slice(0, 120)})`);
+      // A refusal in the middle of a conversation that was working (not at the start) is a hiccup of the service or of the network
+      // (VPN…), not a wrong request: reconnect, but give up if it keeps happening (3 times within a minute).
+      if ((e?.code === 1007 || e?.code === 1008) && this.everReady) {
+        const now = Date.now();
+        this.rejections = (this.rejections ?? []).filter((t) => now - t < 60000);
+        this.rejections.push(now);
+        if (this.rejections.length <= 3) return this.lost(`refus du service en cours de session (${e.code})`);
+      }
       if (e?.code === 1007 || e?.code === 1008) return this.fail(new ApiError('Gemini', 400, reason || `refusé par le service (${e.code})`));
       this.lost(`${e?.code ?? ''} ${reason}`.trim());
     };
@@ -150,6 +159,7 @@ export default class GeminiLiveSession {
     }
     if (msg.setupComplete !== undefined) {
       this.ready = true;
+      this.everReady = true;
       this.attempts = 0;
       this.setStatus('open');
       const queued = this.pending;

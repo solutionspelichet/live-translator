@@ -215,3 +215,19 @@ test('depleted prepayment credits end the turn with a clear error instead of rec
   assert.equal(got.errors[0].status, 402);
   assert.equal(sockets.length, 1, 'no reconnection');
 });
+
+test('a 1007 refusal in the middle of a working conversation reconnects; at the start, or when it keeps happening, it is fatal', async () => {
+  const { session, sockets, got } = make({ timers: { setTimeout: (fn) => setTimeout(fn, 1), clearTimeout } });
+  session.connect();
+  sockets[0].open();
+  sockets[0].message({ setupComplete: {} });
+  sockets[0].onclose?.({ code: 1007, reason: 'Request contains an invalid argument.' });
+  await pause(30);
+  assert.equal(got.errors.length, 0, 'not fatal once it worked');
+  assert.equal(sockets.length, 2, 'a new connection was opened');
+  const fresh = make();
+  fresh.session.connect();
+  fresh.sockets[0].onclose?.({ code: 1007, reason: 'Request contains an invalid argument.' });
+  assert.equal(fresh.got.errors.length, 1, 'refused before it ever worked: fatal');
+  assert.equal(fresh.got.errors[0].status, 400);
+});
