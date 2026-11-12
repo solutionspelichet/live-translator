@@ -233,3 +233,15 @@ test('a 1007 refusal in the middle of a working conversation reconnects; at the 
   assert.equal(fresh.got.errors.length, 1, 'refused before it ever worked: fatal');
   assert.equal(fresh.got.errors[0].status, 400);
 });
+
+test('the language announced with the input transcription reaches the engine', () => {
+  const langs = [];
+  const { session, sockets, got } = make({ transcribeInput: true, onInputLanguage: (c) => langs.push(c) });
+  session.connect();
+  sockets[0].open();
+  sockets[0].message({ setupComplete: {} });
+  sockets[0].message({ serverContent: { inputTranscription: { text: 'Okay, so', languageCode: 'en' } } });
+  sockets[0].message({ serverContent: { inputTranscription: { languageCode: 'zh-CN' } } });
+  assert.deepEqual(langs, ['en', 'zh-CN']);
+  assert.deepEqual(got.inText, ['Okay, so']);
+});

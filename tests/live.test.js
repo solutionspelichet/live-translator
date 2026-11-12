@@ -317,3 +317,22 @@ test('gate: pairs with another script (Russian, Arabic, Thai…) work like Chine
   assert.equal(ru.repeats(ru.reference(1500), 'Мы смотрим на результаты сегодня', 1500), false, 'English was spoken: the Russian output is the translation');
   assert.equal(ru.repeats(ru.reference(1500), 'We are looking at the results today', 1500), true, 'the English output of English speech is a repetition');
 });
+
+test('gate: the language announced by the service (Gemini languageCode) decides at once', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const toEnglish = new LiveGate({ scriptRule: true, sourceBase: 'zh', targetBase: 'en' });
+  const toChinese = new LiveGate({ scriptRule: true, sourceBase: 'en', targetBase: 'zh' });
+  for (const g of [toEnglish, toChinese]) g.spoken('en', 1000); // English is spoken
+  // the transcript still says "Chinese" from the previous speaker: the announced language wins
+  for (const g of [toEnglish, toChinese]) g.text('in', '我们现在主要是一些新想法的一个概念验证', 500);
+  assert.equal(toEnglish.repeats(toEnglish.reference(1500), 'Okay, so for example, the um', 1500), true, 'English output of English speech: repetition');
+  assert.equal(toChinese.repeats(toChinese.reference(1500), '好的，比如说，那个', 1500), false, 'Chinese output of English speech: the translation');
+  for (const g of [toEnglish, toChinese]) g.spoken('zh-CN', 2000);
+  assert.equal(toChinese.repeats(toChinese.reference(2500), '好的，比如说，那个', 2500), true);
+  assert.equal(toEnglish.repeats(toEnglish.reference(2500), 'Okay, so for example', 2500), false);
+  // old information is not trusted; a third language goes to the other rules
+  assert.equal(toEnglish.spokenLang.base, 'zh');
+  const third = new LiveGate({ scriptRule: true, sourceBase: 'zh', targetBase: 'en' });
+  third.spoken('fr', 1000);
+  assert.equal(third.repeats('', 'Hello there my friend', 1500), false, 'unknown pair language: no decision from the announcement');
+});

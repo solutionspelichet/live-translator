@@ -52,8 +52,8 @@ function decodeText(data) {
  * @param {Function} [opts.WebSocketImpl]
  */
 export default class GeminiLiveSession {
-  constructor({ target, transcribeInput = false, echo = false, apiKey, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS, swapQuietMs = SWAP_QUIET_MS }) {
-    Object.assign(this, { target, transcribeInput, echo, apiKey, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers, quietMs, swapQuietMs });
+  constructor({ target, transcribeInput = false, echo = false, apiKey, url, onAudio, onInputText, onOutputText, onInputLanguage, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS, swapQuietMs = SWAP_QUIET_MS }) {
+    Object.assign(this, { target, transcribeInput, echo, apiKey, url, onAudio, onInputText, onOutputText, onInputLanguage, onStatus, onNote, onError, timers, quietMs, swapQuietMs });
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.ws = null;
     this.ready = false; // setupComplete received
@@ -198,6 +198,9 @@ export default class GeminiLiveSession {
         if (!['modelTurn', 'turnComplete', 'generationComplete'].includes(key)) this.onNote?.(`Gemini live : champ « ${key} » reçu ${JSON.stringify(content[key]).slice(0, 120)}`);
       }
     }
+    // The service says in which language the speaker is talking (« languageCode » of the input transcription): the best proof of who
+    // spoke, much faster than guessing it from the words.
+    if (content.inputTranscription?.languageCode) this.onInputLanguage?.(String(content.inputTranscription.languageCode));
     if (content.inputTranscription?.text) this.onInputText(String(content.inputTranscription.text));
     if (content.outputTranscription?.text) this.onOutputText(String(content.outputTranscription.text));
     for (const part of content.modelTurn?.parts ?? []) {

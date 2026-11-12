@@ -240,6 +240,8 @@ la voix est celle du service (pas d'ElevenLabs, donc ni voix choisies ni « voix
 la voix de sortie est en 24 kHz (documenté ; un premier essai qui la déduisait de la taille des morceaux, 19 200 octets = 400 ms, l'avait prise pour du 48 kHz et jouée deux fois trop vite) ; le journal note chaque passage (« passage A→B lu : … → … ») et les événements inconnus du service.
 Écrit d'après la documentation d'OpenAI et des sources tierces, **sans pouvoir l'essayer ici** : les événements ignorés ou les erreurs apparaissent dans le journal.
 
+Gemini live, langue annoncée par le service : Gemini indique, avec chaque morceau de transcription d'entrée, la langue parlée (`languageCode` : « en », « zh-CN »…). Le filtre s'en sert en premier (valable 7 s) : une direction dont la sortie est cette langue ne fait que répéter (coupée), une direction qui part de cette langue traduit (jouée). Cela remplace, pour Gemini, la devinette sur les mots de la fenêtre des 6 à 12 dernières secondes, qui se trompait quand deux personnes se répondaient vite. Une langue tierce (hors de la paire) passe aux règles habituelles.
+
 ## Apparence et réglages
 
 - **Thème clair / sombre** : ⚙︎ → Apparence → Auto (suit le téléphone), Clair ou Sombre. Le changement s'applique tout de suite, avant même d'enregistrer. Les deux palettes (`src/theme/index.js`) ont les mêmes jetons de couleur ; un test vérifie le contraste de chaque texte sur chaque fond dans les deux thèmes. Les écrans lisent le thème au moment de s'afficher (`themedStyles`), il n'y a aucune couleur écrite en dur.

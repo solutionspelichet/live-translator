@@ -151,6 +151,7 @@ export default class LiveTranslationEngine {
         onAudio: (samples, rate) => this.onAudio(turn, d, samples, rate),
         onInputText: (text) => this.onText(turn, d, 'in', text),
         onOutputText: (text) => this.onText(turn, d, 'out', text),
+        onInputLanguage: (code) => this.onSpokenLanguage(turn, code),
         onStatus: (status) => status !== 'connecting' && this.emit({ type: 'note', text: `${this.profile.label} ${label} : ${status}` }),
         onNote: (text) => this.emit({ type: 'note', text }),
         onWarning: (text) => this.emit({ type: 'warning', text }), // something to tell the user, without stopping the turn
@@ -183,6 +184,9 @@ export default class LiveTranslationEngine {
             const anchor = [base(from), base(to)].includes('zh') ? 'zh' : 'en';
             return base(from) === anchor;
           })(),
+          // the languages of this direction (service codes, base only), to compare with the language the service says is spoken
+          sourceBase: String(this.profile.outputCode(this.languages[from]) ?? '').split('-')[0],
+          targetBase: String(this.profile.outputCode(this.languages[to]) ?? '').split('-')[0],
           ...this.gateOptions,
           fallback: () => {
             const sibling = turn.dirs.find((x) => x !== d);
@@ -266,6 +270,12 @@ export default class LiveTranslationEngine {
       }
     }, this.noAudioMs);
     turn.watchdog.unref?.();
+  }
+
+  /** The service tells which language the speaker uses: every direction's gate knows it (a direction that outputs it only repeats). */
+  onSpokenLanguage(turn, code) {
+    if (this.turnId !== turn.id) return;
+    for (const x of turn.dirs) x.gate?.spoken(code);
   }
 
   onText(turn, d, kind, delta) {
