@@ -9,6 +9,9 @@ import MeetingsScreen from './src/components/MeetingsScreen';
 import UsageScreen from './src/components/UsageScreen';
 import SplitScreen from './src/components/SplitScreen';
 import SetupScreen from './src/components/SetupScreen';
+import TabBar from './src/components/TabBar';
+import TextScreen from './src/components/TextScreen';
+import ToolsScreen from './src/components/ToolsScreen';
 import { loadStoredKeys, missingEnv } from './src/config/env';
 import { SIDE } from './src/config/languages';
 import { loadSettings, saveSettings } from './src/config/settings';
@@ -37,8 +40,7 @@ import { defaultLocale, setLocale, t } from './src/i18n';
 export default function App() {
   useKeepAwake();
   const [ready, setReady] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [meetings, setMeetings] = useState(false); // meeting recorder: the translator (and its microphone) is closed meanwhile
+  const [tab, setTab] = useState('voice'); // bottom navigation: voice (translator) | text | tools | meetings | settings
   // Bumped after saving so the engine is rebuilt with the new keys.
   const [version, setVersion] = useState(0);
   // Language bound to each side AND each ear (A = left earbud, B = right earbud), auto-send…
@@ -57,45 +59,49 @@ export default function App() {
 
   if (!ready) return <View style={styles.missing} />;
   const bar = <StatusBar style={palette().scheme === 'dark' ? 'light' : 'dark'} />;
-  if (editing || missingEnv(settings.strategy, { doubaoPreset: settings.doubaoVoiceKind !== 'clone' }).length) {
-    return (
-      <>
-        {bar}
-      <SetupScreen
-        settings={settings}
-        onPreviewTheme={setPreviewTheme}
-        onPreviewLang={setPreviewLang}
-        onDone={(saved) => {
-          setPreviewTheme(null);
-          setPreviewLang(null);
-          setSettings(saved);
-          setVersion((v) => v + 1);
-          setEditing(false);
-        }}
-      />
-      </>
-    );
-  }
-  if (meetings) {
-    return (
-      <>
-        {bar}
-      <MeetingsScreen
-        settings={settings}
-        onSettingsChange={(next) => { EventLog.add(`réglages enregistrés : service ${next.strategy} · sortie ${next.outputMode}`); return saveSettings(next).then(setSettings); }}
-        onClose={() => setMeetings(false)}
-      />
-      </>
-    );
-  }
-  return (
-    <Translator
-      key={version}
+  const save = (next) => {
+    EventLog.add(`réglages enregistrés : service ${next.strategy} · sortie ${next.outputMode}`);
+    return saveSettings(next).then(setSettings);
+  };
+  const setup = (
+    <SetupScreen
       settings={settings}
-      onSettingsChange={(next) => { EventLog.add(`réglages enregistrés : service ${next.strategy} · sortie ${next.outputMode}`); return saveSettings(next).then(setSettings); }}
-      onOpenSettings={() => setEditing(true)}
-      onOpenMeetings={() => setMeetings(true)}
+      onPreviewTheme={setPreviewTheme}
+      onPreviewLang={setPreviewLang}
+      onDone={(saved) => {
+        setPreviewTheme(null);
+        setPreviewLang(null);
+        setSettings(saved);
+        setVersion((v) => v + 1);
+        setTab('voice');
+      }}
     />
+  );
+  // Keys missing (first start): the settings form alone, no navigation.
+  if (missingEnv(settings.strategy, { doubaoPreset: settings.doubaoVoiceKind !== 'clone' }).length) {
+    return (
+      <>
+        {bar}
+        {setup}
+      </>
+    );
+  }
+  const cycleTheme = () => {
+    const order = ['system', 'light', 'dark'];
+    save({ ...settings, theme: order[(Math.max(0, order.indexOf(settings.theme)) + 1) % order.length] });
+  };
+  let body;
+  if (tab === 'settings') body = setup;
+  else if (tab === 'meetings') body = <MeetingsScreen settings={settings} onSettingsChange={save} onClose={() => setTab('voice')} />;
+  else if (tab === 'text') body = <TextScreen settings={settings} />;
+  else if (tab === 'tools') body = <ToolsScreen settings={settings} onOpenSettings={() => setTab('settings')} />;
+  else body = <Translator key={version} settings={settings} onSettingsChange={save} onOpenSettings={() => setTab('settings')} onOpenMeetings={() => setTab('meetings')} />;
+  return (
+    <View style={styles.flex}>
+      {bar}
+      <View style={styles.flex}>{body}</View>
+      <TabBar tab={tab} onTab={setTab} theme={settings.theme} onTheme={cycleTheme} />
+    </View>
   );
 }
 
