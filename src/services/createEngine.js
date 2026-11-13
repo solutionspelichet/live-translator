@@ -67,7 +67,9 @@ export default function createEngine(languages, options = {}, strategy = 'classi
   }
   if (strategy === 'mistral') {
     let hub = null; // one pipeline per turn, shared by the two directions (the first session of a turn creates it)
-    return new LiveTranslationEngine({
+    let warm = null; // a hub connected ahead of the tap (token + socket take 2–10 s on a weak network): the next turn starts at once
+    const makeHub = () => new MistralLiveHub({ apiKey: env.mistralKey, baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl, languageName: (code) => getLanguage(code).label, timers: BackgroundTimers, fallbackSpeak: mistralFallbackVoice(languages, options.lowBandwidth), preferFallback: Boolean(options.elevenVoiceForAll), quality: options.mistralQuality, glossary: options.mistralGlossary, autoContext: options.mistralAutoContext && !options.lowBandwidth, lowBandwidth: options.lowBandwidth, translator: options.mistralTranslator, deepl: env.deeplKey ? new DeepLClient() : null, deeplCode: (c) => getLanguage(c).deeplSource });
+    const engine = new LiveTranslationEngine({
       languages,
       mic: new MicrophoneStreamer(),
       audio,
@@ -77,11 +79,38 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       lowBandwidth: options.lowBandwidth,
       createSession: (opts) => {
         if (opts.transcribeInput || !hub) {
-          hub = new MistralLiveHub({ apiKey: env.mistralKey, baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl, languageName: (code) => getLanguage(code).label, timers: BackgroundTimers, fallbackSpeak: mistralFallbackVoice(languages, options.lowBandwidth), preferFallback: Boolean(options.elevenVoiceForAll), quality: options.mistralQuality, glossary: options.mistralGlossary, autoContext: options.mistralAutoContext && !options.lowBandwidth, lowBandwidth: options.lowBandwidth, translator: options.mistralTranslator, deepl: env.deeplKey ? new DeepLClient() : null, deeplCode: (c) => getLanguage(c).deeplSource });
+          if (opts.transcribeInput && warm?.usable()) hub = warm;
+          else {
+            warm?.abort();
+            hub = makeHub();
+          }
+          warm = null;
         }
         return new MistralLiveSession({ ...opts, hub });
       },
     });
+    const keepWarm = () => {
+      if (warm?.usable(50000)) return;
+      warm?.abort();
+      warm = makeHub();
+      warm.connect();
+    };
+    let refresh = null;
+    engine.warmConnections = () => {
+      if (!env.mistralKey) return;
+      keepWarm();
+      // an idle socket is closed by the server after a while: renew it while nobody is talking
+      refresh ??= BackgroundTimers.setInterval(() => engine.state === 'idle' && keepWarm(), 45000);
+    };
+    const sleep = engine.sleep.bind(engine);
+    engine.sleep = () => {
+      if (refresh) BackgroundTimers.clearInterval(refresh);
+      refresh = null;
+      warm?.abort();
+      warm = null;
+      return sleep();
+    };
+    return engine;
   }
   if (strategy === 'doubao') {
     return new LiveTranslationEngine({

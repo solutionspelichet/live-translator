@@ -2,7 +2,7 @@ import { ApiError, fetchWithRetry } from '../../utils/http.js';
 import { dropRepeats, chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
-const MAX_PENDING = 100;
+const MAX_PENDING = 600; // 60 s of audio: a slow start (token + socket took up to 10 s on a weak network) must not cost the first words
 const MAX_ATTEMPTS = 8;
 const PAUSE_AFTER_SENTENCE_MS = 200; // the text already ends like a sentence: a short pause is enough
 const PAUSE_MID_SENTENCE_MS = 650; // no punctuation yet: wait for a real pause before cutting
@@ -111,6 +111,17 @@ export default class MistralLiveHub {
 
   addSession(session) {
     if (!this.sessions.includes(session)) this.sessions.push(session);
+    // A hub opened ahead of time (see `usable`) is already connected: the session starts listening at once.
+    if (this.ready) {
+      session.onStatus?.('open');
+      session.status = 'open';
+      this.warmVoices();
+    }
+  }
+
+  /** A hub connected ahead of the tap (no session yet) that can still take the next turn: token and socket are already done. */
+  usable(maxAgeMs = 60000) {
+    return !this.dead && !this.closing && !!this.ws && this.ready && this.now() - (this.readyAt ?? 0) <= maxAgeMs;
   }
 
   get lead() {
@@ -138,6 +149,7 @@ export default class MistralLiveHub {
   async connect() {
     if (this.dead || this.ws || this.connecting) return;
     this.connecting = true;
+    const startedAt = this.now();
     let token = null;
     if (this.mode === 'token') {
       try {
@@ -152,6 +164,7 @@ export default class MistralLiveHub {
       }
     }
     this.connecting = false;
+    const mintedMs = this.now() - startedAt;
     if (this.dead || this.ws) return;
     let ws;
     try {
@@ -162,7 +175,7 @@ export default class MistralLiveHub {
       return this.lost(String(error?.message ?? error).replace(this.apiKey ?? '', '…'));
     }
     this.ws = ws;
-    ws.onopen = () => this.note(`Mistral live : socket ouvert (${token ? 'jeton' : 'clé en en-tête'})`);
+    ws.onopen = () => this.note(`Mistral live : socket ouvert (${token ? 'jeton' : 'clé en en-tête'}) · jeton ${mintedMs} ms, connexion ${this.now() - startedAt - mintedMs} ms`);
     ws.onmessage = (e) => {
       if (this.ws !== ws) return;
       this.lastMessageAt = Date.now();
@@ -186,6 +199,10 @@ export default class MistralLiveHub {
       this.ws = null;
       this.ready = false;
       if (this.closing || this.dead) return this.finishClose();
+      if (!this.sessions.length) {
+        this.dead = true; // opened ahead of time and nobody took it: the server closed it, the next turn opens its own
+        return;
+      }
       const reason = String(e?.reason ?? '').replace(this.apiKey ?? '', '…');
       this.note(`Mistral live : socket fermé (${e?.code ?? '?'} ${reason})`);
       const refused = handshakeRefusal(reason);
@@ -213,6 +230,7 @@ export default class MistralLiveHub {
     switch (msg.type) {
       case 'session.created':
         this.ready = true;
+        this.readyAt = this.now();
         this.attempts = 0;
         this.send({ type: 'session.update', session: { audio_format: { encoding: 'pcm_s16le', sample_rate: MISTRAL_INPUT_RATE } } });
         this.setStatus('open');

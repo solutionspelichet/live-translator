@@ -82,9 +82,10 @@ export default class LiveTranslationEngine {
   }
 
   warmUp() {
-    return this.mic.open().catch((error) => this.emit({ type: 'error', error }));
+    return this.mic.open().then(() => this.warmConnections()).catch((error) => this.emit({ type: 'error', error }));
   }
 
+  /** Services that can open their connection before the tap (Mistral) do it here; called at start and after every turn. */
   warmConnections() {}
 
   sleep() {
@@ -534,7 +535,10 @@ export default class LiveTranslationEngine {
       this.reportStats(turn);
       this.flushUsage();
       await Promise.all(turn.dirs.map((x) => x.chain));
-      if (this.turnId === id) this.setState(STATE.IDLE);
+      if (this.turnId === id) {
+        this.setState(STATE.IDLE);
+        this.warmConnections();
+      }
     } catch (error) {
       this.fail(id, error);
     }

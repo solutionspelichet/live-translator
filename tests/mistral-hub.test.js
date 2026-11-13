@@ -465,6 +465,20 @@ test('a single word the small model labels « other » is translated anyway (tow
   assert.ok(x.got.notes.some((m) => /mot isolé traduit/.test(m)));
 });
 
+test('a hub that is connected and ready can be reused by the next turn (usable) until it is old, closed or aborted', async () => {
+  let t = 1000;
+  const { hub, sockets } = await setup();
+  hub.now = () => t;
+  assert.equal(hub.usable(), false, 'not ready before session.created');
+  sockets[0].serve({ type: 'session.created' });
+  assert.equal(hub.usable(), true);
+  t += 61000;
+  assert.equal(hub.usable(), false, 'too old: a new one is opened');
+  t = 1000;
+  hub.abort();
+  assert.equal(hub.usable(), false);
+});
+
 test('a rate limit (429 on every model) never stops the turn: the sentence is dropped, requests are spaced out, listening goes on', async () => {
   const { hub, sockets, got } = await setup({ chatFail: () => ({ ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } }) });
   sockets[0].serve({ type: 'session.created' });
