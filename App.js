@@ -259,7 +259,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     const t = BackgroundTimers.setInterval(() => {
       const d = engine.diagnostics();
       EventLog.add(
-        `♥ ${AppState.currentState} · état ${d.state} · micro ${d.micRunning ? 'ouvert' : d.state === STATE.IDLE ? 'coupé (veille)' : 'FERMÉ'} (${d.chunks} paquets, dernier il y a ${d.msSinceChunk ?? '—'} ms) · ${d.sttLabel ?? 'Deepgram'} ${d.stt ?? '—'} · veille ${BackgroundService.lockHeld ? 'verrou' : 'SANS verrou'} · batterie ${Power.isIgnoringBatteryOptimizations() ? 'sans limite' : 'LIMITÉE'}`,
+        `♥ ${AppState.currentState} · état ${d.state} · micro ${d.micRunning ? 'ouvert' : d.state === STATE.IDLE ? 'coupé (veille)' : 'FERMÉ'} (${d.chunks} paquets, dernier il y a ${d.msSinceChunk ?? '—'} ms, gain ×${Number(d.gain ?? 1).toFixed(1)}) · ${d.sttLabel ?? 'Deepgram'} ${d.stt ?? '—'} · veille ${BackgroundService.lockHeld ? 'verrou' : 'SANS verrou'} · batterie ${Power.isIgnoringBatteryOptimizations() ? 'sans limite' : 'LIMITÉE'}`,
       );
     }, 60000);
     return () => BackgroundTimers.clearInterval(t);

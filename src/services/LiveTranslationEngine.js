@@ -549,7 +549,7 @@ export default class LiveTranslationEngine {
     const m = this.mic.stats;
     if (m && turn?.live) {
       if (turn.sendGate) this.emit({ type: 'note', text: `faible débit : ${Math.round(turn.sendGate.ratio_sent * 100)} % du son envoyé au service (le reste était du silence)` });
-      this.emit({ type: 'note', text: `micro : ${m.chunks} paquets au total, crête ${(m.peak ?? 0).toFixed(3)}, ${m.zeroChunks ?? 0} paquets à zéro (${m.backend ?? '—'})` });
+      this.emit({ type: 'note', text: `micro : ${m.chunks} paquets au total, crête ${(m.peak ?? 0).toFixed(3)}, gain ×${Number(m.gain ?? 1).toFixed(1)}, ${m.zeroChunks ?? 0} paquets à zéro (${m.backend ?? '—'})` });
     }
     if (this.muteWhilePlaying && turn?.heardSec) {
       const share = Math.round(((turn.mutedSec ?? 0) / turn.heardSec) * 100);
