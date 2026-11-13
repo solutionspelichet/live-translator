@@ -110,7 +110,7 @@ function sanitizePairs(raw) {
     .slice(0, 4);
 }
 
-export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramNova3MultiPerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin', 'geminiInPerMin', 'geminiOutPerMin', 'doubaoPerMin', 'mistralSttPerMin', 'mistralTtsPerKChars']);
+export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramNova3MultiPerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin', 'geminiInPerMin', 'geminiOutPerMin', 'doubaoInPerMin', 'doubaoOutPerMin', 'mistralSttPerMin', 'mistralTtsPerKChars']);
 
 function sanitizePrices(raw) {
   const out = {};

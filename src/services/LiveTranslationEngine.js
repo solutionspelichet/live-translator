@@ -38,8 +38,8 @@ const other = (side) => (side === SIDE.A ? SIDE.B : SIDE.A);
  * @param {(opts) => {connect(), sendAudio(b64), close(): Promise<void>, abort(), status}} deps.createSession
  */
 export default class LiveTranslationEngine {
-  constructor({ languages, mic, audio, createSession, profile = OPENAI_LIVE, timers = defaultTimers, idleStopMs = 300000, stallMs = 3000, noAudioMs = 1500, muteWhilePlaying = false, burstGapMs = 1500, tailMs = 200, gate = {}, lowBandwidth = false, sendGateOptions = {} }) {
-    Object.assign(this, { lowBandwidth, sendGateOptions, languages, mic, audio, createSession, profile, timers, idleStopMs, stallMs, noAudioMs, muteWhilePlaying, burstGapMs, tailMs, gateOptions: gate });
+  constructor({ languages, mic, audio, createSession, profile = OPENAI_LIVE, timers = defaultTimers, idleStopMs = 300000, stallMs = 3000, noAudioMs = 1500, muteWhilePlaying = false, burstGapMs = 1500, tailMs = 200, gate = {}, lowBandwidth = false, sendGateOptions = {}, createSpotter = null }) {
+    Object.assign(this, { createSpotter, lowBandwidth, sendGateOptions, languages, mic, audio, createSession, profile, timers, idleStopMs, stallMs, noAudioMs, muteWhilePlaying, burstGapMs, tailMs, gateOptions: gate });
     this.autoStop = true; // not used here (the service has no turn detection); the screen sets it
     this.state = STATE.IDLE;
     this.listeners = new Set();
@@ -198,6 +198,11 @@ export default class LiveTranslationEngine {
       turn.dirs.push(d);
       d.session.connect();
     }
+    // Language of the sound, spotted apart (Doubao): every gate gets it like the language a service announces.
+    if (this.createSpotter && this.profile.ownTranscript) {
+      turn.spotter = this.createSpotter({ languages: this.languages, onLanguage: (code) => this.onSpokenLanguage(turn, code), onNote: (text) => this.emit({ type: 'note', text }) }) ?? null;
+      turn.spotter?.connect();
+    }
 
     const onChunk = ({ pcm16, sampleRate, level }) => {
       if (this.turnId !== id) return;
@@ -225,11 +230,14 @@ export default class LiveTranslationEngine {
       // Low bandwidth: nothing is sent while nobody speaks (a short hangover, a pre-roll and a keep-alive excepted).
       if (this.lowBandwidth && !turn.sendGate) turn.sendGate = new SendGate(this.sendGateOptions);
       const toSend = turn.sendGate ? turn.sendGate.step(audio, () => toLiveAudio(pcm16, sampleRate, { silence: true, rate: this.profile.inputRate }), level) : [audio];
-      for (const piece of toSend) for (const d of turn.dirs) d.session.sendAudio(piece);
+      for (const piece of toSend) {
+        for (const d of turn.dirs) d.session.sendAudio(piece);
+        turn.spotter?.sendAudio(piece);
+      }
       // The service bills the audio it receives, per session.
       const seconds = (pcm16.byteLength / 2 / sampleRate) * toSend.length;
       const { send, transcribe } = this.profile.usage;
-      if (seconds > 0) this.recordUsage({ [send]: seconds * (this.profile.usage.shared ? 1 : turn.dirs.length), ...(transcribe ? { [transcribe]: seconds } : {}) });
+      if (seconds > 0) this.recordUsage({ [send]: seconds * (this.profile.usage.shared ? 1 : turn.dirs.length), ...(transcribe ? { [transcribe]: seconds } : {}), ...(turn.spotter ? { dgNova3Sec: seconds } : {}) });
       this.emit({ type: 'level', level });
     };
 
@@ -519,6 +527,7 @@ export default class LiveTranslationEngine {
       if (this.tailMs > 0) await new Promise((r) => this.timers.setTimeout(r, this.tailMs));
       this.mic.setSink(null);
       if (this.turnId !== id) return;
+      turn.spotter?.abort();
       await Promise.all(turn.dirs.map((d) => d.session.close()));
       if (this.turnId !== id) return;
       turn.dirs.forEach((d) => this.endBurst(turn, d));
@@ -568,6 +577,7 @@ export default class LiveTranslationEngine {
       this.reportStats(turn);
     }
     this.clearTimers(turn);
+    turn?.spotter?.abort();
     turn?.dirs.forEach((d) => d.session.abort());
     turn?.streams.forEach((stream) => stream.abort());
     this.mic.setSink(null);

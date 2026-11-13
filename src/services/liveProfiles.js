@@ -41,7 +41,7 @@ export const DOUBAO_LIVE = Object.freeze({
   gate: true, // without earphones the translated voice re-enters the mic and is translated again (same language in and out)
   ownTranscript: true, // each session has ONE fixed source language and its own transcript: the gate compares a session with itself
   muteOnSpeaker: true, // the Chinese voice heard again would be translated into French for the headset: silence the mic while the speaker plays
-  usage: Object.freeze({ send: 'doubaoSec' }),
+  usage: Object.freeze({ send: 'doubaoSec', receive: 'doubaoOutSec' }),
 });
 
 export const MISTRAL_LIVE = Object.freeze({

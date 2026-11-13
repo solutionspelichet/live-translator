@@ -368,3 +368,9 @@ détection du micro intégré (`AudioManager.getDevicesInfo` renvoie des catégo
 - ~~Traduire les résultats `is_final` au fil de l'eau~~ → fait : chaque phrase validée est traduite et lue pendant que la personne parle encore (`TranslationEngine.enqueue`).
 - ~~TTS en streaming, historique, voix par langue, mains libres~~ → fait (voir plus haut), à valider sur appareil.
 - Historique persistant (nécessite un stockage fichier), détection de langue plus robuste en mains libres.
+
+
+## Doubao: language of the sound and cost counter
+
+- **Language spotted on the sound.** Doubao's sessions each hear one fixed language and write text of their own, so the transcripts cannot always tell which language was spoken (a direction then replays the speech it just heard). When a Deepgram key is set, a small extra stream (`src/services/live/LanguageSpotter.js`, Nova-3, ≈ $0.0077/min) listens to the same microphone audio in the non-Chinese language of the pair: confident words → that language is spoken (the direction that outputs it is muted, the one that starts from it translates); speech with no confident word → the verdict is dropped, so a Chinese answer is never muted by the English heard just before. It is optional (no key, a refusal → the app goes on without it) and journals each change (`langue du son : …`).
+- **Cost counter.** 📊 counts Doubao seconds sent (per session) and voice received, with BytePlus's own conversion (docs.byteplus.com, Live Interpretation): input audio ≈ 6.25 tokens/s at $12 per million (≈ $0.0045/min), output audio ≈ 25 tokens/s at $46 per million (≈ $0.069/min). Both directions' voices are billed whether played or muted, so the output voice dominates the bill; both prices can be changed in 📊.

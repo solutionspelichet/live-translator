@@ -19,6 +19,7 @@ export const emptyUsage = () => ({
   geminiInSec: 0, // Gemini live: seconds of audio sent (per session)
   geminiOutSec: 0, // Gemini live: seconds of translated voice received
   doubaoSec: 0, // Doubao live: seconds of audio sent (per session)
+  doubaoOutSec: 0, // Doubao live: seconds of translated voice received
   mistralSttSec: 0, // Mistral live: seconds of audio transcribed (once for both directions)
   mistralTtsChars: 0, // Mistral live: characters spoken by the Voxtral voice
 });
@@ -98,7 +99,11 @@ export const DEFAULT_PRICES = Object.freeze({
   geminiOutPerMin: 0.0315, // same, audio out ($21 per million tokens)
   mistralSttPerMin: 0.008, // Voxtral Mini Transcribe Realtime
   mistralTtsPerKChars: 0.016, // Voxtral TTS, per 1 000 characters (the translation by Mistral Small is a fraction of a cent, not counted)
-  doubaoPerMin: 0, // BytePlus AST: no public price found — UNKNOWN, fill it in from the BytePlus console (the screen says the total is incomplete)
+  // BytePlus Dola Live Interpretation 2.0 bills TOKENS (docs.byteplus.com: input $12 / 1M, output audio $46 / 1M, output text $12 / 1M)
+  // and gives the conversion: input audio ≈ 6.25 tokens/s, output audio ≈ 25 tokens/s → $0.0045 / min in, $0.069 / min out.
+  // Both directions' voices are billed, played or muted. The text tokens are small and not counted.
+  doubaoInPerMin: 0.0045,
+  doubaoOutPerMin: 0.069,
 });
 
 /** Estimated cost per service and in total. `prices` overrides DEFAULT_PRICES key by key. */
@@ -112,10 +117,10 @@ export function estimateCost(rawUsage, prices = {}) {
   const openrouter = usage.orCostUsd; // exact: reported by OpenRouter
   const openaiLive = (usage.oaiLiveSec / 60) * p.openaiLivePerMin + (usage.oaiTranscribeSec / 60) * p.openaiTranscribePerMin;
   const geminiLive = (usage.geminiInSec / 60) * p.geminiInPerMin + (usage.geminiOutSec / 60) * p.geminiOutPerMin;
-  const doubaoLive = (usage.doubaoSec / 60) * p.doubaoPerMin;
+  const doubaoLive = (usage.doubaoSec / 60) * p.doubaoInPerMin + (usage.doubaoOutSec / 60) * p.doubaoOutPerMin;
   const mistralLive = (usage.mistralSttSec / 60) * p.mistralSttPerMin + (usage.mistralTtsChars / 1000) * p.mistralTtsPerKChars;
   // A service used but with no price: the total is incomplete and the screen must say so (0 $ looks like « free »).
-  const unpriced = [usage.doubaoSec > 0 && !p.doubaoPerMin ? 'Doubao live' : null].filter(Boolean);
+  const unpriced = [usage.doubaoSec > 0 && !p.doubaoInPerMin && !p.doubaoOutPerMin ? 'Doubao live' : null].filter(Boolean);
   return { unpriced, deepgram: deepgram + deepgramPre, deepl, eleven, openrouter, openaiLive, geminiLive, doubaoLive, mistralLive, total: deepgram + deepgramPre + deepl + eleven + openrouter + openaiLive + geminiLive + doubaoLive + mistralLive };
 }
 

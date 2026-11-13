@@ -211,7 +211,7 @@ export default class LiveGate {
   /** The language the speaker uses, as announced by the service ('zh-CN', 'en'…). */
   spoken(code, now = Date.now()) {
     const base = String(code ?? '').toLowerCase().split(/[-_]/)[0];
-    if (base) this.spokenLang = { base, at: now };
+    this.spokenLang = base ? { base, at: now } : null; // null: the detector heard speech that is not the spotted language
   }
 
   /** What the other direction's session transcribed in the last seconds. */
