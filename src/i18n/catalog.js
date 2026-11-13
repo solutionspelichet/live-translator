@@ -343,6 +343,7 @@ export default [
   ["suffisant · {n} s de plus pour un meilleur résultat", "enough · {n} s more for a better result", "已足够 · 再说 {n} 秒效果更好"],
   ["longueur idéale atteinte — vous pouvez arrêter", "ideal length reached — you can stop", "已达到理想时长 — 可以停止了"],
   ["Pas de connexion à {service}. Vérifiez internet (Wi-Fi / données mobiles) puis réessayez.", "No connection to {service}. Check the internet (Wi-Fi / mobile data) and try again.", "无法连接 {service}。请检查网络（Wi-Fi/移动数据）后重试。"],
+  ["Doubao refuse la connexion ({status}) : clé invalide, quota épuisé ou trop de sessions ouvertes. Vérifiez la clé et le quota dans la console BytePlus, attendez une minute puis réessayez.", "Doubao refuses the connection ({status}): invalid key, quota used up or too many open sessions. Check the key and the quota in the BytePlus console, wait a minute and try again.", "豆包拒绝连接（{status}）：密钥无效、额度用完或同时打开的会话过多。请在 BytePlus 控制台检查密钥和额度，等待一分钟后重试。"],
   ["Quota {service} épuisé : rechargez le compte ou changez de clé dans les réglages.", "{service} quota used up: top up the account or change the key in the settings.", "{service} 配额已用完：请为账户充值，或在设置中更换密钥。"],
   ["Crédit {service} insuffisant : rechargez votre compte.", "Not enough {service} credit: top up your account.", "{service} 余额不足：请为您的账户充值。"],
   ["Modèle OpenRouter introuvable : choisissez-en un autre dans la liste.", "OpenRouter model not found: choose another one in the list.", "找不到该 OpenRouter 模型：请在列表中另选一个。"],

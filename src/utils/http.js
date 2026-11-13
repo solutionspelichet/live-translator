@@ -55,6 +55,7 @@ export function describeError(error) {
   if (/quota/i.test(detail) || status === 456) return t('Quota {service} épuisé : rechargez le compte ou changez de clé dans les réglages.', { service });
   if (status === 402) return t('Crédit {service} insuffisant : rechargez votre compte.', { service });
   if (status === 404 && service === 'OpenRouter') return t('Modèle OpenRouter introuvable : choisissez-en un autre dans la liste.');
+  if ((status === 401 || status === 403) && service === 'Doubao') return t('Doubao refuse la connexion ({status}) : clé invalide, quota épuisé ou trop de sessions ouvertes. Vérifiez la clé et le quota dans la console BytePlus, attendez une minute puis réessayez.', { status });
   if (status === 401 || status === 403) return t('Clé {service} refusée (invalide, expirée ou sans les droits nécessaires). Vérifiez-la dans les réglages.', { service });
   if (status === 404 && service === 'ElevenLabs') return t('Voice ID ElevenLabs introuvable : vérifiez les deux identifiants de voix dans les réglages.');
   if (status === 400 && service === 'DeepL') return t('DeepL ne prend pas en charge cette paire de langues avec votre clé. Changez de langue dans les réglages (« Tester mes clés » indique lesquelles posent problème).');

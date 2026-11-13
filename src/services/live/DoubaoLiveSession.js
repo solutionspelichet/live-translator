@@ -53,6 +53,7 @@ export default class DoubaoLiveSession {
     this.closing = false;
     this.dead = false;
     this.attempts = 0;
+    this.refusals = 0;
     this.sawAudio = false;
     this.lastMessageAt = 0;
     this.sessionId = null;
@@ -117,6 +118,7 @@ export default class DoubaoLiveSession {
       case 'started': {
         this.ready = true;
         this.attempts = 0;
+        this.refusals = 0;
         this.setStatus('open');
         const queued = this.pending;
         this.pending = [];
@@ -184,6 +186,9 @@ export default class DoubaoLiveSession {
 
   lost(reason) {
     if (this.dead || this.closing) return;
+    // The service answers the handshake with 401/403: not a network problem (retrying the same key does not help).
+    const refused = /\b(401|403)\b/.exec(String(reason ?? ''));
+    if (refused && ++this.refusals >= 3) return this.fail(new ApiError('Doubao', Number(refused[1]), `connexion refusée (${reason})`));
     if (++this.attempts > MAX_ATTEMPTS) return this.fail(new ApiError('Doubao', 0, `connexion perdue (${reason})`));
     this.setStatus(`reconnecting (${reason || 'perdue'})`);
     this.timers.setTimeout(() => this.connect(), Math.min(5000, 400 * this.attempts));
