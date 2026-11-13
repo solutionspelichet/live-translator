@@ -454,6 +454,17 @@ test('English that the small model labels « other » with no text is still tran
   assert.equal(b.got.outText.length, 0, 'one word stays ignored');
 });
 
+test('a single word the small model labels « other » is translated anyway (towards the other language of the pair)', async () => {
+  let n = 0;
+  const x = await setup({ pair: ['fr', 'zh'], answer: () => (++n === 1 ? { from: 'other', text: '' } : { from: 'A', text: 'Bonjour.' }) });
+  x.sockets[0].serve({ type: 'session.created' });
+  x.sockets[0].serve({ type: 'transcription.text.delta', text: '你好。 ' });
+  await pause(900);
+  assert.equal(x.got.outText.length, 1, 'the word is not lost');
+  assert.equal(x.got.outText[0].target, 'fr');
+  assert.ok(x.got.notes.some((m) => /mot isolé traduit/.test(m)));
+});
+
 test('a rate limit (429 on every model) never stops the turn: the sentence is dropped, requests are spaced out, listening goes on', async () => {
   const { hub, sockets, got } = await setup({ chatFail: () => ({ ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } }) });
   sockets[0].serve({ type: 'session.created' });

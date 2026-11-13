@@ -6,7 +6,7 @@ const MAX_PENDING = 100;
 const MAX_ATTEMPTS = 8;
 const PAUSE_AFTER_SENTENCE_MS = 200; // the text already ends like a sentence: a short pause is enough
 const PAUSE_MID_SENTENCE_MS = 650; // no punctuation yet: wait for a real pause before cutting
-const PAUSE_FRAGMENT_MS = 3000; // one or two words alone: wait for the rest of the sentence (they were dropped as « not speech »)
+const PAUSE_FRAGMENT_MS = 1400; // one or two words alone: wait a little for the rest of the sentence, then translate them anyway (3 s felt like a loss)
 const QUIET_MS = 1500;
 const NOTES_EVERY = 4; // sentences between two updates of the notes
 const NOTES_MIN_GAP_MS = 90000; // 20 000 tokens a minute on some accounts: the notes must not eat the translations’ budget
@@ -530,6 +530,20 @@ export default class MistralLiveHub {
       const answer = parseInterpretation(third?.choices?.[0]?.message?.content);
       const same = answer.text.replace(/\W+/g, '').toLowerCase() === text.replace(/\W+/g, '').toLowerCase();
       if (answer.text && !same && languageFits(answer.text, pair.a)) verdict = { from: 'other', text: answer.text, third: true };
+    }
+    if (!viaDeepl && verdict.from === 'other' && !verdict.text && !hasNoLetters(text) && !looksLikeSpeech(text)) {
+      // One or two words (« Hello », « 谢谢 », « Merci ») make the small models answer « other »: translate them anyway, towards the other
+      // language of the pair (the model tells nothing about which one it is, so try A first: a word that comes back unchanged is B's).
+      for (const [from, to, side] of [[pair.b, pair.a, 'B'], [pair.a, pair.b, 'A']]) {
+        const forced = await this.interpret(forcedMessages({ from: this.languageName(from), to: this.languageName(to), text, glossary: this.glossary }));
+        const answer = parseInterpretation(forced?.choices?.[0]?.message?.content);
+        const same = answer.text.replace(/\W+/g, '').toLowerCase() === text.replace(/\W+/g, '').toLowerCase();
+        if (answer.text && !same && languageFits(answer.text, to)) {
+          verdict = { from: side, text: answer.text };
+          this.note(`Mistral live : mot isolé traduit (${from} → ${to}) « ${text.slice(0, 40)} »`);
+          break;
+        }
+      }
     }
     const llmMs = this.now() - t0;
     if (verdict.from !== 'other') this.lastFrom = verdict.from;
