@@ -185,6 +185,7 @@ export default class LiveTranslationEngine {
             return base(from) === anchor;
           })(),
           // the languages of this direction (service codes, base only), to compare with the language the service says is spoken
+          peerNeedsOutput: this.profile.ownTranscript && (() => { const b = (k) => String(this.profile.outputCode(this.languages[k]) ?? '').split('-')[0]; const anchor = [b(from), b(to)].includes('zh') ? 'zh' : 'en'; return b(from) !== anchor; })(),
           sourceBase: String(this.profile.outputCode(this.languages[from]) ?? '').split('-')[0],
           targetBase: String(this.profile.outputCode(this.languages[to]) ?? '').split('-')[0],
           ...this.gateOptions,
@@ -310,6 +311,8 @@ export default class LiveTranslationEngine {
     }
     d.firstOutAt ??= Date.now();
     d.outText += delta;
+    // a translation exists: the transcript this session wrote is a real one (see LiveGate.confirmPeer)
+    if (this.profile.ownTranscript && d.gate?.faithful !== false && delta.trim()) for (const x of turn.dirs) if (x !== d) x.gate?.confirmPeer?.();
     const released = d.gate ? d.gate.text('out', delta) : [];
     released.forEach((samples) => this.play(turn, d, samples));
     this.armBurst(turn, d);

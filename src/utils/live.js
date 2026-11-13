@@ -160,8 +160,8 @@ export default class LiveGate {
    *   user's language: Latin speech in another language is then translated for the user only
    *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null, sourceBase = '', targetBase = '', spokenTtlMs = 7000 } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback, faithful, sourceBase, targetBase, spokenTtlMs });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null, sourceBase = '', targetBase = '', spokenTtlMs = 7000, peerNeedsOutput = false } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback, faithful, sourceBase, targetBase, spokenTtlMs, peerNeedsOutput });
     this.spokenLang = null; // { base, at }: the language the service says is spoken (Gemini)
     this.trace = []; // decisions taken (for the journal): { at, mode, basis, why }
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
@@ -190,8 +190,22 @@ export default class LiveGate {
    * script of the speech is judged on both texts (Chinese in either one = Chinese speech).
    */
   hear(delta, now = Date.now()) {
-    this.peerLog.push({ at: now, text: delta });
+    this.peerLog.push({ at: now, text: delta, confirmed: !this.peerNeedsOutput });
     this.peerLog = this.peerLog.filter((e) => e.at >= now - this.windowMs * 3);
+  }
+
+  /**
+   * The faithful session produced a TRANSLATION (output text). When Doubao's Chinese session hears English it still writes a Chinese
+   * "transcript" but has nothing to translate (empty output): such a text proves nothing, so with `peerNeedsOutput` the peer's
+   * transcript only counts once that session has translated something since.
+   */
+  confirmPeer() {
+    for (const e of this.peerLog) e.confirmed = true;
+  }
+
+  /** Peer text written lately that no translation has confirmed yet (the decision waits a little for it). */
+  peerPending(now = Date.now()) {
+    return this.peerNeedsOutput && this.peerLog.some((e) => !e.confirmed && e.at >= now - this.shortWindowMs);
   }
 
   /** The language the speaker uses, as announced by the service ('zh-CN', 'en'…). */
@@ -202,7 +216,7 @@ export default class LiveGate {
 
   /** What the other direction's session transcribed in the last seconds. */
   peerText(now = Date.now()) {
-    return this.peerLog.filter((e) => e.at >= now - this.shortWindowMs).map((e) => e.text).join('');
+    return this.peerLog.filter((e) => e.confirmed && e.at >= now - this.shortWindowMs).map((e) => e.text).join('');
   }
 
   /** What was said lately (source transcript of the last `windowMs`). */
@@ -362,6 +376,8 @@ export default class LiveGate {
     const enough = ref.trim().length >= this.minChars && this.output.trim().length >= this.minChars;
     const expired = this.held.length > 0 && now - this.heldSince >= this.holdMs;
     if (!enough && !(expired && onAudio)) return [];
+    // The faithful session wrote a text but has not translated it (yet): wait for its output, it may be English heard as Chinese.
+    if (!expired && this.peerPending(now)) return [];
     // Out of time without a way to compare: ask the fallback (default: let it through, better a duplicate than a loss).
     if (enough) this.setMode(this.repeats(ref, this.output, now) ? 'mute' : 'play', 'compare', this.why, now);
     else this.setMode(this.fallback && !this.fallback() ? 'mute' : 'play', 'fallback', 'rien à comparer (le frère décide)', now);

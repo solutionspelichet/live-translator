@@ -336,3 +336,19 @@ test('gate: the language announced by the service (Gemini languageCode) decides 
   third.spoken('fr', 1000);
   assert.equal(third.repeats('', 'Hello there my friend', 1500), false, 'unknown pair language: no decision from the announcement');
 });
+
+test('gate (Doubao): a Chinese "transcript" the Chinese session did not translate (English heard as Chinese) does not mute the English translation', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const gate = new LiveGate({ scriptRule: true, faithful: false, peerNeedsOutput: true });
+  gate.text('in', 'For example, it is the missing information that can help you.', 1000);
+  gate.hear('例如，是缺失了什么信息能真正帮助你向前推进。', 1000);
+  assert.equal(gate.peerPending(1500), true, 'the decision waits for the Chinese session to translate');
+  assert.equal(gate.repeats(gate.reference(1500), '例如，缺失的信息可以帮助你。', 1500), false, 'unconfirmed Chinese text proves nothing: the Chinese output is the translation');
+  // Chinese speech: the Chinese session translates into English, its transcript is then a witness
+  const zh = new LiveGate({ scriptRule: true, faithful: false, peerNeedsOutput: true });
+  zh.text('in', 'So you do not have a full specification.', 1000);
+  zh.hear('所以你没有完整的规格说明。', 1000);
+  zh.confirmPeer();
+  assert.equal(zh.peerPending(1500), false);
+  assert.equal(zh.repeats(zh.reference(1500), '所以你没有完整的规格说明。', 1500), true, 'a Chinese output repeats confirmed Chinese speech');
+});
