@@ -1,11 +1,12 @@
 import * as Haptics from 'expo-haptics';
-import { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { getLanguage, SIDE } from '../config/languages';
 import { Plain as RNText, Text } from '../i18n/Text';
 import { t } from '../i18n';
 import { STATE } from '../services/TranslationEngine';
+import { isAtEnd, withLive, zoneLog } from '../utils/zoneLog';
 import { cardShadow, palette, themedStyles } from '../theme';
 import Icon from './Icon';
 
@@ -34,8 +35,8 @@ const WHITE = '#FFFFFF'; // text on a live (coloured) zone, in both themes
  * @param {'face'|'side'} [props.layout]   'face': two people facing each other (A upside down); 'side': one reader, both zones upright
  * @param {import('react').ReactNode} [props.middle]   controls placed BETWEEN the two zones (in the layout, never over them)
  */
-export default function SplitScreen({ languages, state, activeSide, texts, level, autoStop, handsFree, onPress, middle, layout = 'face' }) {
-  const shared = { languages, state, activeSide, texts, level, autoStop, handsFree, onPress };
+export default function SplitScreen({ languages, state, activeSide, texts, level, autoStop, handsFree, onPress, middle, layout = 'face', history = [], since = 0 }) {
+  const shared = { languages, state, activeSide, texts, level, autoStop, handsFree, onPress, history, since };
   return (
     <View style={styles.root}>
       <Zone side={SIDE.A} flipped={layout === 'face'} {...shared} />
@@ -45,13 +46,25 @@ export default function SplitScreen({ languages, state, activeSide, texts, level
   );
 }
 
-function Zone({ side, flipped, languages, state, activeSide, texts, level, autoStop, handsFree, onPress }) {
+function Zone({ side, flipped, languages, state, activeSide, texts, level, autoStop, handsFree, onPress, history, since }) {
   const lang = getLanguage(languages[side]);
   const c = palette();
   const mine = activeSide === side || activeSide === 'auto'; // hands-free: both halves are "live"
   const recording = state === STATE.STARTING || state === STATE.LISTENING;
   const live = mine && state === STATE.LISTENING;
   const starting = mine && state === STATE.STARTING;
+
+  // The text of the zone scrolls: the whole session is there, the finger goes back to what was said before. At the end the view follows
+  // the new text; once the reader has scrolled up it stays where it is (« Direct » brings it back).
+  const log = useMemo(() => withLive(zoneLog(history, side, since), texts[side]), [history, side, since, texts[side]]); // eslint-disable-line react-hooks/exhaustive-deps
+  const scroller = useRef(null);
+  const [following, setFollowing] = useState(true);
+  const followingRef = useRef(true);
+  const sizes = useRef({ viewHeight: 0, contentHeight: 0 });
+  const updateFollowing = (value) => {
+    followingRef.current = value;
+    setFollowing(value);
+  };
 
   let status = handsFree ? 'Touchez pour démarrer' : 'Touchez pour parler';
   if (recording && !mine) status = 'Touchez pour terminer';
@@ -81,9 +94,57 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
         <RNText style={styles.flag}>{lang.flag}</RNText>
         <Text style={[styles.label, live && { color: WHITE }]}>{lang.label}</Text>
       </View>
-      <RNText style={[styles.text, live && { color: WHITE }]} numberOfLines={4}>
-        {texts[side] || ' '}
-      </RNText>
+      <View style={styles.logWrap}>
+        <ScrollView
+          ref={scroller}
+          style={styles.log}
+          contentContainerStyle={styles.logContent}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={64}
+          onLayout={(e) => (sizes.current.viewHeight = e.nativeEvent.layout.height)}
+          onContentSizeChange={(_, h) => {
+            sizes.current.contentHeight = h;
+            if (followingRef.current) scroller.current?.scrollToEnd({ animated: true });
+          }}
+          onScroll={(e) => {
+            const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+            const atEnd = isAtEnd({ offsetY: contentOffset.y, viewHeight: layoutMeasurement.height, contentHeight: contentSize.height });
+            if (atEnd !== followingRef.current) updateFollowing(atEnd);
+          }}
+        >
+          {log.length === 0 && <RNText style={styles.text}>{' '}</RNText>}
+          {log.map((entry, i) => {
+            const last = i === log.length - 1;
+            return (
+              <RNText
+                key={entry.id}
+                style={[styles.entry, entry.kind === 'said' && styles.entrySaid, entry.kind === 'heard' && styles.entryHeard, last && styles.entryLast, live && { color: WHITE }]}
+                selectable
+              >
+                {entry.text}
+              </RNText>
+            );
+          })}
+        </ScrollView>
+        {!following && (
+          <Pressable
+            style={styles.live}
+            onPress={() => {
+              updateFollowing(true);
+              scroller.current?.scrollToEnd({ animated: true });
+            }}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t('Revenir au direct')}
+          >
+            <View style={styles.liveArrow}>
+              <Icon name="chevron" size={14} color={palette().onAccent} stroke={2.4} />
+            </View>
+            <Text style={styles.liveText}>Direct</Text>
+          </Pressable>
+        )}
+      </View>
       <View style={[styles.orb, live && styles.orbLive]}>
         <Icon name={live ? 'wave' : 'mic'} size={26} color={live ? WHITE : c.accent} stroke={2} />
       </View>
@@ -123,6 +184,16 @@ const styles = themedStyles((c) => StyleSheet.create({
   langPill: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.overlay, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 14 },
   flag: { fontSize: 20 },
   label: { color: c.zoneText, fontSize: 16, fontWeight: '600', letterSpacing: -0.2 },
+  logWrap: { flex: 1, alignSelf: 'stretch', marginVertical: 8 },
+  log: { flex: 1 },
+  logContent: { flexGrow: 1, justifyContent: 'center', paddingVertical: 6, gap: 8 },
+  entry: { color: c.zoneTextSoft, fontSize: 17, lineHeight: 24, textAlign: 'center', opacity: 0.55 },
+  entrySaid: { fontStyle: 'italic' },
+  entryHeard: { fontWeight: '600', opacity: 0.75 },
+  entryLast: { fontSize: 22, lineHeight: 30, fontWeight: '500', letterSpacing: -0.4, opacity: 1, fontStyle: 'normal' },
+  live: { position: 'absolute', right: 4, bottom: 4, flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: c.accent, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, ...cardShadow(c) },
+  liveArrow: { transform: [{ rotate: '90deg' }] },
+  liveText: { color: c.onAccent, fontSize: 12, fontWeight: '600' },
   text: { color: c.zoneTextSoft, fontSize: 22, lineHeight: 30, fontWeight: '500', letterSpacing: -0.4, textAlign: 'center', marginVertical: 10, minHeight: 60 },
   orb: { width: 52, height: 52, borderRadius: 26, backgroundColor: c.overlay, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   orbLive: { backgroundColor: '#FFFFFF33' },

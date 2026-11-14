@@ -156,6 +156,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
   const [recording, setRecording] = useState(TranslationMeetingService.snapshot()); // the conversation being recorded as a meeting
   const [, setTick] = useState(0);
   const historyId = useRef(0);
+  const sessionStart = useRef(Date.now()); // the zones show this session's conversation, not the one stored from an earlier launch
   const historyLoaded = useRef(false);
 
   useEffect(() => {
@@ -412,6 +413,8 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         autoStop={autoStop}
         handsFree={handsFree}
         layout={layout}
+        history={history}
+        since={sessionStart.current}
         onPress={(side) => engine.toggle(handsFree ? AUTO : side)}
         middle={dock}
       />

@@ -435,4 +435,6 @@ export default [
   ["Choisir une voix", "Choose a voice", "选择语音"],
   ["Voix saisie", "Typed voice", "手动输入的语音"],
   ["La liste vient de votre compte Mistral et se charge toute seule quand la clé est saisie. « Automatique » prend la voix neutre la mieux classée ; une voix choisie ici passe en premier, et si Mistral la refuse l'application essaie les autres.", "The list comes from your Mistral account and loads by itself once the key is entered. « Automatic » takes the best-ranked neutral voice; a voice chosen here goes first, and if Mistral refuses it the app tries the others.", "列表来自你的 Mistral 账户，输入密钥后自动加载。“自动”使用排名最高的中性语音；这里选定的语音优先使用，若 Mistral 拒绝，应用会尝试其他语音。"],
+  ["Revenir au direct", "Back to live", "回到实时"],
+  ["Direct", "Live", "实时"],
 ];

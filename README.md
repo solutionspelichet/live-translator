@@ -393,3 +393,7 @@ détection du micro intégré (`AudioManager.getDevicesInfo` renvoie des catégo
 - **Voice**: telemetry bar (service + delay of the last translated sentence, in monospace), segmented mode control (Manuel / Auto / Mains libres), **face-to-face** layout (top card upside down, two people around a phone lying flat) or **side-by-side** (both cards upright, one reader), hands-free microphone hub with a pulse while listening, action dock between the two cards (`src/components/VoiceBar.js`, `src/utils/voiceUi.js`).
 - **Settings**: cards, microphone sensitivity as a continuous slider (×1–×32, log scale; Auto switch), microphone chosen in a dropdown sheet, long explanations folded behind « Plus d'informations ».
 - **Minutes**: the model's Markdown is cut into blocks (summary, decisions, actions with owner/due tags, risks in amber, « à confirmer » tags; `src/utils/minutesView.js`, `src/components/MinutesBlocks.js`), a sticky bottom bar (Share / PDF / Word), speakers with talk-time bars, deleting kept apart (header, with confirmation).
+
+### Scrollable zones
+
+Each zone of the voice screen shows the whole conversation of the session as seen from its side (what this side said in italics, what it heard in bold, then the live text larger at the end — `src/utils/zoneLog.js`). The finger scrolls back through it; while the view is at the end it follows the new text, once scrolled up it stays put and a « Direct » pill brings it back.
