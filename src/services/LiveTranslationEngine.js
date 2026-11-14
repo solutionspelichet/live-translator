@@ -60,8 +60,11 @@ export default class LiveTranslationEngine {
   }
 
   setState(state) {
+    const was = this.state;
     this.state = state;
     this.emit({ type: 'state', state, side: this.turn?.side ?? null });
+    // A turn ended, whatever the way (end, tap-stop, cancel, error): the next connection is prepared at once (Mistral).
+    if (state === STATE.IDLE && was !== STATE.IDLE) this.warmConnections();
   }
 
   recordUsage(delta) {

@@ -96,14 +96,17 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       warm.connect();
     };
     let refresh = null;
+    let asleep = false;
     engine.warmConnections = () => {
-      if (!env.mistralKey) return;
+      if (!env.mistralKey || asleep) return;
       keepWarm();
       // an idle socket is closed by the server after a while: renew it while nobody is talking
       refresh ??= BackgroundTimers.setInterval(() => engine.state === 'idle' && keepWarm(), 45000);
     };
+    engine.warmConnections(); // right away: the first tap often comes before the microphone is even open
     const sleep = engine.sleep.bind(engine);
     engine.sleep = () => {
+      asleep = true; // the engine is being dropped: no new warm connection (cancel() below goes through IDLE)
       if (refresh) BackgroundTimers.clearInterval(refresh);
       refresh = null;
       warm?.abort();
