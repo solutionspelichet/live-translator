@@ -1,4 +1,5 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '../utils/secureStore';
+import { setWebProxy } from '../utils/webProxy';
 
 // Keys come from (1) the phone's secure storage, entered on the setup screen, or
 // (2) a local `.env` for dev. Nothing secret is ever baked into a CI build.
@@ -64,6 +65,8 @@ function apply(values) {
   env.byteplusKey = values.EXPO_PUBLIC_BYTEPLUS_API_KEY;
   env.mistralKey = values.EXPO_PUBLIC_MISTRAL_API_KEY;
   env.doubaoSpeakerId = values.EXPO_PUBLIC_DOUBAO_SPEAKER_ID;
+  env.webProxy = (values.EXPO_PUBLIC_WEB_PROXY_URL ?? '').trim().replace(/\/+$/, '') || undefined; // web version: the relay for DeepL / Doubao
+  setWebProxy(env.webProxy);
   // DeepL Free keys end in ":fx" and only work on api-free.deepl.com; Pro keys on api.deepl.com.
   if (!process.env.EXPO_PUBLIC_DEEPL_BASE_URL && env.deeplKey) {
     env.deeplBaseUrl = env.deeplKey.endsWith(':fx') ? 'https://api-free.deepl.com' : 'https://api.deepl.com';
@@ -108,6 +111,12 @@ export const SETUP_FIELDS = [
     optional: true,
   },
   {
+    name: 'EXPO_PUBLIC_WEB_PROXY_URL',
+    label: 'Passerelle web (version navigateur seulement : DeepL et Doubao) — adresse de votre Worker Cloudflare',
+    secret: false,
+    optional: true,
+  },
+  {
     name: 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID',
     label: 'Identifiant de la voix clonée BytePlus (speaker_id)',
     secret: false,
@@ -129,6 +138,7 @@ export function currentValues() {
     EXPO_PUBLIC_BYTEPLUS_API_KEY: env.byteplusKey,
     EXPO_PUBLIC_MISTRAL_API_KEY: env.mistralKey,
     EXPO_PUBLIC_DOUBAO_SPEAKER_ID: env.doubaoSpeakerId,
+    EXPO_PUBLIC_WEB_PROXY_URL: env.webProxy,
   };
 }
 

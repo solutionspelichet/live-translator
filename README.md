@@ -401,3 +401,12 @@ Each zone of the voice screen shows the whole conversation of the session as see
 ### Voice speed
 
 Settings → Voix → « Vitesse de la voix traduite »: 0.8× … 2× (step 0.05), **pitch unchanged**. A streaming WSOLA time-scale modifier (`src/utils/timeStretch.js`) runs on the PCM before it is played, in the headset path (`AudioRoutingService`) and the phone-speaker path (`SpeakerPlayer`), for every service. It costs a few milliseconds of CPU per second of audio and adds about 30 ms of latency; at 1× it is a pass-through.
+
+## Web version (PWA) — iPhone, Android, desktop
+
+The same app runs in a browser and installs on an iPhone without an Apple developer account: open the site in **Safari → Share → « Sur l'écran d'accueil »**.
+
+- **Build**: `npx expo export --platform web --output-dir dist-web && node scripts/web-postbuild.mjs dist-web` (workflow `web-pwa.yml`: zip on the `latest-web` release, and GitHub Pages when enabled). Served over HTTPS (the microphone needs it).
+- **Same code, web adapters** (`*.web.js`): microphone (`audioRecorder.web.js`, getUserMedia), keys in `localStorage` (`secureStore.web.js`, unencrypted, this device only), meeting audio in IndexedDB (`blobStore.web.js`), PDF through the print dialog and Word/journal as shared/downloaded files (`DocumentExport.web.js`), screen kept on with the Wake Lock (`BackgroundService.web.js`), dialogs drawn by `AlertHost` (react-native-web's `Alert` does nothing).
+- **Browser limits** (cannot be fixed in code): the page must stay in front with the screen on (the microphone stops when the screen locks); no headset/speaker split (stereo A left / B right works with a headset); iOS asks for the microphone again at each launch; no Android-style notification.
+- **DeepL and Doubao** need the small relay in `proxy/` (a Cloudflare Worker on your own account, see `proxy/README.md`) because a web page cannot call DeepL (CORS) nor send the `X-Api-Key` header on a WebSocket. Everything else (Gemini live, OpenAI live, Mistral live, Deepgram, ElevenLabs, OpenRouter) is called directly. **Not verified against the real services**: only the browser side was tested here (rendering of every screen, microphone → Gemini socket → error dialog with a fake key).

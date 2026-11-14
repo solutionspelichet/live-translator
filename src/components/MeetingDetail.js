@@ -15,6 +15,7 @@ import { generateMinutes, pickDefaultModel, suggestModels, TEMPLATE_IDS, TEMPLAT
 import { formatDuration } from '../utils/usage';
 import { wavMegabytes } from '../utils/wav';
 import { cardShadow, palette, themedStyles } from '../theme';
+import { topInset } from '../theme/insets';
 import Icon from './Icon';
 import MinutesBlocks from './MinutesBlocks';
 import { Plain as RNText, Text, TextInput } from '../i18n/Text';
@@ -340,7 +341,7 @@ function Chip({ label, on, onPress }) {
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
-  header: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingTop: 40 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingTop: topInset(40) },
   link: { color: c.link, fontSize: 16 },
   danger: { color: c.danger, fontSize: 16 },
   content: { padding: 16, paddingTop: 0, paddingBottom: 60 },

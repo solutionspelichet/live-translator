@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { AudioContext, AudioManager } from 'react-native-audio-api';
 
 import Power from '../../modules/dualcast-power';
@@ -87,6 +88,23 @@ class AudioRoutingService {
     this.sessionReady = true;
   }
 
+  /**
+   * Web only: a browser starts audio « suspended » until the user touched the page. Called from a tap (a microphone button): resumes the
+   * context and plays one silent sample (the iOS Safari trick) so the translated voice can be heard afterwards.
+   */
+  async unlock() {
+    if (Platform.OS !== 'web') return;
+    try {
+      await this.init();
+      if (this.ctx.state === 'suspended') await this.ctx.resume();
+      const silent = this.ctx.createBuffer(1, 1, this.ctx.sampleRate);
+      const node = this.ctx.createBufferSource();
+      node.buffer = silent;
+      node.connect(this.ctx.destination);
+      node.start(0);
+    } catch {}
+  }
+
   async pinBuiltInMic() {
     try {
       const { availableInputs } = await AudioManager.getDevicesInfo();
@@ -131,6 +149,7 @@ class AudioRoutingService {
 
   /** True when a non-speaker, non-earpiece output (Bluetooth/wired) is connected. */
   async hasHeadphones() {
+    if (Platform.OS === 'web') return true; // a browser cannot tell: no alert
     try {
       const { currentOutputs } = await AudioManager.getDevicesInfo();
       return currentOutputs.some((d) => /bluetooth|a2dp|headphone|headset/i.test(`${d.category} ${d.name}`));

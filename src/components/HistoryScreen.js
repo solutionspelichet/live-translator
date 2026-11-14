@@ -3,6 +3,7 @@ import { FlatList, Modal, Pressable, SafeAreaView, Share, StyleSheet, View } fro
 import { getLanguage } from '../config/languages';
 import { formatConversation } from '../utils/history';
 import { palette, themedStyles } from '../theme';
+import { topInset } from '../theme/insets';
 import { Plain as RNText, Text } from '../i18n/Text';
 import { t } from '../i18n';
 
@@ -63,7 +64,7 @@ export default function HistoryScreen({ visible, items, languages, onClear, onCl
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 20, paddingTop: 40 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 20, paddingTop: topInset(40) },
   title: { flex: 1, color: c.text, fontSize: 24, fontWeight: '700' },
   link: { color: c.link, fontSize: 16 },
   off: { opacity: 0.35 },

@@ -78,7 +78,7 @@ export function SideHub({ flag, live, busy, onPress, label }) {
 const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
 const styles = themedStyles((c) => StyleSheet.create({
-  bar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 34, paddingBottom: 2 },
+  bar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: Platform.select({ web: 'max(34px, calc(env(safe-area-inset-top) + 6px))', default: 34 }), paddingBottom: 2 },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.surface, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
   dot: { width: 8, height: 8, borderRadius: 4 },
   pillText: { color: c.text, fontSize: 11.5, fontWeight: '600', letterSpacing: 0.8, fontFamily: MONO },
