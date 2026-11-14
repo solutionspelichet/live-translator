@@ -14,8 +14,9 @@ import { MULTI } from '../utils/meeting';
 import { generateMinutes, pickDefaultModel, suggestModels, TEMPLATE_IDS, TEMPLATES } from '../utils/minutes';
 import { formatDuration } from '../utils/usage';
 import { wavMegabytes } from '../utils/wav';
-import { palette, themedStyles } from '../theme';
-import MarkdownText from './MarkdownText';
+import { cardShadow, palette, themedStyles } from '../theme';
+import Icon from './Icon';
+import MinutesBlocks from './MinutesBlocks';
 import { Plain as RNText, Text, TextInput } from '../i18n/Text';
 import { dateLocale, t } from '../i18n';
 
@@ -223,21 +224,29 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
           </View>
         )}
 
-        {meeting.minutes.map((n) => (
-          <View key={n.id} style={styles.card}>
-            <Text style={styles.cardTitle}>{`${t('Compte rendu')} — ${n.language ? languageLabel(n.language) : ''} · ${t(TEMPLATES[n.template]?.label ?? n.template)}`}</Text>
-            <Text style={styles.metaSmall}>{`${new Date(n.createdAt).toLocaleString(dateLocale())} · ${n.model}`}</Text>
-            <MarkdownText text={n.text} />
-            <View style={styles.actions}>
-              <Btn label="Partager" onPress={() => Share.share({ title: meeting.title, message: n.text }).catch(() => {})} />
-              <Btn label="📄 PDF" onPress={() => exportNote('pdf', n)} disabled={!!busy} />
-              <Btn label="📝 Word" onPress={() => exportNote('docx', n)} disabled={!!busy} />
-              <Btn
-                label="Supprimer"
-                danger
-                onPress={() => update({ ...meeting, minutes: meeting.minutes.filter((m) => m.id !== n.id) })}
-              />
+        {meeting.minutes.map((n, idx) => (
+          <View key={n.id} style={styles.noteWrap}>
+            <View style={styles.noteHead}>
+              <View style={styles.noteHeadText}>
+                <Text style={styles.cardTitle}>{`${t('Compte rendu')} — ${n.language ? languageLabel(n.language) : ''} · ${t(TEMPLATES[n.template]?.label ?? n.template)}`}</Text>
+                <Text style={styles.metaSmall}>{`${new Date(n.createdAt).toLocaleString(dateLocale())} · ${n.model}${idx === 0 ? ` · ${t('exporté par la barre du bas')}` : ''}`}</Text>
+              </View>
+              <Pressable
+                onPress={() =>
+                  Alert.alert(t('Supprimer ce compte rendu ?'), t('Seul ce compte rendu est effacé, pas la transcription.'), [
+                    { text: t('Annuler'), style: 'cancel' },
+                    { text: t('Supprimer'), style: 'destructive', onPress: () => update({ ...meeting, minutes: meeting.minutes.filter((m) => m.id !== n.id) }) },
+                  ])
+                }
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel={t('Supprimer ce compte rendu ?')}
+                style={styles.noteDelete}
+              >
+                <Icon name="trash" size={17} color={palette().textFaint} />
+              </Pressable>
             </View>
+            <MinutesBlocks text={n.text} />
           </View>
         ))}
 
@@ -245,18 +254,26 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Intervenants</Text>
             <Text style={styles.hint}>Donnez-leur un nom : il apparaîtra dans la transcription et dans les comptes rendus.</Text>
-            {speakersOf(meeting.segments).map((id) => (
-              <View key={id} style={styles.speakerRow}>
-                <Text style={styles.speakerShare}>{`${Math.round((shares.find((s) => s.speaker === id)?.share ?? 0) * 100)} %`}</Text>
-                <TextInput
-                  style={[styles.input, { flex: 1 }]}
-                  defaultValue={names[id] ?? ''}
-                  placeholder={speakerName({}, id)}
-                  placeholderTextColor={palette().placeholder}
-                  onEndEditing={(e) => rename(id, e.nativeEvent.text)}
-                />
-              </View>
-            ))}
+            {speakersOf(meeting.segments).map((id) => {
+              const share = shares.find((s) => s.speaker === id)?.share ?? 0;
+              return (
+                <View key={id} style={styles.speakerBlock}>
+                  <View style={styles.speakerRow}>
+                    <TextInput
+                      style={[styles.input, { flex: 1 }]}
+                      defaultValue={names[id] ?? ''}
+                      placeholder={speakerName({}, id)}
+                      placeholderTextColor={palette().placeholder}
+                      onEndEditing={(e) => rename(id, e.nativeEvent.text)}
+                    />
+                    <RNText style={styles.speakerShare}>{`${Math.round(share * 100)} %`}</RNText>
+                  </View>
+                  <View style={styles.shareTrack}>
+                    <View style={[styles.shareFill, { width: `${Math.max(2, Math.round(share * 100))}%` }]} />
+                  </View>
+                </View>
+              );
+            })}
           </View>
         )}
 
@@ -276,7 +293,32 @@ export default function MeetingDetail({ meeting: initial, settings, onSettingsCh
           </View>
         ))}
       </ScrollView>
+      {/* Sticky action bar: what to do with the latest minutes (or the transcript). Deleting is elsewhere, on purpose. */}
+      <View style={styles.bar}>
+        {meeting.minutes[0] ? (
+          <>
+            <BarBtn icon="share" label="Partager" onPress={() => Share.share({ title: meeting.title, message: meeting.minutes[0].text }).catch(() => {})} />
+            <BarBtn icon="notes" label="PDF" onPress={() => exportNote('pdf', meeting.minutes[0])} disabled={!!busy} />
+            <BarBtn icon="notes" label="Word" onPress={() => exportNote('docx', meeting.minutes[0])} disabled={!!busy} />
+          </>
+        ) : (
+          <>
+            <BarBtn icon="share" label="Partager le texte" onPress={() => Share.share({ title: meeting.title, message: `${meeting.title}\n${dateText}\n\n${transcriptText(true, translated)}` }).catch(() => {})} disabled={!meeting.segments.length} />
+            <BarBtn icon="sparkles" label="Compte rendu" onPress={() => setShowMinutesForm(true)} disabled={!!busy} primary />
+          </>
+        )}
+      </View>
     </SafeAreaView>
+  );
+}
+
+function BarBtn({ icon, label, onPress, disabled, primary }) {
+  const c = palette();
+  return (
+    <Pressable style={[styles.barBtn, primary && styles.barBtnPrimary, disabled && styles.off]} onPress={onPress} disabled={disabled} accessibilityRole="button">
+      <Icon name={icon} size={17} color={primary ? c.onAccent : c.text} />
+      <Text style={[styles.barText, primary && styles.barTextOn]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -302,7 +344,7 @@ const styles = themedStyles((c) => StyleSheet.create({
   link: { color: c.link, fontSize: 16 },
   danger: { color: c.danger, fontSize: 16 },
   content: { padding: 16, paddingTop: 0, paddingBottom: 60 },
-  title: { color: c.text, fontSize: 22, fontWeight: '700', paddingVertical: 4 },
+  title: { color: c.text, fontSize: 28, fontWeight: '700', letterSpacing: -0.6, paddingVertical: 4 },
   meta: { color: c.textMuted, fontSize: 13, marginBottom: 8 },
   metaSmall: { color: c.textFaint, fontSize: 12, marginBottom: 8 },
   warn: { color: c.warn, fontSize: 14, marginVertical: 8 },
@@ -315,7 +357,19 @@ const styles = themedStyles((c) => StyleSheet.create({
   btnTextOnAccent: { color: c.onAccent },
   btnText: { color: c.text, fontSize: 15, fontWeight: '600' },
   off: { opacity: 0.4 },
-  card: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginBottom: 12 },
+  card: { backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, borderRadius: 18, padding: 16, marginBottom: 12, ...cardShadow(c) },
+  noteWrap: { marginBottom: 16, gap: 10 },
+  noteHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  noteHeadText: { flex: 1 },
+  noteDelete: { padding: 6 },
+  speakerBlock: { marginTop: 10, gap: 6 },
+  shareTrack: { height: 4, borderRadius: 2, backgroundColor: c.track, overflow: 'hidden' },
+  shareFill: { height: 4, borderRadius: 2, backgroundColor: c.accent },
+  bar: { flexDirection: 'row', gap: 10, padding: 12, paddingBottom: 18, backgroundColor: c.glass, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+  barBtn: { flex: 1, height: 46, borderRadius: 23, backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  barBtnPrimary: { backgroundColor: c.accent, borderColor: c.accent },
+  barText: { color: c.text, fontSize: 14.5, fontWeight: '600' },
+  barTextOn: { color: c.onAccent },
   cardTitle: { color: c.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
   label: { color: c.textSoft, fontSize: 14, marginTop: 12, marginBottom: 6 },
   hint: { color: c.textMuted, fontSize: 13, marginVertical: 8 },
@@ -326,7 +380,7 @@ const styles = themedStyles((c) => StyleSheet.create({
   input: { backgroundColor: c.bg, color: c.text, borderRadius: 10, padding: 12, fontSize: 15, marginTop: 6 },
   minutes: { color: c.textBody, fontSize: 15, lineHeight: 22 },
   speakerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  speakerShare: { color: c.textMuted, width: 44, fontSize: 13 },
+  speakerShare: { color: c.textSoft, minWidth: 44, textAlign: 'right', fontSize: 13, fontFamily: 'monospace' },
   section: { color: c.text, fontSize: 18, fontWeight: '700', marginTop: 12, marginBottom: 8 },
   segment: { marginBottom: 10 },
   segHead: { color: c.link, fontSize: 12, fontWeight: '600' },

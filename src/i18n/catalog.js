@@ -423,4 +423,10 @@ export default [
   ["✓ Automatique", "✓ Automatic", "✓ 自动"],
   ["Automatique : non (gain fixe)", "Automatic: off (fixed gain)", "自动：关（固定增益）"],
   ["Bluetooth : les écouteurs passent en mono", "Bluetooth: the earphones switch to mono", "蓝牙：耳机将切换为单声道"],
+  ["Voir le texte brut", "Show the raw text", "查看原文"],
+  ["Voir en blocs", "Show as blocks", "以分块查看"],
+  ["À confirmer", "To be confirmed", "待确认"],
+  ["Supprimer ce compte rendu ?", "Delete these minutes?", "删除此会议纪要？"],
+  ["Seul ce compte rendu est effacé, pas la transcription.", "Only these minutes are deleted, not the transcript.", "仅删除此会议纪要，不删除转录。"],
+  ["exporté par la barre du bas", "exported from the bottom bar", "通过底部栏导出"],
 ];

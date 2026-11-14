@@ -387,3 +387,9 @@ détection du micro intégré (`AudioManager.getDevicesInfo` renvoie des catégo
 - **Typeface**: Inter (`@expo-google-fonts/inter`), applied through the `Text` / `Plain` / `TextInput` wrappers (`src/theme/fonts.js` maps a `fontWeight` to the right font file on Android).
 - **Icons**: vector line icons drawn in `src/components/Icon.js` with `react-native-svg` (no emoji, no icon font).
 - **App icon**: indigo → violet gradient with a five-bar waveform and a sparkle (`assets/`, generated from SVG).
+
+### Voice screen, settings and minutes (second design pass)
+
+- **Voice**: telemetry bar (service + delay of the last translated sentence, in monospace), segmented mode control (Manuel / Auto / Mains libres), **face-to-face** layout (top card upside down, two people around a phone lying flat) or **side-by-side** (both cards upright, one reader), hands-free microphone hub with a pulse while listening, action dock between the two cards (`src/components/VoiceBar.js`, `src/utils/voiceUi.js`).
+- **Settings**: cards, microphone sensitivity as a continuous slider (×1–×32, log scale; Auto switch), microphone chosen in a dropdown sheet, long explanations folded behind « Plus d'informations ».
+- **Minutes**: the model's Markdown is cut into blocks (summary, decisions, actions with owner/due tags, risks in amber, « à confirmer » tags; `src/utils/minutesView.js`, `src/components/MinutesBlocks.js`), a sticky bottom bar (Share / PDF / Word), speakers with talk-time bars, deleting kept apart (header, with confirmation).

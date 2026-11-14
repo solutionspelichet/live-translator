@@ -11,7 +11,7 @@ import { defaultTitle, MULTI } from '../utils/meeting';
 import { formatDuration } from '../utils/usage';
 import { wavMegabytes } from '../utils/wav';
 import MeetingDetail from './MeetingDetail';
-import { palette, themedStyles } from '../theme';
+import { cardShadow, palette, themedStyles } from '../theme';
 import { Plain as RNText, Text, TextInput } from '../i18n/Text';
 import { dateLocale, t } from '../i18n';
 
@@ -266,28 +266,28 @@ function Chip({ label, on, onPress }) {
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
   header: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 20, paddingTop: 40 },
-  title: { flex: 1, color: c.text, fontSize: 24, fontWeight: '700' },
+  title: { flex: 1, color: c.text, fontSize: 34, fontWeight: '700', letterSpacing: -0.8 },
   link: { color: c.link, fontSize: 16 },
   danger: { color: c.danger, fontSize: 16 },
-  start: { backgroundColor: c.accent, borderRadius: 14, padding: 16, alignItems: 'center', marginHorizontal: 16, marginVertical: 8 },
-  stop: { backgroundColor: c.dangerStrong, borderRadius: 14, padding: 18, alignItems: 'center', margin: 16 },
+  start: { backgroundColor: c.accent, borderRadius: 999, padding: 16, alignItems: 'center', marginHorizontal: 16, marginVertical: 8 },
+  stop: { backgroundColor: c.dangerStrong, borderRadius: 999, padding: 18, alignItems: 'center', margin: 16 },
   startText: { color: c.onAccent, fontSize: 17, fontWeight: '700' },
   off: { opacity: 0.4 },
   list: { padding: 16 },
   empty: { color: c.textMuted, fontSize: 15, margin: 16 },
   tip: { color: c.textMuted, fontSize: 13, marginHorizontal: 20, marginBottom: 4 },
-  item: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginBottom: 10 },
+  item: { backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, borderRadius: 18, padding: 16, marginBottom: 10, ...cardShadow(c) },
   itemTitle: { color: c.text, fontSize: 17, fontWeight: '600' },
   itemMeta: { color: c.textMuted, fontSize: 13, marginTop: 4 },
   form: { padding: 16, paddingBottom: 60 },
   label: { color: c.textSoft, fontSize: 14, marginTop: 16, marginBottom: 6 },
-  input: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, color: c.text, borderRadius: 10, padding: 14, fontSize: 16 },
+  input: { backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, color: c.text, borderRadius: 14, padding: 14, fontSize: 16 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 18, paddingVertical: 9, paddingHorizontal: 13 },
+  chip: { backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, borderRadius: 999, paddingVertical: 9, paddingHorizontal: 14 },
   chipOn: { backgroundColor: c.chipOn, borderColor: c.accent },
   chipText: { color: c.text, fontSize: 14 },
   hint: { color: c.textMuted, fontSize: 13, marginVertical: 10 },
-  consent: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginTop: 14 },
+  consent: { backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, borderRadius: 18, padding: 16, marginTop: 14 },
   consentOn: { backgroundColor: c.successBg },
   consentText: { color: c.text, fontSize: 15 },
   rec: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20 },
