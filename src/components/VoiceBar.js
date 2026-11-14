@@ -53,16 +53,16 @@ export function ListenHub({ live, busy, onPress }) {
 const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
 const styles = themedStyles((c) => StyleSheet.create({
-  bar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 38, paddingBottom: 4 },
+  bar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingTop: 34, paddingBottom: 2 },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.surface, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
   dot: { width: 8, height: 8, borderRadius: 4 },
   pillText: { color: c.text, fontSize: 11.5, fontWeight: '600', letterSpacing: 0.8, fontFamily: MONO },
   latency: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   mono: { color: c.textSoft, fontSize: 12.5, fontFamily: MONO },
   right: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center' },
-  hubWrap: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
-  ring: { position: 'absolute', width: 64, height: 64, borderRadius: 32 },
-  hub: { width: 60, height: 60, borderRadius: 30, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center', shadowColor: c.accent, shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  hubWrap: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
+  ring: { position: 'absolute', width: 56, height: 56, borderRadius: 28 },
+  hub: { width: 52, height: 52, borderRadius: 26, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center', shadowColor: c.accent, shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   hubLive: { backgroundColor: c.accentAlt },
   hubBusy: { opacity: 0.7 },
 }));

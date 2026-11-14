@@ -4,7 +4,7 @@ import { palette } from '../theme';
 import { UI_LANGUAGES } from './index.js';
 
 /** Three flags: a tap chooses the language of the interface (🇫🇷 Français · 🇬🇧 English · 🇨🇳 中文). */
-export default function LanguageFlags({ value, onChange, style }) {
+export default function LanguageFlags({ value, onChange, style, size = 44 }) {
   const c = palette();
   return (
     <View style={[styles.row, style]}>
@@ -18,9 +18,9 @@ export default function LanguageFlags({ value, onChange, style }) {
             accessibilityRole="button"
             accessibilityLabel={l.label}
             accessibilityState={{ selected: on }}
-            style={[styles.flag, { backgroundColor: c.overlay, borderColor: on ? c.accent : 'transparent', opacity: on ? 1 : 0.7 }]}
+            style={[styles.flag, { width: size, height: size, borderRadius: size / 2, backgroundColor: c.overlay, borderColor: on ? c.accent : 'transparent', opacity: on ? 1 : 0.7 }]}
           >
-            <Text style={styles.emoji}>{l.flag}</Text>
+            <Text style={[styles.emoji, { fontSize: Math.round(size * 0.55) }]}>{l.flag}</Text>
           </Pressable>
         );
       })}
@@ -29,7 +29,7 @@ export default function LanguageFlags({ value, onChange, style }) {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10, width: '100%' },
+  row: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 },
   flag: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
   emoji: { fontSize: 24 },
 });

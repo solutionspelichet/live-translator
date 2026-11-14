@@ -402,7 +402,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         strategy={settings.strategy}
         state={state}
         latencyMs={latency}
-        right={<LanguageFlags value={settings.uiLang ?? defaultLocale()} onChange={(uiLang) => onSettingsChange({ ...settings, uiLang })} />}
+        right={<LanguageFlags size={30} value={settings.uiLang ?? defaultLocale()} onChange={(uiLang) => onSettingsChange({ ...settings, uiLang })} style={{ gap: 6 }} />}
       />
       <SplitScreen
         languages={languages}

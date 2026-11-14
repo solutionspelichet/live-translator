@@ -666,19 +666,11 @@ function LanguagePicker({ title, selected, onSelect }) {
   return (
     <>
       <Text style={styles.label}>{title}</Text>
-      <View style={styles.chips}>
-        {Object.entries(LANGUAGES).map(([code, lang]) => (
-          <Pressable
-            key={code}
-            style={[styles.chip, selected === code && styles.chipOn]}
-            onPress={() => onSelect(code)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: selected === code }}
-          >
-            <Text style={styles.chipText}>{`${lang.flag} ${lang.label}`}</Text>
-          </Pressable>
-        ))}
-      </View>
+      <Select
+        value={selected}
+        onChange={onSelect}
+        options={Object.entries(LANGUAGES).map(([code, lang]) => ({ id: code, label: `${lang.flag}  ${lang.label}` }))}
+      />
     </>
   );
 }

@@ -145,10 +145,8 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
           </Pressable>
         )}
       </View>
-      <View style={[styles.orb, live && styles.orbLive]}>
-        <Icon name={live ? 'wave' : 'mic'} size={26} color={live ? WHITE : c.accent} stroke={2} />
-      </View>
       <View style={styles.meterRow}>
+        <Icon name={live ? 'wave' : 'mic'} size={16} color={live ? WHITE : c.accent} stroke={2} />
         {live && <RecDot />}
         <View style={styles.meterTrack}>
           <View style={[styles.meterFill, { width: `${Math.round((live ? level : 0) * 100)}%`, backgroundColor: live ? WHITE : c.accent }]} />
@@ -177,14 +175,14 @@ function RecDot() {
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg, padding: 12, paddingTop: 8, gap: 10 },
-  zone: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16, overflow: 'hidden', borderRadius: 32, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, ...cardShadow(c) },
+  zone: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 12, overflow: 'hidden', borderRadius: 32, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, ...cardShadow(c) },
   flipped: { transform: [{ rotate: '180deg' }] },
   starting: { borderWidth: 2, borderColor: c.warnStrong },
   dimmed: { opacity: 0.5 },
   langPill: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.overlay, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 14 },
   flag: { fontSize: 20 },
   label: { color: c.zoneText, fontSize: 16, fontWeight: '600', letterSpacing: -0.2 },
-  logWrap: { flex: 1, alignSelf: 'stretch', marginVertical: 8 },
+  logWrap: { flex: 1, alignSelf: 'stretch', marginVertical: 6 },
   log: { flex: 1 },
   logContent: { flexGrow: 1, justifyContent: 'center', paddingVertical: 6, gap: 8 },
   entry: { color: c.zoneTextSoft, fontSize: 17, lineHeight: 24, textAlign: 'center', opacity: 0.55 },
@@ -195,12 +193,10 @@ const styles = themedStyles((c) => StyleSheet.create({
   liveArrow: { transform: [{ rotate: '90deg' }] },
   liveText: { color: c.onAccent, fontSize: 12, fontWeight: '600' },
   text: { color: c.zoneTextSoft, fontSize: 22, lineHeight: 30, fontWeight: '500', letterSpacing: -0.4, textAlign: 'center', marginVertical: 10, minHeight: 60 },
-  orb: { width: 52, height: 52, borderRadius: 26, backgroundColor: c.overlay, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  orbLive: { backgroundColor: '#FFFFFF33' },
-  meterRow: { flexDirection: 'row', alignItems: 'center', height: 14, width: '60%', marginBottom: 10 },
+  meterRow: { flexDirection: 'row', alignItems: 'center', gap: 8, height: 18, width: '70%', marginBottom: 6 },
   meterTrack: { flex: 1, height: 4, borderRadius: 2, backgroundColor: c.track, overflow: 'hidden' },
   meterFill: { height: 4, borderRadius: 2 },
-  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: c.rec, marginRight: 10 },
+  dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: c.rec },
   status: { color: c.zoneStatus, fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase', textAlign: 'center', fontWeight: '500' },
   statusLive: { color: WHITE, fontWeight: '600' },
 }));
