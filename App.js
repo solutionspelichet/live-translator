@@ -138,6 +138,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     e.mic.setGain(settings.micGain);
     e.mic.configure({ source: settings.micSource, input: settings.input, agc: settings.micAgc });
     audio.setVoiceVolume(settings.voiceVolume);
+    audio.setVoiceSpeed(settings.voiceSpeed);
     audio.setOutputMode(settings.outputMode);
     return e;
   }, [languages.A, languages.B, settings.strategy]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -250,8 +251,9 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
   useEffect(() => {
     engine.mic.setGain(settings.micGain);
     audio.setVoiceVolume(settings.voiceVolume);
+    audio.setVoiceSpeed(settings.voiceSpeed);
     audio.setOutputMode(settings.outputMode);
-  }, [engine, settings.micGain, settings.voiceVolume, settings.outputMode]);
+  }, [engine, settings.micGain, settings.voiceVolume, settings.voiceSpeed, settings.outputMode]);
   useEffect(() => {
     if (firstRun.current) {
       firstRun.current = false; // the initial selection is done in the startup chain

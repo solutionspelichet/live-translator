@@ -443,4 +443,6 @@ export default [
   ["Mains libres — parlez, la langue est détectée", "Hands-free — speak, the language is detected", "免提——请说话，语言将自动识别"],
   ["Parlez maintenant — appuyez sur le micro pour terminer", "Speak now — press the microphone to finish", "请说话——按麦克风结束"],
   ["Texte en {lang}", "Text in {lang}", "{lang} 文本"],
+  ["Vitesse de la voix traduite", "Speed of the translated voice", "译文语音的速度"],
+  ["Accélère la parole traduite sans la rendre aiguë (le ton de la voix reste le même). Utile quand la traduction prend du retard sur celui qui parle : une voix plus rapide rattrape plus vite. Au-delà de ×1.5 elle devient moins naturelle. Cela s'applique à tous les services.", "Speeds up the translated speech without making it high-pitched (the tone of the voice stays the same). Useful when the translation lags behind the speaker: a faster voice catches up sooner. Above ×1.5 it sounds less natural. This applies to every service.", "在不提高音调的情况下加快译文语音（音色不变）。当翻译落后于说话者时很有用：更快的语音能更快赶上。超过 ×1.5 会不太自然。适用于所有服务。"],
 ];

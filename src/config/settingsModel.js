@@ -2,6 +2,7 @@
 import { normalizeLocale } from '../i18n/index.js';
 import { DOUBAO_VOICE_ID } from '../utils/doubaoVoices.js';
 import { sanitizeGain } from '../utils/gainSlider.js';
+import { sanitizeVoiceSpeed } from '../utils/voiceSpeed.js';
 import { TEMPLATE_IDS } from '../utils/minutes.js';
 import { LANGUAGES } from './languages.js';
 
@@ -86,6 +87,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   micSource: 'voice_recognition', // see MIC_SOURCES (Android capture)
   micAgc: true, // use the phone's own automatic gain control when it has one
   voiceVolume: 2, // loudness of the translated voice: 1 (normal) … 2.5 (loud)
+  voiceSpeed: 1, // speed of the translated voice, pitch unchanged: 0.8 … 2 (1 = as generated)
   speed: 'normal', // see SPEEDS
   outputMode: 'stereo', // where the voices play: 'stereo' (A left, B right) | 'split' (me in the headset, the other person on the phone speaker)
   muteWhilePlaying: false, // hands-free: stop listening while the translated voice plays (kills echo, no interruption)
@@ -181,6 +183,7 @@ export function sanitizeSettings(raw) {
     background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,
     micGain: sanitizeGain(gain),
     voiceVolume: VOICE_VOLUME_CHOICES.includes(volume) ? volume : DEFAULT_SETTINGS.voiceVolume,
+    voiceSpeed: sanitizeVoiceSpeed(input.voiceSpeed),
     speed: SPEEDS[input.speed] ? input.speed : DEFAULT_SETTINGS.speed,
     outputMode: input.outputMode === 'split' ? 'split' : DEFAULT_SETTINGS.outputMode,
     muteWhilePlaying: typeof input.muteWhilePlaying === 'boolean' ? input.muteWhilePlaying : DEFAULT_SETTINGS.muteWhilePlaying,
