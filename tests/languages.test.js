@@ -121,7 +121,8 @@ test('micGain and voiceVolume default to auto / 2 and reject unknown values', ()
   assert.equal(sanitizeSettings({}).micGain, 'auto');
   assert.equal(sanitizeSettings({}).voiceVolume, 2);
   assert.equal(sanitizeSettings({ micGain: 32 }).micGain, 32);
-  assert.equal(sanitizeSettings({ micGain: 7 }).micGain, 'auto');
+  assert.equal(sanitizeSettings({ micGain: 7 }).micGain, 7, 'the slider gives any value between ×1 and ×32');
+  assert.equal(sanitizeSettings({ micGain: 99 }).micGain, 'auto');
   assert.equal(sanitizeSettings({ voiceVolume: 1.5 }).voiceVolume, 1.5);
   assert.equal(sanitizeSettings({ voiceVolume: 10 }).voiceVolume, 2);
 });

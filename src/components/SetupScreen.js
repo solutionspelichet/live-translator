@@ -4,7 +4,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, View } from 'react-nat
 import { currentValues, env, requiredFields, saveKeys, SETUP_FIELDS } from '../config/env';
 import { getLanguage, LANGUAGES, LIVE_OUTPUT_LANGUAGES } from '../config/languages';
 import { saveSettings } from '../config/settings';
-import { MIC_GAIN_CHOICES, MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, STRATEGIES, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
+import { MIC_SOURCES, pickLanguage, rememberPair, SPEEDS, STRATEGIES, VOICE_VOLUME_CHOICES } from '../config/settingsModel';
 import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 import { doubaoCode, doubaoPairProblem } from '../utils/doubao';
@@ -15,8 +15,11 @@ import { checkMistral } from '../utils/mistralCheck';
 import { describeError } from '../utils/http';
 import VoiceCloneCard from './VoiceCloneCard';
 import { listVoices, testGeminiKey, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
-import { palette, THEME_CHOICES, themedStyles } from '../theme';
+import { cardShadow, palette, THEME_CHOICES, themedStyles } from '../theme';
 import { Text, TextInput } from '../i18n/Text';
+import { formatGain, gainToValue, valueToGain } from '../utils/gainSlider';
+import Icon from './Icon';
+import { Hint, Select, Slider } from './ui';
 import { defaultLocale, t } from '../i18n';
 import LanguageFlags from '../i18n/LanguageFlags';
 
@@ -100,7 +103,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             />
           ))}
         </View>
-        <Text style={styles.hint}>
+        <Hint>
           {STRATEGIES[strategy].hint}.
           {strategy === 'mistral'
             ? ' Mistral enchaîne la transcription en direct (Voxtral), la traduction (Mistral Small, qui reconnaît aussi la langue de chaque phrase) et la voix (Voxtral). Une seule clé, hébergé en Europe, environ 0,01 $ par minute de parole entendue plus 0,016 $ pour 1 000 caractères de voix. La voix existe en anglais, français, espagnol, allemand, néerlandais, portugais, italien, hindi et arabe ; pour toute autre langue (chinois, japonais…) la traduction s\'affiche sans voix, sauf si vous avez une clé ElevenLabs et deux voix dans ces réglages : elles prennent alors le relais. Un peu plus lent que les services de parole à parole (comptez 2 secondes après la fin d\'une phrase). Fonction nouvelle : renvoyez-moi le journal si quelque chose cloche.'
@@ -112,7 +115,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           {strategy === 'openai'
             ? ` ${t("OpenAI traduit directement la parole en parole (modèle gpt-realtime-translate, environ 0,034 $ par minute d'audio envoyé, deux fois plus en mains libres). Langues parlées possibles : {list}. Vos voix ElevenLabs, DeepL et Deepgram ne servent pas dans ce mode. Fonction nouvelle : renvoyez-moi le journal si quelque chose cloche.", { list: LIVE_OUTPUT_LANGUAGES.map((c) => getLanguage(c).label).join(', ') })}`
             : ''}
-        </Text>
+        </Hint>
 
         {strategy === 'openai' && [languages.A, languages.B].some((c) => !LIVE_OUTPUT_LANGUAGES.includes(c)) && (
           <Text style={styles.bad}>
@@ -120,9 +123,9 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           </Text>
         )}
         {strategy === 'mistral' && [languages.A, languages.B].some((c) => !mistralVoiceLanguage(c)) && (
-          <Text style={styles.hint}>
+          <Hint>
             {`ℹ︎ ${t("{langs} : pas de voix Mistral dans cette langue, la traduction s'affichera sans être lue.", { langs: [languages.A, languages.B].filter((c) => !mistralVoiceLanguage(c)).map((c) => getLanguage(c).label).join(` ${t('et')} `) })}`}
-          </Text>
+          </Hint>
         )}
         {strategy === 'doubao' && (() => {
           const [a, b] = [doubaoCode(languages.A), doubaoCode(languages.B)];
@@ -159,13 +162,13 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
               );
             })}
             {doubaoVoiceKind === 'auto' && (
-              <Text style={styles.hint}>
+              <Hint>
                 Le modèle imite lui-même la voix de la personne qui parle, sans identifiant ni enregistrement préalable (la documentation de BytePlus le décrit pour l'interprétation parole à parole). La requête exacte n'est pas documentée : l'application n'envoie simplement aucune voix. Si Doubao répond « group model … not found », ce choix n'est pas accepté : prenez une voix prédéfinie.
-              </Text>
+              </Hint>
             )}
-            <Text style={styles.hint}>
+            <Hint>
               Expérimental : la documentation de BytePlus ne dit pas si l'interprétation simultanée accepte les voix prédéfinies de sa liste. Si Doubao refuse la session, le journal le dit : repassez alors sur « Ma voix clonée ». La voix choisie est celle qui PARLE chaque langue.
-            </Text>
+            </Hint>
           </>
         )}
         <View style={styles.chips}>
@@ -281,70 +284,62 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
         ))}
         </Section>
 
-        <Section title="Micro" subtitle={`${t(MIC_SOURCES[micSource].label)} · ${t('sensibilité {g}', { g: micGain === 'auto' ? t('auto') : `×${micGain}` })}`} open={!!openSection.mic} onToggle={() => toggle('mic')}>
+        <Section title="Micro" subtitle={`${t(MIC_SOURCES[micSource].label)} · ${t('sensibilité {g}', { g: micGain === 'auto' ? t('auto') : formatGain(micGain) })}`} open={!!openSection.mic} onToggle={() => toggle('mic')}>
         <Text style={styles.label}>Source du micro</Text>
         <View style={styles.chips}>
           {Object.entries(MIC_SOURCES).map(([key, src]) => (
             <Chip key={key} label={src.label} on={micSource === key} onPress={() => setMicSource(key)} />
           ))}
         </View>
-        <Text style={styles.hint}>
+        <Hint>
           {MIC_SOURCES[micSource].hint}. Sur Android, chaque source passe par un chemin audio différent : le niveau peut varier
           beaucoup d'un téléphone à l'autre. Essayez-les et regardez la barre de volume pendant l'enregistrement : gardez celle
           qui monte le plus.
-        </Text>
+        </Hint>
         <Chip
           label={micAgc ? '✓ Gain automatique du téléphone' : 'Gain automatique du téléphone : non'}
           on={micAgc}
           onPress={() => setMicAgc((v) => !v)}
         />
-        <Text style={styles.hint}>
+        <Hint>
           Utilise l'amplification intégrée du téléphone quand il en a une. Si le son est irrégulier ou « pompe », désactivez-la.
-        </Text>
+        </Hint>
 
         <Text style={styles.label}>Micro utilisé</Text>
-        <View style={styles.chips}>
-          <Chip label="Automatique (micro du téléphone)" on={input == null} onPress={() => setInput(null)} />
-          {inputs.map((d) => (
-            <Chip
-              key={d.id}
-              label={`${d.name}${/bluetooth|sco|hfp/i.test(`${d.category} ${d.name}`) ? ' ⚠' : ''}`}
-              on={input?.id === d.id}
-              onPress={() => setInput({ id: d.id, name: d.name })}
-            />
-          ))}
-        </View>
+        <Select
+          value={input?.id ?? null}
+          onChange={(id) => setInput(id == null ? null : { id, name: inputs.find((d) => d.id === id)?.name ?? '' })}
+          options={[
+            { id: null, label: t('Automatique (micro du téléphone)') },
+            ...inputs.map((d) => ({ id: d.id, label: d.name, hint: /bluetooth|sco|hfp/i.test(`${d.category} ${d.name}`) ? t('Bluetooth : les écouteurs passent en mono') : undefined })),
+          ]}
+        />
         <Text style={styles.hint}>
           ⚠ Un micro Bluetooth fait passer les écouteurs en mono : la séparation gauche/droite des deux voix est perdue.
         </Text>
 
-        <Text style={styles.label}>Sensibilité du micro</Text>
-        <View style={styles.chips}>
-          {MIC_GAIN_CHOICES.map((g) => (
-            <Chip
-              key={String(g)}
-              label={g === 'auto' ? 'Auto' : `×${g}`}
-              on={micGain === g}
-              onPress={() => setMicGain(g)}
-            />
-          ))}
+        <View style={styles.gainHead}>
+          <Text style={styles.labelInline}>Sensibilité du micro</Text>
+          <Text style={styles.gainValue}>{formatGain(micGain)}</Text>
         </View>
-        <Text style={styles.hint}>
+        <Slider value={micGain === 'auto' ? gainToValue(4) : gainToValue(micGain)} disabled={micGain === 'auto'} onChange={(v) => setMicGain(valueToGain(v))} />
+        <Chip label={micGain === 'auto' ? '✓ Automatique' : 'Automatique : non (gain fixe)'} on={micGain === 'auto'} onPress={() => setMicGain((g) => (g === 'auto' ? 4 : 'auto'))} />
+        <Hint>
           Auto amplifie fortement la voix faible ou lointaine (jusqu'à ×60) sans amplifier le bruit. Évitez les gains fixes élevés (×16, ×32) : ils font saturer la voix dès qu'elle monte, ce qui fait rater des mots.
           La barre de volume s'affiche pendant l'enregistrement.
-        </Text>
+        </Hint>
         <Text style={styles.label}>Où entendre chaque langue</Text>
         <View style={styles.chips}>
           {Object.entries(OUTPUT_MODES).map(([key, m]) => (
             <Chip key={key} label={m.label} on={outputMode === key} onPress={() => setOutputMode(key)} />
           ))}
         </View>
-        <Text style={styles.hint}>
+        <Hint>
           {OUTPUT_MODES[outputMode].hint}.
           {outputMode === 'split'
             ? ' Langue A = vous (casque), langue B = la personne en face (haut-parleur). Posez le téléphone entre vous deux et gardez le micro du téléphone. Le haut-parleur reparle dans le micro : avec OpenAI, Gemini et Doubao le micro est coupé pendant sa lecture ; avec Mistral et le mode Classique le texte déjà lu est reconnu et ignoré. Sans casque, les deux voix sortent sur le haut-parleur.'
             : ''}
-        </Text>
+        </Hint>
 
         {strategy === 'mistral' && (
           <>
@@ -354,22 +349,22 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
               <Chip label="Toujours DeepL" on={mistralTranslator === 'deepl'} onPress={() => setMistralTranslator('deepl')} />
               <Chip label="Toujours Mistral" on={mistralTranslator === 'mistral'} onPress={() => setMistralTranslator('mistral')} />
             </View>
-            <Text style={styles.hint}>
+            <Hint>
               La reconnaissance et la voix restent celles de Mistral. Pour la traduction, DeepL (votre clé DeepL, saisie pour le mode Classique) évite les limites des modèles de Mistral : il reconnaît lui-même la langue de chaque phrase. « Auto » essaie d'abord Mistral et prend DeepL quand Mistral refuse (limite, modèle absent de votre abonnement). « Toujours DeepL » est le plus fiable si votre compte Mistral est limité.
-            </Text>
+            </Hint>
             <Text style={styles.label}>Qualité de la traduction (Mistral live)</Text>
             <View style={styles.chips}>
               <Chip label="Meilleure (modèle moyen d'abord)" on={mistralQuality === 'best'} onPress={() => setMistralQuality('best')} />
               <Chip label="Plus rapide" on={mistralQuality === 'fast'} onPress={() => setMistralQuality('fast')} />
             </View>
-            <Text style={styles.hint}>
+            <Hint>
               « Meilleure » demande d'abord le modèle moyen de Mistral (plus juste en chinois, avec les noms et les longues phrases) et passe automatiquement aux petits si votre compte est limité. « Plus rapide » part du petit modèle : si le retard vous gêne, choisissez-le.
-            </Text>
+            </Hint>
             <Text style={styles.label}>Contexte de la conversation</Text>
             <Chip label={mistralAutoContext ? 'Détecté automatiquement (sujet, noms, termes)' : 'Détection automatique désactivée'} on={mistralAutoContext} onPress={() => setMistralAutoContext((v) => !v)} />
-            <Text style={styles.hint}>
+            <Hint>
               Toutes les quelques phrases, Mistral relit ce qui vient d'être dit et tient à jour des notes : de quoi on parle, comment s'écrivent les noms de marques ou de personnes (même mal entendus), quel mot choisir pour chaque terme technique. Ces notes sont données au traducteur avec chaque phrase, et gardées une demi-heure si vous relancez l'écoute. Le journal écrit « contexte détecté ». Cela ajoute un petit appel toutes les 40 secondes au plus.
-            </Text>
+            </Hint>
             <Text style={styles.label}>Termes à ajouter vous-même (facultatif)</Text>
             <TextInput
               style={[styles.input, { minHeight: 70 }]}
@@ -380,22 +375,22 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
               placeholder="ex. Réunion sur des brevets d'impression 3D résine. Garder tels quels : Formlabs, Carbon, CDOM. « film » = film de décollement."
               placeholderTextColor={palette().placeholder}
             />
-            <Text style={styles.hint}>
+            <Hint>
               Facultatif : ce que vous écrivez ici s'ajoute à ce qui est détecté (600 caractères au plus). Utile pour un nom que vous savez à l'avance.
-            </Text>
+            </Hint>
             <Text style={styles.label}>Voix de Mistral live</Text>
             <Chip label={elevenVoiceForAll ? 'Mes voix ElevenLabs pour toutes les langues' : 'Voix Mistral (ElevenLabs seulement en secours)'} on={elevenVoiceForAll} onPress={() => setElevenVoiceForAll((v) => !v)} />
-            <Text style={styles.hint}>
+            <Hint>
               Mistral parle 9 langues avec ses voix prédéfinies. Activée, cette option fait parler **toutes** les langues par vos voix ElevenLabs (les deux voix des réglages, clonées si vous les avez clonées) : il faut une clé ElevenLabs. Sinon ElevenLabs ne prend le relais que pour le chinois, le japonais…
-            </Text>
+            </Hint>
           </>
         )}
 
         <Text style={styles.label}>Connexion faible débit</Text>
         <Chip label={lowBandwidth ? 'Mode faible débit activé' : 'Mode faible débit désactivé'} on={lowBandwidth} onPress={() => setLowBandwidth((v) => !v)} />
-        <Text style={styles.hint}>
+        <Hint>
           Pour un réseau lent ou instable. L'appli n'envoie plus le son pendant que personne ne parle (une demi-seconde de son avant la voix et deux secondes de silence après sont conservées pour que la fin des phrases soit bien comprise), ce qui réduit fortement les données envoyées. Avec Mistral : voix ElevenLabs plus légère, deux fois plus de patience avant d'abandonner une demande, et pas d'appel de fond pour le contexte. Le journal indique la part du son réellement envoyée. Les phrases en retard sont de toute façon affichées avant leur voix.
-        </Text>
+        </Hint>
 
         <Text style={styles.label}>Mains libres : écho</Text>
         <Chip
@@ -403,11 +398,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           on={muteWhilePlaying}
           onPress={() => setMuteWhilePlaying((v) => !v)}
         />
-        <Text style={styles.hint}>
+        <Hint>
           Coupe l'écoute pendant que la voix traduite est lue (et une demi-seconde après) : plus aucun risque que l'app se réécoute. En
           contrepartie, ce que l'on dit pendant la lecture n'est pas traduit : avec quelqu'un qui parle sans s'arrêter (radio, exposé),
           une grande partie des phrases est perdue. À n'activer que sans écouteurs, avec des interlocuteurs qui attendent la fin de la voix.
-        </Text>
+        </Hint>
         </Section>
 
         <Section title="Voix" subtitle={`${t('volume {v}', { v: voiceVolume === 1 ? t('normal') : `×${voiceVolume}` })}${live ? '' : ' · ElevenLabs'}`} open={!!openSection.voice} onToggle={() => toggle('voice')}>
@@ -417,9 +412,9 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             <Chip key={String(v)} label={v === 1 ? 'Normal' : `×${v}`} on={voiceVolume === v} onPress={() => setVoiceVolume(v)} />
           ))}
         </View>
-        <Text style={styles.hint}>
+        <Hint>
           Amplifie la voix dans les écouteurs sans la déformer. Pensez aussi à monter le volume « média » du téléphone et des écouteurs.
-        </Text>
+        </Hint>
         {!live && (<>
         <Text style={styles.label}>Réactivité de la traduction</Text>
         <View style={styles.chips}>
@@ -427,10 +422,10 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             <Chip key={key} label={v.label} on={speed === key} onPress={() => setSpeed(key)} />
           ))}
         </View>
-        <Text style={styles.hint}>
+        <Hint>
           « Rapide » lance la traduction après une pause plus courte et coupe les phrases plus tôt : la voix arrive plus vite, avec des
           morceaux de phrase plus courts (traduction un peu moins fluide). « Normale » attend des phrases plus naturelles.
-        </Text>
+        </Hint>
         </>)}
         {!live && (<>
         <Text style={styles.label}>Voix en flux (expérimental)</Text>
@@ -439,11 +434,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           on={streamVoice}
           onPress={() => setStreamVoice((v) => !v)}
         />
-        <Text style={styles.hint}>
+        <Hint>
           La traduction démarre dans les écouteurs dès les premiers mots synthétisés au lieu d'attendre la phrase entière : le délai
           baisse, surtout sur les longues phrases. Si la voix saute ou se coupe, désactivez-la (le mode classique reprend aussi tout seul
           si le flux ne marche pas).
-        </Text>
+        </Hint>
         </>)}
         {!live && (<>
         <Text style={styles.label}>À qui appartient la voix ?</Text>
@@ -452,10 +447,10 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           on={voiceBySpeaker}
           onPress={() => setVoiceBySpeaker((v) => !v)}
         />
-        <Text style={styles.hint}>
+        <Hint>
           Par défaut, la voix A sert à parler la langue A et la voix B la langue B. Activez cette option pour que la voix A soit celle de la
           personne côté A — par exemple votre propre voix, créée dans ElevenLabs — qui « dit » alors ses traductions dans la langue de l'autre.
-        </Text>
+        </Hint>
 
         <Text style={styles.label}>Choisir les voix</Text>
         <Pressable
@@ -494,9 +489,9 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
                 </View>
               </Fragment>
             ))}
-            <Text style={styles.hint}>
+            <Hint>
               Une voix différente pour chaque langue permet de savoir tout de suite qui « parle » dans les écouteurs.
-            </Text>
+            </Hint>
           </>
         )}
         <VoiceCloneCard
@@ -534,9 +529,9 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             {background ? '✓ Rester actif écran éteint' : 'Rester actif écran éteint : non'}
           </Text>
         </Pressable>
-        <Text style={styles.hint}>
+        <Hint>
           Affiche une notification permanente. Si la traduction ne fonctionne plus, essayez de le désactiver.
-        </Text>
+        </Hint>
         {Power.available && (
           <>
             <Pressable
@@ -546,9 +541,9 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             >
               <Text style={styles.chipText}>🔋 Autoriser sans limite de batterie</Text>
             </Pressable>
-            <Text style={styles.hint}>
+            <Hint>
               Recommandé pour que la traduction continue écran éteint : Android limite sinon les apps en veille.
-            </Text>
+            </Hint>
           </>
         )}
         </Section>
@@ -587,7 +582,9 @@ function Section({ title, subtitle, open, onToggle, children }) {
             </Text>
           )}
         </View>
-        <Text style={styles.chevron}>{open ? '▾' : '▸'}</Text>
+        <View style={open ? styles.chevronOpen : null}>
+          <Icon name="chevron" size={18} color={palette().textMuted} />
+        </View>
       </Pressable>
       {open && <View style={styles.cardBody}>{children}</View>}
     </View>
@@ -641,32 +638,35 @@ function LanguagePicker({ title, selected, onSelect }) {
 
 const styles = themedStyles((c) => StyleSheet.create({
   section: { color: c.text, fontSize: 18, fontWeight: '700', marginTop: 24 },
-  summary: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 14, padding: 14, marginTop: 16, gap: 6 },
+  summary: { backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, borderRadius: 20, padding: 16, marginTop: 16, gap: 8, ...cardShadow(c) },
   flags: { marginTop: 12, marginBottom: 4 },
   summaryLine: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   summaryLabel: { color: c.textMuted, fontSize: 14, width: 84 },
   summaryValue: { color: c.text, fontSize: 15, fontWeight: '600', flex: 1 },
   summaryGood: { color: c.success },
   summaryBad: { color: c.danger },
-  card: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 14, marginTop: 12, overflow: 'hidden' },
+  card: { backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, borderRadius: 20, marginTop: 12, overflow: 'hidden', ...cardShadow(c) },
   cardHead: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12 },
   cardHeadText: { flex: 1 },
-  cardTitle: { color: c.text, fontSize: 17, fontWeight: '700' },
+  cardTitle: { color: c.text, fontSize: 17, fontWeight: '600', letterSpacing: -0.2 },
   cardSub: { color: c.textMuted, fontSize: 13, marginTop: 2 },
-  chevron: { color: c.textMuted, fontSize: 18 },
-  cardBody: { paddingHorizontal: 16, paddingBottom: 16, borderTopWidth: 1, borderTopColor: c.border },
+  chevronOpen: { transform: [{ rotate: '90deg' }] },
+  gainHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 },
+  labelInline: { color: c.textSoft, fontSize: 14 },
+  gainValue: { color: c.accent, fontSize: 15, fontWeight: '700', fontFamily: 'monospace' },
+  cardBody: { paddingHorizontal: 16, paddingBottom: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
   footer: { padding: 16, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.bg },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { backgroundColor: c.inset, borderWidth: 1, borderColor: c.border, borderRadius: 18, paddingVertical: 10, paddingHorizontal: 14 },
-  chipOn: { backgroundColor: c.chipOn, borderColor: c.accent },
+  chip: { backgroundColor: c.inset, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 15 },
+  chipOn: { backgroundColor: c.accentSoft, borderColor: c.accent },
   chipText: { color: c.text, fontSize: 15 },
   root: { flex: 1, backgroundColor: c.bg },
   content: { padding: 20, paddingTop: 48, paddingBottom: 24 },
-  title: { color: c.text, fontSize: 26, fontWeight: '700' },
+  title: { color: c.text, fontSize: 34, fontWeight: '700', letterSpacing: -0.8 },
   hint: { color: c.textMuted, fontSize: 15, marginVertical: 12 },
-  label: { color: c.textSoft, fontSize: 14, marginTop: 16, marginBottom: 6 },
-  input: { backgroundColor: c.inset, borderWidth: 1, borderColor: c.border, color: c.text, borderRadius: 10, padding: 14, fontSize: 16 },
-  button: { backgroundColor: c.accent, borderRadius: 12, padding: 16, alignItems: 'center' },
+  label: { color: c.textSoft, fontSize: 13, fontWeight: '600', marginTop: 18, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+  input: { backgroundColor: c.inset, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, color: c.text, borderRadius: 14, padding: 14, fontSize: 16 },
+  button: { backgroundColor: c.accent, borderRadius: 999, padding: 16, alignItems: 'center' },
   disabled: { opacity: 0.4 },
   good: { color: c.success, fontSize: 15, marginTop: 8 },
   bad: { color: c.danger, fontSize: 15, marginTop: 8 },

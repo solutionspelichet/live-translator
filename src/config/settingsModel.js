@@ -1,6 +1,7 @@
 // Pure part of the persisted settings (no React Native import → unit-testable).
 import { normalizeLocale } from '../i18n/index.js';
 import { DOUBAO_VOICE_ID } from '../utils/doubaoVoices.js';
+import { sanitizeGain } from '../utils/gainSlider.js';
 import { TEMPLATE_IDS } from '../utils/minutes.js';
 import { LANGUAGES } from './languages.js';
 
@@ -164,7 +165,7 @@ export function sanitizeSettings(raw) {
     strategy: STRATEGIES[input.strategy] && STRATEGIES[input.strategy].available !== false ? input.strategy : DEFAULT_SETTINGS.strategy,
     autoStop: typeof input.autoStop === 'boolean' ? input.autoStop : DEFAULT_SETTINGS.autoStop,
     background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,
-    micGain: MIC_GAIN_CHOICES.includes(gain) ? gain : DEFAULT_SETTINGS.micGain,
+    micGain: sanitizeGain(gain),
     voiceVolume: VOICE_VOLUME_CHOICES.includes(volume) ? volume : DEFAULT_SETTINGS.voiceVolume,
     speed: SPEEDS[input.speed] ? input.speed : DEFAULT_SETTINGS.speed,
     outputMode: input.outputMode === 'split' ? 'split' : DEFAULT_SETTINGS.outputMode,

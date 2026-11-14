@@ -418,4 +418,9 @@ export default [
   ["Démarrer ou arrêter l'écoute mains libres", "Start or stop hands-free listening", "开始或停止免提聆听"],
   ["Disposition : face à face (touchez pour passer en côte à côte)", "Layout: face to face (tap for side by side)", "布局：面对面（点按切换为并排）"],
   ["Disposition : côte à côte (touchez pour passer en face à face)", "Layout: side by side (tap for face to face)", "布局：并排（点按切换为面对面）"],
+  ["Plus d'informations", "More information", "更多信息"],
+  ["Masquer", "Hide", "收起"],
+  ["✓ Automatique", "✓ Automatic", "✓ 自动"],
+  ["Automatique : non (gain fixe)", "Automatic: off (fixed gain)", "自动：关（固定增益）"],
+  ["Bluetooth : les écouteurs passent en mono", "Bluetooth: the earphones switch to mono", "蓝牙：耳机将切换为单声道"],
 ];
