@@ -50,6 +50,31 @@ export function ListenHub({ live, busy, onPress }) {
   );
 }
 
+/** One microphone button per language (manual / auto modes): it starts listening in that language, a second tap stops. */
+export function SideHub({ flag, live, busy, onPress, label }) {
+  const c = palette();
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!live) {
+      pulse.setValue(0);
+      return undefined;
+    }
+    const loop = Animated.loop(Animated.timing(pulse, { toValue: 1, duration: 1600, easing: Easing.out(Easing.quad), useNativeDriver: true }));
+    loop.start();
+    return () => loop.stop();
+  }, [live, pulse]);
+  const ring = { opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }), transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.8] }) }] };
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} hitSlop={6} style={styles.sideWrap}>
+      {live && <Animated.View style={[styles.sideRing, { backgroundColor: c.accent }, ring]} />}
+      <View style={[styles.side, live && styles.sideLive, busy && !live && styles.hubBusy]}>
+        <Icon name={live ? 'wave' : 'mic'} size={22} color={c.onAccent} stroke={2} />
+        <Plain style={styles.sideFlag}>{flag}</Plain>
+      </View>
+    </Pressable>
+  );
+}
+
 const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
 const styles = themedStyles((c) => StyleSheet.create({
@@ -65,4 +90,9 @@ const styles = themedStyles((c) => StyleSheet.create({
   hub: { width: 52, height: 52, borderRadius: 26, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center', shadowColor: c.accent, shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   hubLive: { backgroundColor: c.accentAlt },
   hubBusy: { opacity: 0.7 },
+  sideWrap: { width: 70, height: 56, alignItems: 'center', justifyContent: 'center' },
+  sideRing: { position: 'absolute', width: 70, height: 50, borderRadius: 25 },
+  side: { width: 70, height: 50, borderRadius: 25, backgroundColor: c.accent, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, shadowColor: c.accent, shadowOpacity: 0.45, shadowRadius: 12, shadowOffset: { width: 0, height: 3 }, elevation: 5 },
+  sideLive: { backgroundColor: c.accentAlt },
+  sideFlag: { fontSize: 18 },
 }));

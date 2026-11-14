@@ -437,4 +437,10 @@ export default [
   ["La liste vient de votre compte Mistral et se charge toute seule quand la clé est saisie. « Automatique » prend la voix neutre la mieux classée ; une voix choisie ici passe en premier, et si Mistral la refuse l'application essaie les autres.", "The list comes from your Mistral account and loads by itself once the key is entered. « Automatic » takes the best-ranked neutral voice; a voice chosen here goes first, and if Mistral refuses it the app tries the others.", "列表来自你的 Mistral 账户，输入密钥后自动加载。“自动”使用排名最高的中性语音；这里选定的语音优先使用，若 Mistral 拒绝，应用会尝试其他语音。"],
   ["Revenir au direct", "Back to live", "回到实时"],
   ["Direct", "Live", "实时"],
+  ["Appuyez sur le micro pour démarrer", "Press the microphone to start", "按麦克风开始"],
+  ["Appuyez sur le micro {flag}", "Press the {flag} microphone", "按 {flag} 麦克风"],
+  ["Écoute en cours dans l'autre langue", "Listening in the other language", "正在以另一种语言聆听"],
+  ["Mains libres — parlez, la langue est détectée", "Hands-free — speak, the language is detected", "免提——请说话，语言将自动识别"],
+  ["Parlez maintenant — appuyez sur le micro pour terminer", "Speak now — press the microphone to finish", "请说话——按麦克风结束"],
+  ["Texte en {lang}", "Text in {lang}", "{lang} 文本"],
 ];

@@ -1,4 +1,3 @@
-import * as Haptics from 'expo-haptics';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -66,16 +65,17 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
     setFollowing(value);
   };
 
-  let status = handsFree ? 'Touchez pour démarrer' : 'Touchez pour parler';
-  if (recording && !mine) status = 'Touchez pour terminer';
+  // The zones are only for reading (they scroll freely); listening is started and stopped with the microphone buttons between them.
+  let status = handsFree ? 'Appuyez sur le micro pour démarrer' : t('Appuyez sur le micro {flag}', { flag: lang.flag });
+  if (recording && !mine) status = 'Écoute en cours dans l\'autre langue';
   else if (starting) status = 'Préparation…';
-  else if (live && handsFree) status = 'Mains libres — parlez, la langue est détectée. Touchez pour arrêter';
-  else if (live) status = autoStop ? 'Parlez — une pause envoie la traduction' : 'Parlez maintenant — touchez pour terminer';
+  else if (live && handsFree) status = 'Mains libres — parlez, la langue est détectée';
+  else if (live) status = autoStop ? 'Parlez — une pause envoie la traduction' : 'Parlez maintenant — appuyez sur le micro pour terminer';
   else if (mine && state === STATE.PROCESSING) status = 'Traduction…';
   else if (mine && state === STATE.SPEAKING) status = 'Lecture…';
 
   return (
-    <Pressable
+    <View
       style={[
         styles.zone,
         { backgroundColor: live ? zoneColors(c)[side].active : zoneColors(c)[side].idle },
@@ -83,12 +83,7 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
         recording && !mine && styles.dimmed,
         flipped && styles.flipped,
       ]}
-      onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        onPress(side);
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={t('Parler en {lang}', { lang: lang.label })}
+      accessibilityLabel={t('Texte en {lang}', { lang: lang.label })}
     >
       <View style={styles.langPill}>
         <RNText style={styles.flag}>{lang.flag}</RNText>
@@ -99,7 +94,6 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
           ref={scroller}
           style={styles.log}
           contentContainerStyle={styles.logContent}
-          nestedScrollEnabled
           showsVerticalScrollIndicator={false}
           scrollEventThrottle={64}
           onLayout={(e) => (sizes.current.viewHeight = e.nativeEvent.layout.height)}
@@ -153,7 +147,7 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
         </View>
       </View>
       <Text style={[styles.status, live && styles.statusLive]}>{status}</Text>
-    </Pressable>
+    </View>
   );
 }
 

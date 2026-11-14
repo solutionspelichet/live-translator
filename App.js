@@ -13,7 +13,7 @@ import TabBar from './src/components/TabBar';
 import TextScreen from './src/components/TextScreen';
 import ToolsScreen from './src/components/ToolsScreen';
 import { loadStoredKeys, missingEnv } from './src/config/env';
-import { SIDE } from './src/config/languages';
+import { getLanguage, SIDE } from './src/config/languages';
 import { loadSettings, saveSettings } from './src/config/settings';
 import { DEFAULT_SETTINGS, engineOptions } from './src/config/settingsModel';
 import Power from './modules/dualcast-power';
@@ -35,7 +35,7 @@ import { deepgramSeconds } from './src/utils/usage';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import Icon from './src/components/Icon';
 import { Segmented } from './src/components/ui';
-import { ListenHub, TelemetryBar } from './src/components/VoiceBar';
+import { ListenHub, SideHub, TelemetryBar } from './src/components/VoiceBar';
 import { flagsFor, modeOf, VOICE_MODES } from './src/utils/voiceUi';
 import { cardShadow, palette, resolveTheme, setTheme, themedStyles } from './src/theme';
 import { setFontsReady } from './src/theme/fonts';
@@ -343,8 +343,27 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
   const c = palette();
   const listening = state === STATE.LISTENING || state === STATE.STARTING;
 
+  const sideLive = (side) => state === STATE.LISTENING && (activeSide === side || activeSide === 'auto');
+  const sideBusy = (side) => state === STATE.STARTING && (activeSide === side || activeSide === 'auto');
   const dock = (
     <View style={styles.dock}>
+      {/* Top of the strip: the microphone button(s) that start and stop listening (the zones only scroll) */}
+      <View style={styles.hubRow}>
+        {handsFree ? (
+          <ListenHub live={state === STATE.LISTENING} busy={state === STATE.STARTING} onPress={() => engine.toggle(AUTO)} />
+        ) : (
+          [SIDE.A, SIDE.B].map((side) => (
+            <SideHub
+              key={side}
+              flag={getLanguage(languages[side]).flag}
+              live={sideLive(side)}
+              busy={sideBusy(side)}
+              onPress={() => engine.toggle(side)}
+              label={t('Parler en {lang}', { lang: getLanguage(languages[side]).label })}
+            />
+          ))
+        )}
+      </View>
       <Segmented options={VOICE_MODES.map((m) => ({ ...m, label: t(m.label) }))} value={mode} onChange={changeMode} />
       <View style={styles.dockRow}>
         <Pressable
@@ -371,7 +390,6 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
           <Icon name="chart" size={17} color={c.text} />
           <Text style={styles.dockText}>{`${Math.round(deepgramSeconds(usage.today) / 60)}`}</Text>
         </Pressable>
-        {handsFree && <ListenHub live={state === STATE.LISTENING} busy={state === STATE.STARTING} onPress={() => engine.toggle(AUTO)} />}
         <Pressable style={styles.dockBtn} onPress={() => setShowHistory(true)} hitSlop={8} accessibilityLabel={t('Historique')}>
           <Icon name="clock" size={18} color={c.text} />
         </Pressable>
@@ -415,7 +433,6 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         layout={layout}
         history={history}
         since={sessionStart.current}
-        onPress={(side) => engine.toggle(handsFree ? AUTO : side)}
         middle={dock}
       />
       <UsageScreen
@@ -482,9 +499,10 @@ const styles = themedStyles((c) => StyleSheet.create({
   flex: { flex: 1 },
   missing: { flex: 1, backgroundColor: c.bg },
   // Between the two zones, in the layout (never over them): mode selector + action row
-  dock: { gap: 10, paddingHorizontal: 2 },
+  dock: { gap: 8, paddingHorizontal: 2 },
+  hubRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 14, minHeight: 56 },
   dockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 44 },
-  dockBtn: { minWidth: 42, height: 42, borderRadius: 21, paddingHorizontal: 11, backgroundColor: c.glass, borderWidth: StyleSheet.hairlineWidth, borderColor: c.glassBorder, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, ...cardShadow(c) },
+  dockBtn: { minWidth: 40, height: 40, borderRadius: 20, paddingHorizontal: 11, backgroundColor: c.glass, borderWidth: StyleSheet.hairlineWidth, borderColor: c.glassBorder, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, ...cardShadow(c) },
   dockRec: { backgroundColor: c.dangerStrong, borderColor: c.dangerStrong },
   dockText: { color: c.text, fontSize: 12.5, fontWeight: '600', fontFamily: 'monospace' },
   dockTextOn: { color: c.onAccent },
