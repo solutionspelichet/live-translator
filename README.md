@@ -380,3 +380,10 @@ détection du micro intégré (`AudioManager.getDevicesInfo` renvoie des catégo
 - **Bottom tabs**: Voix (the live translator), Texte, Outils, Réunions, Réglages, and a button that cycles the theme **Auto → Clair → Sombre** (saved per user; the settings screen keeps the same choice).
 - **Texte** (`TextScreen`): type or paste, translate between the two languages of the app (DeepL when its key is set, else a language model through OpenRouter), swap, share/copy. DeepL characters / OpenRouter tokens are counted in 📊.
 - **Outils** (`ToolsScreen`, prompts in `src/utils/tools.js`): rewrite (with tone), grammar check, e-mail assistant, reply ideas, cultural guide, business phrases, quick emergency phrases, synonyms. They use a quick OpenRouter model (the newest Claude Haiku, else Gemini Flash, or the model chosen for meeting minutes) and need the OpenRouter key.
+
+## Design system
+
+- **Look**: a « Midnight » dark theme (near-black, one indigo accent) and a « Daylight » light theme (Apple-like grouped grey, white cards); tokens in `src/theme/index.js` (colours, `RADIUS`, `SPACE`, `cardShadow`), shared primitives in `src/components/ui.js` (large title, card, icon badge, gradient primary button, pill).
+- **Typeface**: Inter (`@expo-google-fonts/inter`), applied through the `Text` / `Plain` / `TextInput` wrappers (`src/theme/fonts.js` maps a `fontWeight` to the right font file on Android).
+- **Icons**: vector line icons drawn in `src/components/Icon.js` with `react-native-svg` (no emoji, no icon font).
+- **App icon**: indigo → violet gradient with a five-bar waveform and a sparkle (`assets/`, generated from SVG).

@@ -6,23 +6,26 @@
 // changes (see App.js), so nothing has to subscribe.
 
 export const PALETTES = Object.freeze({
+  // « Midnight »: near-black with a cool undertone, one electric indigo accent, hairline borders.
   dark: Object.freeze({
     scheme: 'dark',
-    bg: '#0B0F1A', // screen background
-    surface: '#16233B', // cards, chips, inputs
-    inset: '#0B0F1A', // field or chip sitting inside a card
-    panel: '#101A2E', // live transcript panel
-    border: '#22304A',
-    text: '#FFFFFF',
-    textBody: '#E8ECF8', // long reading text
-    textSoft: '#C9D2EA', // labels
-    textMuted: '#9AA6C4', // hints
-    textFaint: '#7C89AA', // small meta
-    placeholder: '#55607F',
-    accent: '#2F6FED',
+    bg: '#0A0B10', // screen background
+    surface: '#14161F', // cards, chips, inputs
+    inset: '#0E1017', // field or chip sitting inside a card
+    panel: '#11131B', // live transcript panel
+    border: '#262A38',
+    text: '#F7F8FC',
+    textBody: '#E6E8F2', // long reading text
+    textSoft: '#C5C9DA', // labels
+    textMuted: '#8E94AB', // hints
+    textFaint: '#7A8096', // small meta
+    placeholder: '#565C73',
+    accent: '#4C5DF5',
+    accentAlt: '#8B5CF6', // second stop of the accent gradient
+    accentSoft: '#1B2040', // tinted background (icon chips, selected rows)
     onAccent: '#FFFFFF',
-    chipOn: '#2F6FED', // a selected chip
-    link: '#6FA0FF',
+    chipOn: '#4C5DF5', // a selected chip
+    link: '#8E9BFF',
     danger: '#FF8A80',
     dangerBg: '#3A1B1B',
     dangerStrong: '#C0392B',
@@ -33,34 +36,40 @@ export const PALETTES = Object.freeze({
     warnStrong: '#FFB020',
     track: '#FFFFFF22',
     rec: '#FF3B30',
-    overlay: '#000C', // controls floating over the two zones
-    overlayStrong: '#000D',
-    splitBg: '#000000',
-    zoneA: '#16233B',
-    zoneAActive: '#2F6FED',
-    zoneB: '#2A1B3D',
-    zoneBActive: '#C24CF6',
+    overlay: '#0A0B10D9', // controls floating over the two zones
+    overlayStrong: '#0A0B10F2',
+    glass: '#14161FE6', // bars and floating panels
+    glassBorder: '#FFFFFF1F',
+    shadow: '#000000',
+    splitBg: '#05060A',
+    zoneA: '#14182A',
+    zoneAActive: '#4C5DF5',
+    zoneB: '#1E1530',
+    zoneBActive: '#9B4DF0',
     zoneText: '#FFFFFF',
-    zoneTextSoft: '#E8ECF8',
-    zoneStatus: '#9AA6C4',
+    zoneTextSoft: '#E6E8F2',
+    zoneStatus: '#9AA0B8',
   }),
+  // « Daylight »: Apple-like grouped background (#F5F5F7), white cards, the same indigo accent.
   light: Object.freeze({
     scheme: 'light',
-    bg: '#F3F5FA',
+    bg: '#F5F5F7',
     surface: '#FFFFFF',
-    inset: '#EDF1F9',
-    panel: '#E9EEF8',
-    border: '#D5DCEA',
-    text: '#101828',
-    textBody: '#1D2939',
-    textSoft: '#344054',
-    textMuted: '#5B6577',
-    textFaint: '#6F7A8F',
-    placeholder: '#98A2B3',
-    accent: '#2F6FED',
+    inset: '#F0F1F5',
+    panel: '#EEF0F6',
+    border: '#E3E5EC',
+    text: '#14151A',
+    textBody: '#23252E',
+    textSoft: '#3C3F4C',
+    textMuted: '#5F6475',
+    textFaint: '#6B7083',
+    placeholder: '#A0A5B5',
+    accent: '#4C5DF5',
+    accentAlt: '#8B5CF6',
+    accentSoft: '#E8EBFF',
     onAccent: '#FFFFFF',
-    chipOn: '#D6E4FF',
-    link: '#1F5FD6',
+    chipOn: '#DDE2FF',
+    link: '#3547E0',
     danger: '#B42318',
     dangerBg: '#FDE3E0',
     dangerStrong: '#C0392B',
@@ -69,20 +78,30 @@ export const PALETTES = Object.freeze({
     successStrong: '#1F8F4E',
     warn: '#9A5B00',
     warnStrong: '#E09600',
-    track: '#10182822',
+    track: '#14151A1F',
     rec: '#E5301F',
-    overlay: '#000C',
-    overlayStrong: '#000D',
-    splitBg: '#C9D3E8',
-    zoneA: '#DCE7FF',
-    zoneAActive: '#2F6FED',
-    zoneB: '#F0E1FB',
-    zoneBActive: '#C24CF6',
-    zoneText: '#101828',
-    zoneTextSoft: '#1D2939',
-    zoneStatus: '#5B6577',
+    overlay: '#FFFFFFE0',
+    overlayStrong: '#FFFFFFF2',
+    glass: '#FFFFFFE6',
+    glassBorder: '#0000001A',
+    shadow: '#1B2145',
+    splitBg: '#DCDFEA',
+    zoneA: '#E4E8FF',
+    zoneAActive: '#4C5DF5',
+    zoneB: '#F0E6FF',
+    zoneBActive: '#9B4DF0',
+    zoneText: '#14151A',
+    zoneTextSoft: '#23252E',
+    zoneStatus: '#5F6475',
   }),
 });
+
+/** Shape and rhythm shared by every screen (the same numbers everywhere is what makes an interface feel designed). */
+export const RADIUS = Object.freeze({ sm: 10, md: 14, lg: 20, xl: 28, pill: 999 });
+export const SPACE = Object.freeze({ xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 });
+
+/** Soft card shadow (Android `elevation` + iOS shadow), tinted by the theme. */
+export const cardShadow = (c) => ({ shadowColor: c.shadow, shadowOpacity: c.scheme === 'dark' ? 0.5 : 0.1, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: c.scheme === 'dark' ? 0 : 3 });
 
 export const THEME_CHOICES = Object.freeze({
   system: { label: 'Auto', hint: 'suit le téléphone' },

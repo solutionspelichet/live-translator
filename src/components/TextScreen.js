@@ -1,27 +1,30 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, View } from 'react-native';
 
 import { getLanguage } from '../config/languages';
 import { env } from '../config/env';
-import { Text, TextInput } from '../i18n/Text';
+import { Plain, Text, TextInput } from '../i18n/Text';
 import { t } from '../i18n';
 import DeepLClient from '../services/translate/DeepLClient';
 import UsageTracker from '../services/UsageTracker';
 import { ask } from '../services/LlmService';
 import { describeError } from '../utils/http';
 import { translationMessages } from '../utils/tools';
-import { themedStyles } from '../theme';
+import { palette, themedStyles } from '../theme';
+import Icon from './Icon';
+import { Card, LargeTitle, PrimaryButton } from './ui';
 
 /** Text translation between the two languages of the app (DeepL when its key is set, else a language model). */
 export default function TextScreen({ settings }) {
+  const c = palette();
   const [reversed, setReversed] = useState(false);
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
   const [busy, setBusy] = useState(false);
-  const from = getLanguage(reversed ? settings.languages.B : settings.languages.A);
-  const to = getLanguage(reversed ? settings.languages.A : settings.languages.B);
   const fromKey = reversed ? settings.languages.B : settings.languages.A;
   const toKey = reversed ? settings.languages.A : settings.languages.B;
+  const from = getLanguage(fromKey);
+  const to = getLanguage(toKey);
 
   const translate = async () => {
     const text = input.trim();
@@ -43,10 +46,15 @@ export default function TextScreen({ settings }) {
   return (
     <SafeAreaView style={styles.root}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Traducteur texte</Text>
+        <LargeTitle title="Texte" subtitle={env.deeplKey ? 'Traduit par DeepL' : 'Traduit par un modèle de langage'} />
+
         <View style={styles.pair}>
-          <Text style={styles.lang}>{`${from.flag} ${from.label}`}</Text>
+          <View style={styles.langBox}>
+            <Plain style={styles.flag}>{from.flag}</Plain>
+            <Plain style={styles.langName} numberOfLines={1}>{from.label}</Plain>
+          </View>
           <Pressable
+            style={styles.swap}
             onPress={() => {
               setReversed(!reversed);
               if (output) {
@@ -54,46 +62,52 @@ export default function TextScreen({ settings }) {
                 setOutput('');
               }
             }}
-            hitSlop={12}
+            hitSlop={10}
             accessibilityRole="button"
             accessibilityLabel={t('Inverser les langues')}
           >
-            <Text style={styles.swap}>⇄</Text>
+            <Icon name="swap" size={20} color={c.accent} />
           </Pressable>
-          <Text style={styles.lang}>{`${to.flag} ${to.label}`}</Text>
+          <View style={styles.langBox}>
+            <Plain style={styles.flag}>{to.flag}</Plain>
+            <Plain style={styles.langName} numberOfLines={1}>{to.label}</Plain>
+          </View>
         </View>
-        <View style={styles.card}>
+
+        <Card>
           <TextInput
             style={styles.input}
             value={input}
             onChangeText={setInput}
             placeholder="Saisir le texte"
-            placeholderTextColor={styles.placeholder.color}
+            placeholderTextColor={c.placeholder}
             multiline
             textAlignVertical="top"
           />
           <View style={styles.row}>
-            <Pressable onPress={() => { setInput(''); setOutput(''); }} hitSlop={10} accessibilityRole="button">
-              <Text style={styles.link}>Effacer</Text>
+            <Pressable onPress={() => { setInput(''); setOutput(''); }} hitSlop={10} accessibilityRole="button" style={styles.ghost}>
+              <Icon name="close" size={14} color={c.textMuted} />
+              <Text style={styles.ghostText}>Effacer</Text>
             </Pressable>
-            <Text style={styles.count}>{`${input.length}`}</Text>
+            <Plain style={styles.count}>{`${input.length}`}</Plain>
           </View>
-        </View>
-        <Pressable style={[styles.go, (!input.trim() || busy) && styles.off]} onPress={translate} disabled={!input.trim() || busy} accessibilityRole="button">
-          {busy ? <ActivityIndicator color={styles.goText.color} /> : <Text style={styles.goText}>Traduire</Text>}
-        </Pressable>
+        </Card>
+
+        <PrimaryButton label="Traduire" icon="sparkles" onPress={translate} disabled={!input.trim()} busy={busy} />
+
         {!!output && (
-          <View style={styles.card}>
-            <Text style={styles.outLang}>{`${to.flag} ${to.label}`}</Text>
-            <Text style={styles.output} selectable>{output}</Text>
-            <View style={styles.row}>
-              <Pressable onPress={() => Share.share({ message: output }).catch(() => {})} hitSlop={10} accessibilityRole="button">
-                <Text style={styles.link}>Partager / copier</Text>
-              </Pressable>
+          <Card style={styles.result}>
+            <View style={styles.resultHead}>
+              <Plain style={styles.flag}>{to.flag}</Plain>
+              <Plain style={styles.outLang}>{to.label}</Plain>
             </View>
-          </View>
+            <Plain style={styles.output} selectable>{output}</Plain>
+            <Pressable onPress={() => Share.share({ message: output }).catch(() => {})} hitSlop={10} accessibilityRole="button" style={styles.ghost}>
+              <Icon name="share" size={16} color={c.accent} />
+              <Text style={[styles.ghostText, { color: c.accent }]}>Partager / copier</Text>
+            </Pressable>
+          </Card>
         )}
-        <Text style={styles.note}>{env.deeplKey ? 'Traduit par DeepL.' : 'Traduit par un modèle de langage (clé OpenRouter) : ajoutez une clé DeepL dans les réglages pour une traduction plus rapide.'}</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -101,21 +115,19 @@ export default function TextScreen({ settings }) {
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
-  content: { padding: 16, paddingTop: 44, gap: 12 },
-  title: { color: c.text, fontSize: 24, fontWeight: '700', textAlign: 'center' },
-  pair: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: c.surface, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 18, borderWidth: 1, borderColor: c.border },
-  lang: { color: c.text, fontSize: 17, fontWeight: '600' },
-  swap: { color: c.accent, fontSize: 26, fontWeight: '700' },
-  card: { backgroundColor: c.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: c.border },
-  input: { color: c.text, fontSize: 20, minHeight: 150, padding: 0 },
-  placeholder: { color: c.placeholder },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-  link: { color: c.link, fontSize: 15 },
+  content: { padding: 20, paddingTop: 44, gap: 16 },
+  pair: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  langBox: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.surface, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+  flag: { fontSize: 22 },
+  langName: { flex: 1, color: c.text, fontSize: 15, fontWeight: '600' },
+  swap: { width: 44, height: 44, borderRadius: 22, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  input: { color: c.text, fontSize: 20, lineHeight: 28, minHeight: 150, padding: 0 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
+  ghost: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ghostText: { color: c.textMuted, fontSize: 14, fontWeight: '500' },
   count: { color: c.textFaint, fontSize: 12 },
-  go: { backgroundColor: c.accent, borderRadius: 28, paddingVertical: 16, alignItems: 'center' },
-  goText: { color: c.onAccent, fontSize: 18, fontWeight: '700' },
-  off: { opacity: 0.45 },
-  outLang: { color: c.textMuted, fontSize: 13, marginBottom: 6 },
-  output: { color: c.text, fontSize: 22, fontWeight: '600' },
-  note: { color: c.textFaint, fontSize: 12, textAlign: 'center' },
+  result: { gap: 12 },
+  resultHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  outLang: { color: c.textMuted, fontSize: 13, fontWeight: '500' },
+  output: { color: c.text, fontSize: 22, lineHeight: 31, fontWeight: '600', letterSpacing: -0.3 },
 }));

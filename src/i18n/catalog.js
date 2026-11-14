@@ -410,4 +410,7 @@ export default [
   ["Trouver des synonymes", "Find synonyms", "查找同义词"],
   ["Des mots proches, avec leur nuance", "Close words, with their nuance", "近义词及其细微差别"],
   ["Un mot ou une expression", "A word or an expression", "一个词或表达"],
+  ["Traduit par DeepL", "Translated by DeepL", "由 DeepL 翻译"],
+  ["Traduit par un modèle de langage", "Translated by a language model", "由语言模型翻译"],
+  ["Écrire, comprendre, se faire comprendre", "Write, understand, be understood", "书写、理解、被理解"],
 ];

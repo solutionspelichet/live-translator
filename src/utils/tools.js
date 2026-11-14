@@ -13,7 +13,7 @@ export const TONES = Object.freeze({
 /** id → { icon, title, hint, placeholder, tones?, build(text, ctx, tone) → messages } */
 export const TOOLS = Object.freeze({
   rewrite: {
-    icon: '✍️',
+    icon: 'pencil',
     title: 'Reformuler',
     hint: 'Adapter la formulation et le ton',
     placeholder: 'Le texte à reformuler',
@@ -24,7 +24,7 @@ export const TOOLS = Object.freeze({
     ],
   },
   grammar: {
-    icon: '✅',
+    icon: 'checkcircle',
     title: 'Vérifier la grammaire',
     hint: 'Corriger les fautes et expliquer',
     placeholder: 'Le texte à vérifier',
@@ -34,7 +34,7 @@ export const TOOLS = Object.freeze({
     ],
   },
   email: {
-    icon: '✉️',
+    icon: 'mail',
     title: 'Assistant e-mail',
     hint: 'Rédiger un e-mail à partir de quelques notes',
     placeholder: 'Vos notes : à qui, pourquoi, ce que vous voulez dire',
@@ -45,7 +45,7 @@ export const TOOLS = Object.freeze({
     ],
   },
   replies: {
-    icon: '💬',
+    icon: 'bubble',
     title: 'Idées de réponses',
     hint: 'Trois façons de répondre à un message',
     placeholder: 'Le message reçu',
@@ -55,7 +55,7 @@ export const TOOLS = Object.freeze({
     ],
   },
   culture: {
-    icon: '🌏',
+    icon: 'globe',
     title: 'Guide culturel',
     hint: 'Comprendre le contexte d’une expression ou d’une situation',
     placeholder: 'Une expression, un geste, une situation…',
@@ -65,7 +65,7 @@ export const TOOLS = Object.freeze({
     ],
   },
   business: {
-    icon: '💼',
+    icon: 'briefcase',
     title: 'Phrases d’affaires',
     hint: 'Les phrases utiles pour une situation professionnelle',
     placeholder: 'La situation : négocier un prix, présenter son entreprise…',
@@ -75,7 +75,7 @@ export const TOOLS = Object.freeze({
     ],
   },
   urgent: {
-    icon: '🆘',
+    icon: 'lifebuoy',
     title: 'Aide rapide',
     hint: 'Phrases d’urgence, prêtes à montrer',
     placeholder: 'Le problème : perdu, malade, volé, accident…',
@@ -85,7 +85,7 @@ export const TOOLS = Object.freeze({
     ],
   },
   synonyms: {
-    icon: '🔎',
+    icon: 'search',
     title: 'Trouver des synonymes',
     hint: 'Des mots proches, avec leur nuance',
     placeholder: 'Un mot ou une expression',

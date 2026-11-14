@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text as RNText, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, View } from 'react-native';
 
 import { env } from '../config/env';
 import { getLanguage, LANGUAGES } from '../config/languages';
@@ -16,7 +16,7 @@ import { formatDuration } from '../utils/usage';
 import { wavMegabytes } from '../utils/wav';
 import { palette, themedStyles } from '../theme';
 import MarkdownText from './MarkdownText';
-import { Text, TextInput } from '../i18n/Text';
+import { Plain as RNText, Text, TextInput } from '../i18n/Text';
 import { dateLocale, t } from '../i18n';
 
 const languageLabel = (code) => (code === MULTI ? t('Plusieurs langues') : getLanguage(code).label);

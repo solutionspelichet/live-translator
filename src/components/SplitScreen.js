@@ -1,12 +1,13 @@
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text as RNText, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 
 import { getLanguage, SIDE } from '../config/languages';
-import { Text } from '../i18n/Text';
+import { Plain as RNText, Text } from '../i18n/Text';
 import { t } from '../i18n';
 import { STATE } from '../services/TranslationEngine';
-import { palette, themedStyles } from '../theme';
+import { cardShadow, palette, themedStyles } from '../theme';
+import Icon from './Icon';
 
 const zoneColors = (c) => ({
   [SIDE.A]: { idle: c.zoneA, active: c.zoneAActive },
@@ -36,7 +37,6 @@ export default function SplitScreen({ languages, state, activeSide, texts, level
   return (
     <View style={styles.root}>
       <Zone side={SIDE.A} flipped {...shared} />
-      <View style={styles.divider} />
       <Zone side={SIDE.B} {...shared} />
     </View>
   );
@@ -74,15 +74,20 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
       accessibilityRole="button"
       accessibilityLabel={t('Parler en {lang}', { lang: lang.label })}
     >
-      <Text style={styles.flag}>{lang.flag}</Text>
-      <Text style={[styles.label, live && { color: WHITE }]}>{lang.label}</Text>
+      <View style={styles.langPill}>
+        <RNText style={styles.flag}>{lang.flag}</RNText>
+        <Text style={[styles.label, live && { color: WHITE }]}>{lang.label}</Text>
+      </View>
       <RNText style={[styles.text, live && { color: WHITE }]} numberOfLines={6}>
         {texts[side] || ' '}
       </RNText>
+      <View style={[styles.orb, live && styles.orbLive]}>
+        <Icon name={live ? 'wave' : 'mic'} size={26} color={live ? WHITE : c.accent} stroke={2} />
+      </View>
       <View style={styles.meterRow}>
         {live && <RecDot />}
         <View style={styles.meterTrack}>
-          <View style={[styles.meterFill, { width: `${Math.round((live ? level : 0) * 100)}%`, backgroundColor: live ? WHITE : c.zoneText }]} />
+          <View style={[styles.meterFill, { width: `${Math.round((live ? level : 0) * 100)}%`, backgroundColor: live ? WHITE : c.accent }]} />
         </View>
       </View>
       <Text style={[styles.status, live && styles.statusLive]}>{status}</Text>
@@ -107,19 +112,21 @@ function RecDot() {
 }
 
 const styles = themedStyles((c) => StyleSheet.create({
-  root: { flex: 1, backgroundColor: c.splitBg },
-  zone: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  root: { flex: 1, backgroundColor: c.bg, padding: 12, paddingTop: 36, gap: 12 },
+  zone: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20, borderRadius: 32, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, ...cardShadow(c) },
   flipped: { transform: [{ rotate: '180deg' }] },
-  starting: { borderWidth: 4, borderColor: c.warnStrong },
-  dimmed: { opacity: 0.55 },
-  divider: { height: 2, backgroundColor: c.splitBg },
-  flag: { fontSize: 44 },
-  label: { color: c.zoneText, fontSize: 22, fontWeight: '700', marginTop: 4 },
-  text: { color: c.zoneTextSoft, fontSize: 20, textAlign: 'center', marginVertical: 16, minHeight: 60 },
-  meterRow: { flexDirection: 'row', alignItems: 'center', height: 14, width: '70%', marginBottom: 12 },
-  meterTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: c.track, overflow: 'hidden' },
-  meterFill: { height: 6, backgroundColor: c.zoneText },
-  dot: { width: 14, height: 14, borderRadius: 7, backgroundColor: c.rec, marginRight: 10 },
-  status: { color: c.zoneStatus, fontSize: 14, letterSpacing: 1, textTransform: 'uppercase', textAlign: 'center' },
-  statusLive: { color: WHITE, fontWeight: '700' },
+  starting: { borderWidth: 2, borderColor: c.warnStrong },
+  dimmed: { opacity: 0.5 },
+  langPill: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.overlay, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 14 },
+  flag: { fontSize: 20 },
+  label: { color: c.zoneText, fontSize: 16, fontWeight: '600', letterSpacing: -0.2 },
+  text: { color: c.zoneTextSoft, fontSize: 24, lineHeight: 32, fontWeight: '500', letterSpacing: -0.4, textAlign: 'center', marginVertical: 14, minHeight: 64 },
+  orb: { width: 60, height: 60, borderRadius: 30, backgroundColor: c.overlay, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  orbLive: { backgroundColor: '#FFFFFF33' },
+  meterRow: { flexDirection: 'row', alignItems: 'center', height: 14, width: '60%', marginBottom: 10 },
+  meterTrack: { flex: 1, height: 4, borderRadius: 2, backgroundColor: c.track, overflow: 'hidden' },
+  meterFill: { height: 4, borderRadius: 2 },
+  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: c.rec, marginRight: 10 },
+  status: { color: c.zoneStatus, fontSize: 12, letterSpacing: 0.8, textTransform: 'uppercase', textAlign: 'center', fontWeight: '500' },
+  statusLive: { color: WHITE, fontWeight: '600' },
 }));

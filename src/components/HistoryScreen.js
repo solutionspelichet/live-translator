@@ -1,9 +1,9 @@
-import { FlatList, Modal, Pressable, SafeAreaView, Share, StyleSheet, Text as RNText, View } from 'react-native';
+import { FlatList, Modal, Pressable, SafeAreaView, Share, StyleSheet, View } from 'react-native';
 
 import { getLanguage } from '../config/languages';
 import { formatConversation } from '../utils/history';
 import { palette, themedStyles } from '../theme';
-import { Text } from '../i18n/Text';
+import { Plain as RNText, Text } from '../i18n/Text';
 import { t } from '../i18n';
 
 /**

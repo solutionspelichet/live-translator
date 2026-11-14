@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, Text as RNText, View } from 'react-native';
+import { Alert, FlatList, Pressable, SafeAreaView, ScrollView, StyleSheet, View } from 'react-native';
 
 import { LANGUAGES } from '../config/languages';
 import MeetingStore from '../services/MeetingStore';
@@ -12,7 +12,7 @@ import { formatDuration } from '../utils/usage';
 import { wavMegabytes } from '../utils/wav';
 import MeetingDetail from './MeetingDetail';
 import { palette, themedStyles } from '../theme';
-import { Text, TextInput } from '../i18n/Text';
+import { Plain as RNText, Text, TextInput } from '../i18n/Text';
 import { dateLocale, t } from '../i18n';
 
 const langName = (code) => (code === MULTI ? t('Plusieurs langues') : LANGUAGES[code]?.label ?? code);

@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, View } from 'react-native';
 
 import { getLanguage } from '../config/languages';
 import { env } from '../config/env';
-import { Text, TextInput } from '../i18n/Text';
+import { Plain, Text, TextInput } from '../i18n/Text';
 import { getLocale, t } from '../i18n';
 import { ask } from '../services/LlmService';
 import { describeError } from '../utils/http';
 import { buildToolMessages, TONES, TOOL_IDS, TOOLS } from '../utils/tools';
-import { themedStyles } from '../theme';
+import { palette, themedStyles } from '../theme';
+import Icon from './Icon';
+import { Card, IconBadge, LargeTitle, Pill, PrimaryButton } from './ui';
 
 const UI_NAME = { fr: 'French', en: 'English', zh: 'Chinese' };
 
@@ -43,15 +45,17 @@ export default function ToolsScreen({ settings, onOpenSettings }) {
     setBusy(false);
   };
 
+  const c = palette();
   if (!env.openRouterKey) {
     return (
       <SafeAreaView style={styles.root}>
         <View style={styles.content}>
-          <Text style={styles.title}>Outils IA</Text>
-          <Text style={styles.note}>Ces outils utilisent un modèle de langage : saisissez votre clé OpenRouter dans les réglages (c’est la même que pour les comptes rendus de réunion).</Text>
-          <Pressable style={styles.go} onPress={onOpenSettings} accessibilityRole="button">
-            <Text style={styles.goText}>Ouvrir les réglages</Text>
-          </Pressable>
+          <LargeTitle title="Outils IA" />
+          <Card style={styles.empty}>
+            <IconBadge name="sparkles" size={52} />
+            <Text style={styles.note}>Ces outils utilisent un modèle de langage : saisissez votre clé OpenRouter dans les réglages (c’est la même que pour les comptes rendus de réunion).</Text>
+            <PrimaryButton label="Ouvrir les réglages" onPress={onOpenSettings} />
+          </Card>
         </View>
       </SafeAreaView>
     );
@@ -61,13 +65,13 @@ export default function ToolsScreen({ settings, onOpenSettings }) {
     return (
       <SafeAreaView style={styles.root}>
         <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.title}>Outils IA</Text>
+          <LargeTitle title="Outils IA" subtitle="Écrire, comprendre, se faire comprendre" />
           <View style={styles.grid}>
             {TOOL_IDS.map((key) => (
-              <Pressable key={key} style={styles.card} onPress={() => open(key)} accessibilityRole="button">
-                <Text style={styles.icon}>{TOOLS[key].icon}</Text>
-                <Text style={styles.cardTitle}>{TOOLS[key].title}</Text>
-                <Text style={styles.cardHint}>{TOOLS[key].hint}</Text>
+              <Pressable key={key} style={({ pressed }) => [styles.tile, pressed && styles.pressed]} onPress={() => open(key)} accessibilityRole="button">
+                <IconBadge name={TOOLS[key].icon} size={44} />
+                <Text style={styles.tileTitle}>{TOOLS[key].title}</Text>
+                <Text style={styles.tileHint} numberOfLines={2}>{TOOLS[key].hint}</Text>
               </Pressable>
             ))}
           </View>
@@ -80,17 +84,21 @@ export default function ToolsScreen({ settings, onOpenSettings }) {
   return (
     <SafeAreaView style={styles.root}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Pressable onPress={() => setId(null)} hitSlop={12} accessibilityRole="button">
-          <Text style={styles.link}>‹ Outils IA</Text>
+        <Pressable onPress={() => setId(null)} hitSlop={12} accessibilityRole="button" style={styles.back}>
+          <Icon name="back" size={20} color={c.accent} />
+          <Text style={styles.backText}>Outils IA</Text>
         </Pressable>
-        <Text style={styles.title}>{`${tool.icon} ${tool.title}`}</Text>
-        <Text style={styles.cardHint}>{tool.hint}</Text>
+        <View style={styles.head}>
+          <IconBadge name={tool.icon} size={52} />
+          <View style={styles.headText}>
+            <Text style={styles.toolTitle}>{tool.title}</Text>
+            <Text style={styles.tileHint}>{tool.hint}</Text>
+          </View>
+        </View>
         <Text style={styles.label}>Langue du texte</Text>
         <View style={styles.chips}>
           {langs.map((l) => (
-            <Pressable key={l.k} style={[styles.chip, side === l.k && styles.chipOn]} onPress={() => setSide(l.k)} accessibilityRole="button">
-              <Text style={[styles.chipText, side === l.k && styles.chipTextOn]}>{`${l.flag} ${l.label}`}</Text>
-            </Pressable>
+            <Pill key={l.k} label={`${l.flag}  ${l.label}`} on={side === l.k} onPress={() => setSide(l.k)} />
           ))}
         </View>
         {tool.tones && (
@@ -98,24 +106,23 @@ export default function ToolsScreen({ settings, onOpenSettings }) {
             <Text style={styles.label}>Ton</Text>
             <View style={styles.chips}>
               {Object.entries(TONES).map(([key, v]) => (
-                <Pressable key={key} style={[styles.chip, tone === key && styles.chipOn]} onPress={() => setTone(key)} accessibilityRole="button">
-                  <Text style={[styles.chipText, tone === key && styles.chipTextOn]}>{v.label}</Text>
-                </Pressable>
+                <Pill key={key} label={t(v.label)} on={tone === key} onPress={() => setTone(key)} />
               ))}
             </View>
           </>
         )}
-        <TextInput style={styles.input} value={text} onChangeText={setText} placeholder={tool.placeholder} placeholderTextColor={styles.placeholder.color} multiline textAlignVertical="top" />
-        <Pressable style={[styles.go, (!text.trim() || busy) && styles.off]} onPress={run} disabled={!text.trim() || busy} accessibilityRole="button">
-          {busy ? <ActivityIndicator color={styles.goText.color} /> : <Text style={styles.goText}>Lancer</Text>}
-        </Pressable>
+        <Card>
+          <TextInput style={styles.input} value={text} onChangeText={setText} placeholder={tool.placeholder} placeholderTextColor={c.placeholder} multiline textAlignVertical="top" />
+        </Card>
+        <PrimaryButton label="Lancer" icon="sparkles" onPress={run} disabled={!text.trim()} busy={busy} />
         {!!answer && (
-          <View style={styles.answer}>
-            <Text style={styles.answerText} selectable>{answer}</Text>
-            <Pressable onPress={() => Share.share({ message: answer }).catch(() => {})} hitSlop={10} accessibilityRole="button">
-              <Text style={styles.link}>Partager / copier</Text>
+          <Card style={styles.answer}>
+            <Plain style={styles.answerText} selectable>{answer}</Plain>
+            <Pressable onPress={() => Share.share({ message: answer }).catch(() => {})} hitSlop={10} accessibilityRole="button" style={styles.share}>
+              <Icon name="share" size={16} color={c.accent} />
+              <Text style={styles.shareText}>Partager / copier</Text>
             </Pressable>
-          </View>
+          </Card>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -124,26 +131,24 @@ export default function ToolsScreen({ settings, onOpenSettings }) {
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
-  content: { padding: 16, paddingTop: 44, gap: 12 },
-  title: { color: c.text, fontSize: 24, fontWeight: '700' },
+  content: { padding: 20, paddingTop: 44, gap: 16 },
+  empty: { alignItems: 'flex-start', gap: 16 },
+  note: { color: c.textSoft, fontSize: 15, lineHeight: 22 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  card: { width: '47.5%', backgroundColor: c.surface, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: c.border, gap: 4 },
-  icon: { fontSize: 28 },
-  cardTitle: { color: c.text, fontSize: 16, fontWeight: '700' },
-  cardHint: { color: c.textMuted, fontSize: 13 },
-  label: { color: c.textSoft, fontSize: 14, fontWeight: '600', marginTop: 4 },
+  tile: { width: '48%', flexGrow: 1, backgroundColor: c.surface, borderRadius: 20, padding: 16, gap: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+  pressed: { opacity: 0.85, transform: [{ scale: 0.985 }] },
+  tileTitle: { color: c.text, fontSize: 16, fontWeight: '600', letterSpacing: -0.2, marginTop: 4 },
+  tileHint: { color: c.textMuted, fontSize: 13, lineHeight: 18 },
+  back: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start' },
+  backText: { color: c.accent, fontSize: 16, fontWeight: '500' },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  headText: { flex: 1, gap: 2 },
+  toolTitle: { color: c.text, fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },
+  label: { color: c.textSoft, fontSize: 13, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 4 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { backgroundColor: c.surface, borderRadius: 18, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: c.border },
-  chipOn: { backgroundColor: c.chipOn, borderColor: c.accent },
-  chipText: { color: c.textSoft, fontSize: 14 },
-  chipTextOn: { color: c.text, fontWeight: '700' },
-  input: { backgroundColor: c.surface, borderRadius: 16, padding: 14, color: c.text, fontSize: 17, minHeight: 130, borderWidth: 1, borderColor: c.border },
-  placeholder: { color: c.placeholder },
-  go: { backgroundColor: c.accent, borderRadius: 28, paddingVertical: 16, alignItems: 'center' },
-  goText: { color: c.onAccent, fontSize: 18, fontWeight: '700' },
-  off: { opacity: 0.45 },
-  answer: { backgroundColor: c.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: c.border, gap: 10 },
-  answerText: { color: c.text, fontSize: 17, lineHeight: 24 },
-  link: { color: c.link, fontSize: 15 },
-  note: { color: c.textMuted, fontSize: 15 },
+  input: { color: c.text, fontSize: 17, lineHeight: 25, minHeight: 130, padding: 0 },
+  answer: { gap: 14 },
+  answerText: { color: c.text, fontSize: 17, lineHeight: 26 },
+  share: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  shareText: { color: c.accent, fontSize: 14, fontWeight: '500' },
 }));

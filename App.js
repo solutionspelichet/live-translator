@@ -32,7 +32,10 @@ import { nextHistoryId, parseHistory } from './src/utils/history';
 import { describeError } from './src/utils/http';
 import MicIdleController from './src/utils/micIdle';
 import { deepgramSeconds } from './src/utils/usage';
-import { palette, resolveTheme, setTheme, themedStyles } from './src/theme';
+import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+import Icon from './src/components/Icon';
+import { cardShadow, palette, resolveTheme, setTheme, themedStyles } from './src/theme';
+import { setFontsReady } from './src/theme/fonts';
 import LanguageFlags from './src/i18n/LanguageFlags';
 import { Text } from './src/i18n/Text';
 import { defaultLocale, setLocale, t } from './src/i18n';
@@ -40,6 +43,8 @@ import { defaultLocale, setLocale, t } from './src/i18n';
 export default function App() {
   useKeepAwake();
   const [ready, setReady] = useState(false);
+  const [fontsLoaded, fontsError] = useFonts({ Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold });
+  setFontsReady(fontsLoaded);
   const [tab, setTab] = useState('voice'); // bottom navigation: voice (translator) | text | tools | meetings | settings
   // Bumped after saving so the engine is rebuilt with the new keys.
   const [version, setVersion] = useState(0);
@@ -57,7 +62,7 @@ export default function App() {
     Promise.all([loadStoredKeys(), loadSettings().then(setSettings), UsageTracker.load(), EventLog.load()]).finally(() => setReady(true));
   }, []);
 
-  if (!ready) return <View style={styles.missing} />;
+  if (!ready || !(fontsLoaded || fontsError)) return <View style={styles.missing} />;
   const bar = <StatusBar style={palette().scheme === 'dark' ? 'light' : 'dark'} />;
   const save = (next) => {
     EventLog.add(`réglages enregistrés : service ${next.strategy} · sortie ${next.outputMode}`);
@@ -346,7 +351,8 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
           hitSlop={12}
           accessibilityLabel={t('Mains libres : détection automatique de la langue')}
         >
-          <Text style={styles.chipText}>{handsFree ? 'Mains libres ✓' : 'Mains libres'}</Text>
+          <Icon name="hands" size={16} color={handsFree ? palette().onAccent : palette().text} />
+          <Text style={[styles.chipText, handsFree && styles.chipTextOn]}>Mains libres</Text>
         </Pressable>
         <Pressable
           style={[styles.chip, autoStop && styles.chipOn, handsFree && styles.chipDim]}
@@ -358,7 +364,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
           hitSlop={12}
           accessibilityLabel={t('Envoi automatique après une pause')}
         >
-          <Text style={styles.chipText}>{autoStop ? 'Auto ✓' : 'Auto'}</Text>
+          <Text style={[styles.chipText, autoStop && styles.chipTextOn]}>Auto</Text>
         </Pressable>
         <Pressable
           style={[styles.chip, recording.active && styles.chipRec]}
@@ -366,18 +372,17 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
           hitSlop={12}
           accessibilityLabel={t('Enregistrer la conversation traduite comme réunion')}
         >
-          <Text style={styles.chipText}>
-            {recording.active ? `⏺ ${formatClock(TranslationMeetingService.current?.elapsedSec ?? 0)} · ${recording.passages}` : '⏺ Réunion'}
+          <Icon name="record" size={14} color={recording.active ? palette().onAccent : palette().rec} />
+          <Text style={[styles.chipText, recording.active && styles.chipTextOn]}>
+            {recording.active ? `${formatClock(TranslationMeetingService.current?.elapsedSec ?? 0)} · ${recording.passages}` : t('Réunion')}
           </Text>
         </Pressable>
         <Pressable style={styles.chip} onPress={() => setShowUsage(true)} hitSlop={12} accessibilityLabel={t('Consommation facturée')}>
-          <Text style={styles.chipText}>{`📊 ${Math.round(deepgramSeconds(usage.today) / 60)} ${t('min')}`}</Text>
-        </Pressable>
-        <Pressable style={styles.gear} onPress={onOpenMeetings} hitSlop={12} accessibilityLabel={t('Réunions : enregistrer et résumer')}>
-          <Text style={styles.gearText}>📝</Text>
+          <Icon name="chart" size={16} color={palette().text} />
+          <Text style={styles.chipText}>{`${Math.round(deepgramSeconds(usage.today) / 60)} ${t('min')}`}</Text>
         </Pressable>
         <Pressable style={styles.gear} onPress={() => setShowHistory(true)} hitSlop={12} accessibilityLabel={t('Historique')}>
-          <Text style={styles.gearText}>🕘</Text>
+          <Icon name="clock" size={18} color={palette().text} />
         </Pressable>
         <Pressable
           style={styles.gear}
@@ -393,7 +398,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
           hitSlop={16}
           accessibilityLabel={t('Réglages')}
         >
-          <Text style={styles.gearText}>⚙︎</Text>
+          <Icon name="sliders" size={18} color={palette().text} />
         </Pressable>
       </View>
       <UsageScreen
@@ -472,19 +477,13 @@ const styles = themedStyles((c) => StyleSheet.create({
     gap: 6,
   },
   flags: { marginBottom: 4 },
-  chip: { height: 38, paddingHorizontal: 12, borderRadius: 19, backgroundColor: c.overlay, justifyContent: 'center' },
-  chipOn: { backgroundColor: c.successStrong },
+  chip: { height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: c.glass, borderWidth: StyleSheet.hairlineWidth, borderColor: c.glassBorder, flexDirection: 'row', alignItems: 'center', gap: 7, ...cardShadow(c) },
+  chipOn: { backgroundColor: c.accent, borderColor: c.accent },
+  chipTextOn: { color: c.onAccent },
   chipDim: { opacity: 0.4 },
   chipRec: { backgroundColor: c.dangerStrong },
-  chipText: { color: c.onAccent, fontSize: 14, fontWeight: '700' },
-  gear: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: c.overlay,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  chipText: { color: c.text, fontSize: 13.5, fontWeight: '600', letterSpacing: -0.1 },
+  gear: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.glass, borderWidth: StyleSheet.hairlineWidth, borderColor: c.glassBorder, alignItems: 'center', justifyContent: 'center', ...cardShadow(c) },
   diag: { position: 'absolute', left: 8, right: 8, bottom: 24, maxHeight: '42%', backgroundColor: c.overlayStrong, borderRadius: 8, padding: 8 },
   diagText: { color: c.success, fontFamily: 'Courier', fontSize: 11 },
   // The panel stays under the controls (it used to cover the gear that opens it: no way to close it) and has its own close button.
@@ -494,5 +493,4 @@ const styles = themedStyles((c) => StyleSheet.create({
   diagScroll: { maxHeight: 220 },
   diagShare: { alignSelf: 'flex-end', backgroundColor: c.accent, borderRadius: 12, paddingVertical: 6, paddingHorizontal: 12 },
   diagShareText: { color: c.onAccent, fontSize: 12, fontWeight: '700' },
-  gearText: { color: c.onAccent, fontSize: 20 },
 }));
