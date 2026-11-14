@@ -43,6 +43,7 @@ export function engineOptions(settings) {
     mistralTranslator: ['deepl', 'mistral'].includes(settings.mistralTranslator) ? settings.mistralTranslator : 'auto',
     doubaoVoiceKind: ['preset', 'auto'].includes(settings.doubaoVoiceKind) ? settings.doubaoVoiceKind : 'clone',
     doubaoVoices: sanitizeDoubaoVoices(settings.doubaoVoices),
+    mistralVoices: sanitizeMistralVoices(settings.mistralVoices),
     mistralGlossary: String(settings.mistralGlossary ?? ''),
     mistralAutoContext: settings.mistralAutoContext !== false,
     endpointingMs,
@@ -73,6 +74,7 @@ export const STRATEGIES = Object.freeze({
 export const DEFAULT_SETTINGS = Object.freeze({
   doubaoVoiceKind: 'clone', // 'clone' (the cloned voice of the BytePlus console) | 'preset' (a voice of the BytePlus list) | 'auto' (the model clones each speaker's voice by itself — experiment)
   doubaoVoices: Object.freeze({}), // preset voice chosen per language spoken: { fr: 'fr_female_…', zh: 'zh_female_…' }
+  mistralVoices: Object.freeze({}), // Mistral voice chosen per language spoken: { fr: '<voice id>' } (none = the app picks a neutral one)
   uiLang: null, // interface language chosen with the flags: 'fr' | 'en' | 'zh' (null = follow the phone: Chinese or English if the phone is set so, else French)
   strategy: 'classic', // see STRATEGIES
   theme: 'system', // 'system' (follows the phone) | 'light' | 'dark'
@@ -144,6 +146,17 @@ function sanitizeDoubaoVoices(raw) {
   return out;
 }
 
+/** Mistral voice chosen per language spoken: { fr: '<voice id>' } (ids are opaque strings, a few dozen characters). */
+export function sanitizeMistralVoices(raw) {
+  const out = {};
+  if (raw && typeof raw === 'object') {
+    for (const [code, id] of Object.entries(raw)) {
+      if (/^[a-z]{2}$/.test(code) && typeof id === 'string' && /^[\w.:-]{3,80}$/.test(id)) out[code] = id;
+    }
+  }
+  return out;
+}
+
 export function sanitizeSettings(raw) {
   const input = raw && typeof raw === 'object' ? raw : {};
   const a = LANGUAGES[input.languages?.A] ? input.languages.A : DEFAULT_SETTINGS.languages.A;
@@ -160,6 +173,7 @@ export function sanitizeSettings(raw) {
     uiLang: normalizeLocale(input.uiLang),
     doubaoVoiceKind: ['preset', 'auto'].includes(input.doubaoVoiceKind) ? input.doubaoVoiceKind : 'clone',
     doubaoVoices: sanitizeDoubaoVoices(input.doubaoVoices),
+    mistralVoices: sanitizeMistralVoices(input.mistralVoices),
     theme: ['system', 'light', 'dark'].includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
     voiceLayout: input.voiceLayout === 'side' ? 'side' : 'face',
     strategy: STRATEGIES[input.strategy] && STRATEGIES[input.strategy].available !== false ? input.strategy : DEFAULT_SETTINGS.strategy,

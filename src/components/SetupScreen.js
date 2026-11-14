@@ -10,9 +10,9 @@ import Power from '../../modules/dualcast-power';
 import { doubaoCode, doubaoPairProblem } from '../utils/doubao';
 import { defaultDoubaoVoice, doubaoVoicesFor } from '../utils/doubaoVoices';
 import { OUTPUT_MODES } from '../utils/outputRoute';
-import { mistralVoiceLanguage } from '../utils/mistral';
+import { listVoiceCandidates, mistralVoiceLanguage } from '../utils/mistral';
 import { checkMistral } from '../utils/mistralCheck';
-import { describeError } from '../utils/http';
+import { describeError, fetchWithRetry } from '../utils/http';
 import VoiceCloneCard from './VoiceCloneCard';
 import { listVoices, testGeminiKey, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
 import { cardShadow, palette, THEME_CHOICES, themedStyles } from '../theme';
@@ -43,6 +43,8 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
   const [theme, setThemeChoice] = useState(settings.theme);
   const [doubaoVoiceKind, setDoubaoVoiceKind] = useState(settings.doubaoVoiceKind);
   const [doubaoVoices, setDoubaoVoices] = useState(settings.doubaoVoices ?? {});
+  const [mistralVoices, setMistralVoices] = useState(settings.mistralVoices ?? {});
+  const [mistralVoiceList, setMistralVoiceList] = useState({}); // language → voices of the Mistral account
   const [uiLang, setUiLang] = useState(settings.uiLang ?? defaultLocale());
   const live = strategy !== 'classic'; // one live-translation service (OpenAI or Gemini) instead of the Deepgram → DeepL → ElevenLabs chain
   const LIVE_FIELDS = { openai: ['EXPO_PUBLIC_OPENAI_API_KEY'], gemini: ['EXPO_PUBLIC_GEMINI_API_KEY'], mistral: ['EXPO_PUBLIC_MISTRAL_API_KEY'], doubao: ['EXPO_PUBLIC_BYTEPLUS_API_KEY', 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID'] };
@@ -66,6 +68,21 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
   useEffect(() => {
     audio.listInputs().then(setInputs);
   }, []);
+  // The voice lists load by themselves once the key is there (the dropdowns are then ready): ElevenLabs, and Mistral per language spoken.
+  const elevenKey = values.EXPO_PUBLIC_ELEVENLABS_API_KEY?.trim();
+  useEffect(() => {
+    if (!elevenKey || elevenKey.length < 20 || voices) return;
+    listVoices(elevenKey, { elevenLabsBase: env.elevenLabsBaseUrl }).then(setVoices).catch(() => {});
+  }, [elevenKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const mistralKey = values.EXPO_PUBLIC_MISTRAL_API_KEY?.trim();
+  useEffect(() => {
+    if (strategy !== 'mistral' || !mistralKey || mistralKey.length < 20) return;
+    const get = (path) => fetchWithRetry('Mistral', () => fetch(`${env.mistralBaseUrl}${path}`, { headers: { Authorization: `Bearer ${mistralKey}` } }), { retries: 1 }).then((r) => r.json());
+    for (const code of new Set([languages.A, languages.B].map((c) => mistralVoiceLanguage(c)).filter(Boolean))) {
+      if (mistralVoiceList[code]) continue;
+      listVoiceCandidates(get, code).then((list) => setMistralVoiceList((cur) => ({ ...cur, [code]: list }))).catch(() => {});
+    }
+  }, [strategy, mistralKey, languages.A, languages.B]); // eslint-disable-line react-hooks/exhaustive-deps
   const [saving, setSaving] = useState(false);
   const complete = requiredFields(strategy, { doubaoPreset: doubaoVoiceKind !== 'clone' }).every((name) => values[name]?.trim());
   // Open: what you change most (translation); the keys when something is missing. The rest unfolds on demand.
@@ -150,13 +167,11 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
                   {list.length === 0 ? (
                     <Text style={styles.hint}>{t('Pas de voix prédéfinie pour {lang}', { lang: getLanguage(owner).label })}</Text>
                   ) : (
-                    <ScrollView style={{ maxHeight: 190 }} nestedScrollEnabled>
-                      <View style={styles.chips}>
-                        {list.map((v) => (
-                          <Chip key={v.id} label={`${v.name} ${v.gender === 'F' ? '♀' : '♂'}`} on={chosen === v.id} onPress={() => setDoubaoVoices((cur) => ({ ...cur, [base]: v.id }))} />
-                        ))}
-                      </View>
-                    </ScrollView>
+                    <Select
+                      value={chosen}
+                      onChange={(id) => setDoubaoVoices((cur) => ({ ...cur, [base]: id }))}
+                      options={list.map((v) => ({ id: v.id, label: `${v.name} ${v.gender === 'F' ? '♀' : '♂'}` }))}
+                    />
                   )}
                 </View>
               );
@@ -171,6 +186,39 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             </Hint>
           </>
         )}
+        {strategy === 'mistral' && (() => {
+          const langs = [...new Set([languages.A, languages.B].map((c) => mistralVoiceLanguage(c)).filter(Boolean))];
+          if (!langs.length) return null;
+          return (
+            <>
+              <Text style={styles.label}>Voix de Mistral</Text>
+              {langs.map((code) => {
+                const owner = [languages.A, languages.B].find((c) => mistralVoiceLanguage(c) === code);
+                const list = mistralVoiceList[code] ?? [];
+                return (
+                  <View key={code} style={styles.voiceRow}>
+                    <Text style={styles.hint}>{`${getLanguage(owner).flag} ${getLanguage(owner).label}`}</Text>
+                    <Select
+                      value={mistralVoices[code] ?? null}
+                      onChange={(id) => setMistralVoices((cur) => {
+                        const next = { ...cur };
+                        if (id) next[code] = id;
+                        else delete next[code];
+                        return next;
+                      })}
+                      options={[
+                        { id: null, label: t("Automatique (voix neutre choisie par l'application)") },
+                        ...(mistralVoices[code] && !list.some((v) => v.id === mistralVoices[code]) ? [{ id: mistralVoices[code], label: t('Voix enregistrée') }] : []),
+                        ...list.map((v) => ({ id: v.id, label: v.name ?? v.id })),
+                      ]}
+                    />
+                  </View>
+                );
+              })}
+              <Hint>La liste vient de votre compte Mistral et se charge toute seule quand la clé est saisie. « Automatique » prend la voix neutre la mieux classée ; une voix choisie ici passe en premier, et si Mistral la refuse l'application essaie les autres.</Hint>
+            </>
+          );
+        })()}
         <View style={styles.chips}>
           <Chip label="⇄ Inverser A et B" on={false} onPress={() => setLanguages((l) => ({ A: l.B, B: l.A }))} />
           {settings.recentPairs
@@ -477,16 +525,15 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             ].map(([field, title]) => (
               <Fragment key={field}>
                 <Text style={styles.label}>{title}</Text>
-                <View style={styles.chips}>
-                  {voices.slice(0, 40).map((v) => (
-                    <Chip
-                      key={v.id}
-                      label={v.hint ? `${v.name} · ${v.hint}` : v.name}
-                      on={values[field]?.trim() === v.id}
-                      onPress={() => setValues((cur) => ({ ...cur, [field]: v.id }))}
-                    />
-                  ))}
-                </View>
+                <Select
+                  value={values[field]?.trim() || null}
+                  onChange={(id) => setValues((cur) => ({ ...cur, [field]: id ?? '' }))}
+                  placeholder={t('Choisir une voix')}
+                  options={[
+                    ...(values[field]?.trim() && !voices.some((v) => v.id === values[field].trim()) ? [{ id: values[field].trim(), label: `${t('Voix saisie')} · ${values[field].trim().slice(0, 10)}…` }] : []),
+                    ...voices.map((v) => ({ id: v.id, label: v.name, hint: v.hint })),
+                  ]}
+                />
               </Fragment>
             ))}
             <Hint>
@@ -555,7 +602,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, doubaoVoiceKind, doubaoVoices, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, doubaoVoiceKind, doubaoVoices, mistralVoices, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}
@@ -651,6 +698,7 @@ const styles = themedStyles((c) => StyleSheet.create({
   cardTitle: { color: c.text, fontSize: 17, fontWeight: '600', letterSpacing: -0.2 },
   cardSub: { color: c.textMuted, fontSize: 13, marginTop: 2 },
   chevronOpen: { transform: [{ rotate: '90deg' }] },
+  voiceRow: { gap: 4, marginBottom: 6 },
   gainHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 },
   labelInline: { color: c.textSoft, fontSize: 14 },
   gainValue: { color: c.accent, fontSize: 15, fontWeight: '700', fontFamily: 'monospace' },

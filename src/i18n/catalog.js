@@ -429,4 +429,10 @@ export default [
   ["Supprimer ce compte rendu ?", "Delete these minutes?", "删除此会议纪要？"],
   ["Seul ce compte rendu est effacé, pas la transcription.", "Only these minutes are deleted, not the transcript.", "仅删除此会议纪要，不删除转录。"],
   ["exporté par la barre du bas", "exported from the bottom bar", "通过底部栏导出"],
+  ["Voix de Mistral", "Mistral voice", "Mistral 语音"],
+  ["Automatique (voix neutre choisie par l'application)", "Automatic (neutral voice picked by the app)", "自动（由应用选择中性语音）"],
+  ["Voix enregistrée", "Saved voice", "已保存的语音"],
+  ["Choisir une voix", "Choose a voice", "选择语音"],
+  ["Voix saisie", "Typed voice", "手动输入的语音"],
+  ["La liste vient de votre compte Mistral et se charge toute seule quand la clé est saisie. « Automatique » prend la voix neutre la mieux classée ; une voix choisie ici passe en premier, et si Mistral la refuse l'application essaie les autres.", "The list comes from your Mistral account and loads by itself once the key is entered. « Automatic » takes the best-ranked neutral voice; a voice chosen here goes first, and if Mistral refuses it the app tries the others.", "列表来自你的 Mistral 账户，输入密钥后自动加载。“自动”使用排名最高的中性语音；这里选定的语音优先使用，若 Mistral 拒绝，应用会尝试其他语音。"],
 ];

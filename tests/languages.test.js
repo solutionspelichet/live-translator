@@ -57,6 +57,7 @@ test('sanitizeSettings keeps valid values', () => {
     muteWhilePlaying: false,
     voiceBySpeaker: false,
     voiceLayout: 'face',
+    mistralVoices: {},
     elevenVoiceForAll: false,
     mistralQuality: 'best',
     lowBandwidth: false,
@@ -236,4 +237,11 @@ test('interface language: only fr / en / zh are kept, the phone language is the 
   assert.equal(defaultLocale('zh-CN'), 'zh');
   assert.equal(defaultLocale('en-GB'), 'en');
   assert.equal(defaultLocale('de-DE'), 'fr');
+});
+
+test('mistralVoices: one voice id per language code, the rest is dropped', async () => {
+  const { sanitizeMistralVoices } = await import('../src/config/settingsModel.js');
+  assert.deepEqual(sanitizeMistralVoices({ fr: 'a1b2-c3d4', en: 'x', zh: 'voice_12', FR: 'abcdef', de: 42 }), { fr: 'a1b2-c3d4', zh: 'voice_12' });
+  assert.deepEqual(sanitizeMistralVoices(null), {});
+  assert.deepEqual(sanitizeSettings({ mistralVoices: { fr: 'abc-def' } }).mistralVoices, { fr: 'abc-def' });
 });

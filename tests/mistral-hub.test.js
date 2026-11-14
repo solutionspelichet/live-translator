@@ -28,7 +28,7 @@ function wavBytes(samples, rate = 24000) {
   return bytes;
 }
 
-async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null, speech = null, chatFail = null, quality = null, glossary = '', deepl = null, translator = 'auto' } = {}) {
+async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices = { data: [{ id: 'voice-en', name: 'Jane', languages: ['en'] }] }, tapOnly = false, pair = ['fr', 'en'], mint = null, speech = null, chatFail = null, quality = null, glossary = '', deepl = null, translator = 'auto', voiceChoice = {} } = {}) {
   MistralLiveHub.sharedNotes = null;
   MistralLiveHub.blockedUntil.clear(); // the memory of refused models is shared by hubs: each test starts clean
   const sockets = [];
@@ -62,7 +62,7 @@ async function setup({ answer = { from: 'A', text: 'Hello everyone.' }, voices =
     if (url.includes('/v1/audio/speech')) return json({ audio_data: Buffer.from(wavBytes([1000, 2000, 3000])).toString('base64') });
     return { ok: false, status: 404, text: async () => 'nope' };
   };
-  const hub = new MistralLiveHub({ apiKey: 'key-test', baseUrl: 'https://api.test', wsUrl: 'wss://stt.test/realtime', languageName: (c) => c, WebSocketImpl: FakeSocket, fetchImpl, quietMs: 40, quality: quality ?? 'fast', glossary, deepl, translator, deeplCode: (c) => String(c).toUpperCase() });
+  const hub = new MistralLiveHub({ apiKey: 'key-test', baseUrl: 'https://api.test', wsUrl: 'wss://stt.test/realtime', languageName: (c) => c, WebSocketImpl: FakeSocket, fetchImpl, quietMs: 40, quality: quality ?? 'fast', glossary, deepl, translator, voiceChoice, deeplCode: (c) => String(c).toUpperCase() });
   const got = { audio: [], inText: [], outText: [], notes: [], errors: [], usage: [] };
   const make = (source, target, transcribeInput) =>
     new MistralLiveSession({
@@ -515,6 +515,22 @@ test('the moderation blocking the VOICE gives the text only', async () => {
   assert.equal(got.errors.length, 0);
   assert.ok(got.outText.length >= 1, 'the translation is shown');
   assert.ok(got.notes.some((n) => /voix bloquée par la modération/.test(n)));
+});
+
+test('the voice chosen in the settings is tried first for its language, the others only if it is refused', async () => {
+  const voices = { data: [{ id: 'voice-a', name: 'Anna', languages: ['en'] }, { id: 'voice-b', name: 'Ben', languages: ['en'] }] };
+  const x = await setup({ voices, voiceChoice: { en: 'voice-b' } });
+  x.sockets[0].serve({ type: 'session.created' });
+  x.sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(900);
+  const speech = x.calls.filter((c) => c.url.includes('/v1/audio/speech'));
+  assert.ok(speech.length >= 1);
+  assert.equal(speech[0].body.voice_id, 'voice-b', 'the chosen voice speaks');
+  const y = await setup({ voices });
+  y.sockets[0].serve({ type: 'session.created' });
+  y.sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(900);
+  assert.equal(y.calls.find((c) => c.url.includes('/v1/audio/speech')).body.voice_id, 'voice-a', 'no choice: the best ranked');
 });
 
 test('a rate limit (429 on every model) never stops the turn: the sentence is dropped, requests are spaced out, listening goes on', async () => {

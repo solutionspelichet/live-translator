@@ -55,8 +55,8 @@ export default class MistralLiveHub {
   /** The last notes found about the conversation: { text, at }. */
   static sharedNotes = null;
 
-  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '', autoContext = true, lowBandwidth = false, deepl = null, translator = 'auto', deeplCode = (c) => c }) {
-    Object.assign(this, { apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak, preferFallback, userGlossary: glossary, autoContext });
+  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '', autoContext = true, lowBandwidth = false, deepl = null, translator = 'auto', deeplCode = (c) => c, voiceChoice = {} }) {
+    Object.assign(this, { voiceChoice, apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak, preferFallback, userGlossary: glossary, autoContext });
     this.models = modelsForQuality(quality); // the translation models, best first or fastest first // preferFallback: the other voice speaks EVERY language (e.g. one's own cloned voice) // fallbackSpeak(text, target) → { samples, rate } | null: another voice for the languages Mistral cannot speak
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.fetchImpl = fetchImpl ?? ((...args) => fetch(...args));
@@ -748,7 +748,9 @@ export default class MistralLiveHub {
   async speak(language, text) {
     if (!this.voices.has(language)) this.voices.set(language, this.loadVoices(language));
     const candidates = await this.voices.get(language);
-    const tried = this.goodVoice.get(language) ? [this.goodVoice.get(language)] : candidates.slice(0, 5).map((v) => v.id);
+    // The voice the user chose for this language comes first (the others only if it is refused); otherwise the one that worked, else the best ranked.
+    const chosen = this.voiceChoice?.[language];
+    const tried = chosen ? [chosen, ...candidates.slice(0, 4).map((v) => v.id).filter((id) => id !== chosen)] : this.goodVoice.get(language) ? [this.goodVoice.get(language)] : candidates.slice(0, 5).map((v) => v.id);
     let refusal = null;
     for (const id of tried) {
       try {

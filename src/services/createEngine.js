@@ -68,7 +68,7 @@ export default function createEngine(languages, options = {}, strategy = 'classi
   if (strategy === 'mistral') {
     let hub = null; // one pipeline per turn, shared by the two directions (the first session of a turn creates it)
     let warm = null; // a hub connected ahead of the tap (token + socket take 2–10 s on a weak network): the next turn starts at once
-    const makeHub = () => new MistralLiveHub({ apiKey: env.mistralKey, baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl, languageName: (code) => getLanguage(code).label, timers: BackgroundTimers, fallbackSpeak: mistralFallbackVoice(languages, options.lowBandwidth), preferFallback: Boolean(options.elevenVoiceForAll), quality: options.mistralQuality, glossary: options.mistralGlossary, autoContext: options.mistralAutoContext && !options.lowBandwidth, lowBandwidth: options.lowBandwidth, translator: options.mistralTranslator, deepl: env.deeplKey ? new DeepLClient() : null, deeplCode: (c) => getLanguage(c).deeplSource });
+    const makeHub = () => new MistralLiveHub({ apiKey: env.mistralKey, baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl, languageName: (code) => getLanguage(code).label, timers: BackgroundTimers, fallbackSpeak: mistralFallbackVoice(languages, options.lowBandwidth), preferFallback: Boolean(options.elevenVoiceForAll), quality: options.mistralQuality, glossary: options.mistralGlossary, voiceChoice: options.mistralVoices ?? {}, autoContext: options.mistralAutoContext && !options.lowBandwidth, lowBandwidth: options.lowBandwidth, translator: options.mistralTranslator, deepl: env.deeplKey ? new DeepLClient() : null, deeplCode: (c) => getLanguage(c).deeplSource });
     const engine = new LiveTranslationEngine({
       languages,
       mic: new MicrophoneStreamer(),
