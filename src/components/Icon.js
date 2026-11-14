@@ -61,6 +61,9 @@ const ICONS = {
   search: [['circle', { cx: 11, cy: 11, r: 6.5 }], ['path', { d: 'M16 16l4.5 4.5' }]],
   checkcircle: [['circle', { cx: 12, cy: 12, r: 8.5 }], ['path', { d: 'M8 12.5l3 3 5-6' }]],
   headset: [['path', { d: 'M4 14v-2a8 8 0 0 1 16 0v2' }], ['rect', { x: 3, y: 14, width: 4, height: 6, rx: 1.5 }], ['rect', { x: 17, y: 14, width: 4, height: 6, rx: 1.5 }]],
+  bolt: [['path', { d: 'M13 2L5 13.5h6L10 22l8-11.5h-6z' }]],
+  rotate: [['path', { d: 'M20 11a8 8 0 1 0-2.4 5.7M20 4v7h-7' }]],
+  info: [['circle', { cx: 12, cy: 12, r: 8.5 }], ['line', { x1: 12, y1: 11, x2: 12, y2: 16.5 }], ['circle', { cx: 12, cy: 7.8, r: 0.6, fill: true }]],
   hands: [['circle', { cx: 12, cy: 12, r: 8.5 }], ['path', { d: 'M8 12h2l1.5-3 1.5 6 1.5-3H16' }]],
 };
 

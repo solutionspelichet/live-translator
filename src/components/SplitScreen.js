@@ -31,13 +31,14 @@ const WHITE = '#FFFFFF'; // text on a live (coloured) zone, in both themes
  * @param {boolean} props.autoStop                   a pause in speech sends automatically
  * @param {boolean} props.handsFree                  language detected automatically; a tap anywhere starts/stops
  * @param {(side) => void} props.onPress
+ * @param {'face'|'side'} [props.layout]   'face': two people facing each other (A upside down); 'side': one reader, both zones upright
  * @param {import('react').ReactNode} [props.middle]   controls placed BETWEEN the two zones (in the layout, never over them)
  */
-export default function SplitScreen({ languages, state, activeSide, texts, level, autoStop, handsFree, onPress, middle }) {
+export default function SplitScreen({ languages, state, activeSide, texts, level, autoStop, handsFree, onPress, middle, layout = 'face' }) {
   const shared = { languages, state, activeSide, texts, level, autoStop, handsFree, onPress };
   return (
     <View style={styles.root}>
-      <Zone side={SIDE.A} flipped {...shared} />
+      <Zone side={SIDE.A} flipped={layout === 'face'} {...shared} />
       {middle}
       <Zone side={SIDE.B} {...shared} />
     </View>
@@ -114,7 +115,7 @@ function RecDot() {
 }
 
 const styles = themedStyles((c) => StyleSheet.create({
-  root: { flex: 1, backgroundColor: c.bg, padding: 12, paddingTop: 36, gap: 12 },
+  root: { flex: 1, backgroundColor: c.bg, padding: 12, paddingTop: 8, gap: 10 },
   zone: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16, overflow: 'hidden', borderRadius: 32, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, ...cardShadow(c) },
   flipped: { transform: [{ rotate: '180deg' }] },
   starting: { borderWidth: 2, borderColor: c.warnStrong },

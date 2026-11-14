@@ -75,6 +75,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   uiLang: null, // interface language chosen with the flags: 'fr' | 'en' | 'zh' (null = follow the phone: Chinese or English if the phone is set so, else French)
   strategy: 'classic', // see STRATEGIES
   theme: 'system', // 'system' (follows the phone) | 'light' | 'dark'
+  voiceLayout: 'face', // voice screen: 'face' (two people facing each other: the top card is turned upside down) | 'side' (one reader: both cards upright)
   languages: Object.freeze({ A: 'fr', B: 'en' }),
   autoStop: true,
   background: true, // keep working with the screen off (Android foreground service)
@@ -159,6 +160,7 @@ export function sanitizeSettings(raw) {
     doubaoVoiceKind: ['preset', 'auto'].includes(input.doubaoVoiceKind) ? input.doubaoVoiceKind : 'clone',
     doubaoVoices: sanitizeDoubaoVoices(input.doubaoVoices),
     theme: ['system', 'light', 'dark'].includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
+    voiceLayout: input.voiceLayout === 'side' ? 'side' : 'face',
     strategy: STRATEGIES[input.strategy] && STRATEGIES[input.strategy].available !== false ? input.strategy : DEFAULT_SETTINGS.strategy,
     autoStop: typeof input.autoStop === 'boolean' ? input.autoStop : DEFAULT_SETTINGS.autoStop,
     background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,

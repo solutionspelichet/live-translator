@@ -56,6 +56,22 @@ export function PrimaryButton({ label, onPress, disabled, busy, icon }) {
   );
 }
 
+/** Segmented control (iOS style): one rounded track, the selected option raised. @param {{id: string, label: string}[]} options */
+export function Segmented({ options, value, onChange }) {
+  return (
+    <View style={styles.segTrack}>
+      {options.map((o) => {
+        const on = o.id === value;
+        return (
+          <Pressable key={o.id} style={[styles.segItem, on && styles.segOn]} onPress={() => onChange(o.id)} accessibilityRole="button" accessibilityState={{ selected: on }}>
+            <Text style={[styles.segText, on && styles.segTextOn]} numberOfLines={1}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 /** Selectable pill (language, tone). */
 export function Pill({ label, on, onPress }) {
   return (
@@ -76,6 +92,11 @@ const styles = themedStyles((c) => StyleSheet.create({
   primaryText: { color: c.onAccent, fontSize: 17, fontWeight: '600', letterSpacing: -0.2 },
   off: { opacity: 0.45 },
   pressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
+  segTrack: { flexDirection: 'row', backgroundColor: c.inset, borderRadius: RADIUS.pill, padding: 3, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+  segItem: { flex: 1, height: 34, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  segOn: { backgroundColor: c.accent },
+  segText: { color: c.textMuted, fontSize: 13.5, fontWeight: '600', letterSpacing: -0.1 },
+  segTextOn: { color: c.onAccent },
   pill: { paddingVertical: 9, paddingHorizontal: 16, borderRadius: RADIUS.pill, backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
   pillOn: { backgroundColor: c.accentSoft, borderColor: c.accent },
   pillText: { color: c.textSoft, fontSize: 14, fontWeight: '500' },

@@ -413,4 +413,9 @@ export default [
   ["Traduit par DeepL", "Translated by DeepL", "由 DeepL 翻译"],
   ["Traduit par un modèle de langage", "Translated by a language model", "由语言模型翻译"],
   ["Écrire, comprendre, se faire comprendre", "Write, understand, be understood", "书写、理解、被理解"],
+  ["Manuel", "Manual", "手动"],
+  ["Délai de la dernière phrase", "Delay of the last sentence", "上一句的延迟"],
+  ["Démarrer ou arrêter l'écoute mains libres", "Start or stop hands-free listening", "开始或停止免提聆听"],
+  ["Disposition : face à face (touchez pour passer en côte à côte)", "Layout: face to face (tap for side by side)", "布局：面对面（点按切换为并排）"],
+  ["Disposition : côte à côte (touchez pour passer en face à face)", "Layout: side by side (tap for face to face)", "布局：并排（点按切换为面对面）"],
 ];

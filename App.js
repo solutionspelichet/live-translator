@@ -34,6 +34,9 @@ import MicIdleController from './src/utils/micIdle';
 import { deepgramSeconds } from './src/utils/usage';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import Icon from './src/components/Icon';
+import { Segmented } from './src/components/ui';
+import { ListenHub, TelemetryBar } from './src/components/VoiceBar';
+import { flagsFor, modeOf, VOICE_MODES } from './src/utils/voiceUi';
 import { cardShadow, palette, resolveTheme, setTheme, themedStyles } from './src/theme';
 import { setFontsReady } from './src/theme/fonts';
 import LanguageFlags from './src/i18n/LanguageFlags';
@@ -145,6 +148,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
   const [diag, setDiag] = useState(null); // null = hidden
   const [texts, setTexts] = useState({ [SIDE.A]: '', [SIDE.B]: '' });
   const [handsFree, setHandsFree] = useState(settings.handsFree);
+  const [latency, setLatency] = useState(null); // delay of the last translated sentence (ms), shown in the telemetry bar
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
@@ -197,6 +201,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       else if (ev.type === 'interim' || ev.type === 'transcript' || ev.type === 'translation') {
         setTexts((t) => ({ ...t, [ev.side]: ev.text }));
       } else if (ev.type === 'segment') {
+        if (ev.delayMs > 0) setLatency(ev.delayMs);
         TranslationMeetingService.add(ev);
         setHistory((h) =>
           [...h, { id: ++historyId.current, from: ev.from, to: ev.to, fromLang: ev.fromLang, toLang: ev.toLang, source: ev.source, translated: ev.translated, at: ev.at, service: ev.service, delayMs: ev.delayMs }].slice(-300),
@@ -322,70 +327,55 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     return () => clearInterval(t);
   }, [engine, !!diag]);
 
-  return (
-    <View style={styles.flex}>
-      <StatusBar style={palette().scheme === 'dark' ? 'light' : 'dark'} />
-      <SplitScreen
-        languages={languages}
-        state={state}
-        activeSide={activeSide}
-        texts={texts}
-        level={level}
-        autoStop={autoStop}
-        handsFree={handsFree}
-        onPress={(side) => engine.toggle(handsFree ? AUTO : side)}
-        middle={
-      <View style={styles.controls}>
-        <LanguageFlags
-          value={settings.uiLang ?? defaultLocale()}
-          onChange={(uiLang) => onSettingsChange({ ...settings, uiLang })}
-          style={styles.flags}
-        />
+  const mode = modeOf({ handsFree, autoStop });
+  const changeMode = (next) => {
+    engine.cancel(); // never switch mode in the middle of a turn
+    const flags = flagsFor(next);
+    if (flags.autoStop !== undefined) {
+      engine.autoStop = flags.autoStop;
+      setAutoStop(flags.autoStop);
+    }
+    setHandsFree(flags.handsFree);
+    onSettingsChange({ ...settings, ...flags }); // remembered across launches
+  };
+  const layout = settings.voiceLayout ?? 'face';
+  const c = palette();
+  const listening = state === STATE.LISTENING || state === STATE.STARTING;
+
+  const dock = (
+    <View style={styles.dock}>
+      <Segmented options={VOICE_MODES.map((m) => ({ ...m, label: t(m.label) }))} value={mode} onChange={changeMode} />
+      <View style={styles.dockRow}>
         <Pressable
-          style={[styles.chip, handsFree && styles.chipOn]}
-          onPress={() => {
-            engine.cancel(); // never switch mode in the middle of a turn
-            setHandsFree(!handsFree);
-            onSettingsChange({ ...settings, handsFree: !handsFree });
-          }}
-          hitSlop={12}
-          accessibilityLabel={t('Mains libres : détection automatique de la langue')}
-        >
-          <Icon name="hands" size={16} color={handsFree ? palette().onAccent : palette().text} />
-          <Text style={[styles.chipText, handsFree && styles.chipTextOn]}>Mains libres</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.chip, autoStop && styles.chipOn, handsFree && styles.chipDim]}
-          onPress={() => {
-            engine.autoStop = !autoStop;
-            setAutoStop(!autoStop);
-            onSettingsChange({ ...settings, autoStop: !autoStop }); // remembered across launches
-          }}
-          hitSlop={12}
-          accessibilityLabel={t('Envoi automatique après une pause')}
-        >
-          <Text style={[styles.chipText, autoStop && styles.chipTextOn]}>Auto</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.chip, recording.active && styles.chipRec]}
+          style={[styles.dockBtn, recording.active && styles.dockRec]}
           onPress={toggleMeeting}
-          hitSlop={12}
+          hitSlop={8}
           accessibilityLabel={t('Enregistrer la conversation traduite comme réunion')}
         >
-          <Icon name="record" size={14} color={recording.active ? palette().onAccent : palette().rec} />
-          <Text style={[styles.chipText, recording.active && styles.chipTextOn]}>
-            {recording.active ? `${formatClock(TranslationMeetingService.current?.elapsedSec ?? 0)} · ${recording.passages}` : t('Réunion')}
-          </Text>
-        </Pressable>
-        <Pressable style={styles.chip} onPress={() => setShowUsage(true)} hitSlop={12} accessibilityLabel={t('Consommation facturée')}>
-          <Icon name="chart" size={16} color={palette().text} />
-          <Text style={styles.chipText}>{`${Math.round(deepgramSeconds(usage.today) / 60)} ${t('min')}`}</Text>
-        </Pressable>
-        <Pressable style={styles.gear} onPress={() => setShowHistory(true)} hitSlop={12} accessibilityLabel={t('Historique')}>
-          <Icon name="clock" size={18} color={palette().text} />
+          <Icon name="record" size={14} color={recording.active ? c.onAccent : c.rec} />
+          {recording.active && <Text style={[styles.dockText, styles.dockTextOn]}>{`${formatClock(TranslationMeetingService.current?.elapsedSec ?? 0)} · ${recording.passages}`}</Text>}
         </Pressable>
         <Pressable
-          style={styles.gear}
+          style={styles.dockBtn}
+          onPress={() => {
+            engine.cancel();
+            onSettingsChange({ ...settings, voiceLayout: layout === 'face' ? 'side' : 'face' });
+          }}
+          hitSlop={8}
+          accessibilityLabel={layout === 'face' ? t('Disposition : face à face (touchez pour passer en côte à côte)') : t('Disposition : côte à côte (touchez pour passer en face à face)')}
+        >
+          <Icon name="rotate" size={18} color={c.text} />
+        </Pressable>
+        <Pressable style={styles.dockBtn} onPress={() => setShowUsage(true)} hitSlop={8} accessibilityLabel={t('Consommation facturée')}>
+          <Icon name="chart" size={17} color={c.text} />
+          <Text style={styles.dockText}>{`${Math.round(deepgramSeconds(usage.today) / 60)}`}</Text>
+        </Pressable>
+        {handsFree && <ListenHub live={state === STATE.LISTENING} busy={state === STATE.STARTING} onPress={() => engine.toggle(AUTO)} />}
+        <Pressable style={styles.dockBtn} onPress={() => setShowHistory(true)} hitSlop={8} accessibilityLabel={t('Historique')}>
+          <Icon name="clock" size={18} color={c.text} />
+        </Pressable>
+        <Pressable
+          style={styles.dockBtn}
           onPress={onOpenSettings}
           onLongPress={() => {
             try {
@@ -395,13 +385,35 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
             }
           }}
           delayLongPress={400}
-          hitSlop={16}
+          hitSlop={12}
           accessibilityLabel={t('Réglages')}
         >
-          <Icon name="sliders" size={18} color={palette().text} />
+          <Icon name="sliders" size={18} color={c.text} />
         </Pressable>
       </View>
-        }
+    </View>
+  );
+
+  return (
+    <View style={styles.flex}>
+      <StatusBar style={c.scheme === 'dark' ? 'light' : 'dark'} />
+      <TelemetryBar
+        strategy={settings.strategy}
+        state={state}
+        latencyMs={latency}
+        right={<LanguageFlags value={settings.uiLang ?? defaultLocale()} onChange={(uiLang) => onSettingsChange({ ...settings, uiLang })} />}
+      />
+      <SplitScreen
+        languages={languages}
+        state={state}
+        activeSide={activeSide}
+        texts={texts}
+        level={level}
+        autoStop={autoStop}
+        handsFree={handsFree}
+        layout={layout}
+        onPress={(side) => engine.toggle(handsFree ? AUTO : side)}
+        middle={dock}
       />
       <UsageScreen
         visible={showUsage}
@@ -466,22 +478,13 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
 const styles = themedStyles((c) => StyleSheet.create({
   flex: { flex: 1 },
   missing: { flex: 1, backgroundColor: c.bg },
-  // Between the two zones, in the layout (it used to float over them and hid their text and buttons)
-  controls: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  flags: { marginRight: 2 },
-  chip: { height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: c.glass, borderWidth: StyleSheet.hairlineWidth, borderColor: c.glassBorder, flexDirection: 'row', alignItems: 'center', gap: 7, ...cardShadow(c) },
-  chipOn: { backgroundColor: c.accent, borderColor: c.accent },
-  chipTextOn: { color: c.onAccent },
-  chipDim: { opacity: 0.4 },
-  chipRec: { backgroundColor: c.dangerStrong },
-  chipText: { color: c.text, fontSize: 13.5, fontWeight: '600', letterSpacing: -0.1 },
-  gear: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.glass, borderWidth: StyleSheet.hairlineWidth, borderColor: c.glassBorder, alignItems: 'center', justifyContent: 'center', ...cardShadow(c) },
+  // Between the two zones, in the layout (never over them): mode selector + action row
+  dock: { gap: 10, paddingHorizontal: 2 },
+  dockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 44 },
+  dockBtn: { minWidth: 42, height: 42, borderRadius: 21, paddingHorizontal: 11, backgroundColor: c.glass, borderWidth: StyleSheet.hairlineWidth, borderColor: c.glassBorder, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, ...cardShadow(c) },
+  dockRec: { backgroundColor: c.dangerStrong, borderColor: c.dangerStrong },
+  dockText: { color: c.text, fontSize: 12.5, fontWeight: '600', fontFamily: 'monospace' },
+  dockTextOn: { color: c.onAccent },
   diag: { position: 'absolute', left: 8, right: 8, bottom: 24, maxHeight: '42%', backgroundColor: c.overlayStrong, borderRadius: 8, padding: 8 },
   diagText: { color: c.success, fontFamily: 'Courier', fontSize: 11 },
   // The panel stays under the controls (it used to cover the gear that opens it: no way to close it) and has its own close button.
