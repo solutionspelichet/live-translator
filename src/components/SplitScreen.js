@@ -31,12 +31,14 @@ const WHITE = '#FFFFFF'; // text on a live (coloured) zone, in both themes
  * @param {boolean} props.autoStop                   a pause in speech sends automatically
  * @param {boolean} props.handsFree                  language detected automatically; a tap anywhere starts/stops
  * @param {(side) => void} props.onPress
+ * @param {import('react').ReactNode} [props.middle]   controls placed BETWEEN the two zones (in the layout, never over them)
  */
-export default function SplitScreen({ languages, state, activeSide, texts, level, autoStop, handsFree, onPress }) {
+export default function SplitScreen({ languages, state, activeSide, texts, level, autoStop, handsFree, onPress, middle }) {
   const shared = { languages, state, activeSide, texts, level, autoStop, handsFree, onPress };
   return (
     <View style={styles.root}>
       <Zone side={SIDE.A} flipped {...shared} />
+      {middle}
       <Zone side={SIDE.B} {...shared} />
     </View>
   );
@@ -78,7 +80,7 @@ function Zone({ side, flipped, languages, state, activeSide, texts, level, autoS
         <RNText style={styles.flag}>{lang.flag}</RNText>
         <Text style={[styles.label, live && { color: WHITE }]}>{lang.label}</Text>
       </View>
-      <RNText style={[styles.text, live && { color: WHITE }]} numberOfLines={6}>
+      <RNText style={[styles.text, live && { color: WHITE }]} numberOfLines={4}>
         {texts[side] || ' '}
       </RNText>
       <View style={[styles.orb, live && styles.orbLive]}>
@@ -113,15 +115,15 @@ function RecDot() {
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg, padding: 12, paddingTop: 36, gap: 12 },
-  zone: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20, borderRadius: 32, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, ...cardShadow(c) },
+  zone: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16, overflow: 'hidden', borderRadius: 32, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border, ...cardShadow(c) },
   flipped: { transform: [{ rotate: '180deg' }] },
   starting: { borderWidth: 2, borderColor: c.warnStrong },
   dimmed: { opacity: 0.5 },
   langPill: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.overlay, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 14 },
   flag: { fontSize: 20 },
   label: { color: c.zoneText, fontSize: 16, fontWeight: '600', letterSpacing: -0.2 },
-  text: { color: c.zoneTextSoft, fontSize: 24, lineHeight: 32, fontWeight: '500', letterSpacing: -0.4, textAlign: 'center', marginVertical: 14, minHeight: 64 },
-  orb: { width: 60, height: 60, borderRadius: 30, backgroundColor: c.overlay, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
+  text: { color: c.zoneTextSoft, fontSize: 22, lineHeight: 30, fontWeight: '500', letterSpacing: -0.4, textAlign: 'center', marginVertical: 10, minHeight: 60 },
+  orb: { width: 52, height: 52, borderRadius: 26, backgroundColor: c.overlay, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   orbLive: { backgroundColor: '#FFFFFF33' },
   meterRow: { flexDirection: 'row', alignItems: 'center', height: 14, width: '60%', marginBottom: 10 },
   meterTrack: { flex: 1, height: 4, borderRadius: 2, backgroundColor: c.track, overflow: 'hidden' },

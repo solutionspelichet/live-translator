@@ -334,8 +334,8 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
         autoStop={autoStop}
         handsFree={handsFree}
         onPress={(side) => engine.toggle(handsFree ? AUTO : side)}
-      />
-      <View style={styles.controls} pointerEvents="box-none">
+        middle={
+      <View style={styles.controls}>
         <LanguageFlags
           value={settings.uiLang ?? defaultLocale()}
           onChange={(uiLang) => onSettingsChange({ ...settings, uiLang })}
@@ -401,6 +401,8 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
           <Icon name="sliders" size={18} color={palette().text} />
         </Pressable>
       </View>
+        }
+      />
       <UsageScreen
         visible={showUsage}
         usage={usage}
@@ -464,19 +466,15 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
 const styles = themedStyles((c) => StyleSheet.create({
   flex: { flex: 1 },
   missing: { flex: 1, backgroundColor: c.bg },
+  // Between the two zones, in the layout (it used to float over them and hid their text and buttons)
   controls: {
-    position: 'absolute',
-    left: 8,
-    right: 8,
-    top: '50%',
-    marginTop: -44,
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
   },
-  flags: { marginBottom: 4 },
+  flags: { marginRight: 2 },
   chip: { height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: c.glass, borderWidth: StyleSheet.hairlineWidth, borderColor: c.glassBorder, flexDirection: 'row', alignItems: 'center', gap: 7, ...cardShadow(c) },
   chipOn: { backgroundColor: c.accent, borderColor: c.accent },
   chipTextOn: { color: c.onAccent },
