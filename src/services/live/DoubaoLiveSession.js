@@ -43,8 +43,8 @@ function pcmToFloat(bytes) {
  * @param {string} opts.url  wss://voice.ap-southeast-1.bytepluses.com/api/v4/ast/v2/translate
  */
 export default class DoubaoLiveSession {
-  constructor({ target, source, apiKey, resourceId, speakerId, ttsResourceId = DOUBAO_TTS_RESOURCE, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS }) {
-    Object.assign(this, { target, source, apiKey, resourceId, speakerId, ttsResourceId, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers, quietMs });
+  constructor({ target, source, apiKey, resourceId, speakerId, ttsResourceId = DOUBAO_TTS_RESOURCE, custom = true, voiceLabel = '', url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS }) {
+    Object.assign(this, { target, source, apiKey, resourceId, speakerId, ttsResourceId, custom, voiceLabel, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers, quietMs });
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.ws = null;
     this.ready = false; // SessionStarted received
@@ -53,6 +53,7 @@ export default class DoubaoLiveSession {
     this.closing = false;
     this.dead = false;
     this.attempts = 0;
+    this.refusals = 0;
     this.sawAudio = false;
     this.lastMessageAt = 0;
     this.sessionId = null;
@@ -75,9 +76,13 @@ export default class DoubaoLiveSession {
     }
     this.ws = ws;
     this.sessionId = uuid();
+    if (!this.announced) {
+      this.announced = true;
+      this.onNote?.(`Doubao live : session ${this.source}→${this.target}, voix ${this.voiceLabel || '?'} (ressource ${this.ttsResourceId})`);
+    }
     ws.onopen = () => {
       if (this.ws !== ws) return;
-      this.send(startSession({ sessionId: this.sessionId, source: this.source, target: this.target, speakerId: this.speakerId, ttsResourceId: this.ttsResourceId }));
+      this.send(startSession({ sessionId: this.sessionId, source: this.source, target: this.target, speakerId: this.speakerId, ttsResourceId: this.ttsResourceId, custom: this.custom }));
     };
     ws.onmessage = (e) => {
       if (this.ws !== ws || typeof e.data === 'string') return; // the service speaks binary only
@@ -113,6 +118,7 @@ export default class DoubaoLiveSession {
       case 'started': {
         this.ready = true;
         this.attempts = 0;
+        this.refusals = 0;
         this.setStatus('open');
         const queued = this.pending;
         this.pending = [];
@@ -135,9 +141,21 @@ export default class DoubaoLiveSession {
       case 'finished':
         if (this.closing) this.finishClose();
         return;
-      case 'failed':
-        this.fail(new ApiError('Doubao', msg.code || 500, msg.message || 'session refusée'));
+      case 'failed': {
+        // The service's own hiccups (55xxxxxx "Server processing timeout", 45000081 and any timeout) end ITS session, not the
+        // conversation: start a new session instead of stopping the turn with an alert.
+        const transient = msg.code >= 50000000 || msg.code === 45000081 || /timeout|timed out/i.test(String(msg.message ?? ''));
+        if (!transient) return this.fail(new ApiError('Doubao', msg.code || 500, msg.message || 'session refusée'));
+        this.onNote?.(`Doubao live : session terminée par le service (${msg.code} ${String(msg.message ?? '').slice(0, 80)}) → nouvelle session`);
+        const old = this.ws;
+        this.ws = null; // the old socket's close is not a second loss
+        this.ready = false;
+        try {
+          old?.close();
+        } catch {}
+        this.lost(`erreur ${msg.code}`);
         return;
+      }
       default:
     }
   }
@@ -168,6 +186,9 @@ export default class DoubaoLiveSession {
 
   lost(reason) {
     if (this.dead || this.closing) return;
+    // The service answers the handshake with 401/403: not a network problem (retrying the same key does not help).
+    const refused = /\b(401|403)\b/.exec(String(reason ?? ''));
+    if (refused && ++this.refusals >= 3) return this.fail(new ApiError('Doubao', Number(refused[1]), `connexion refusée (${reason})`));
     if (++this.attempts > MAX_ATTEMPTS) return this.fail(new ApiError('Doubao', 0, `connexion perdue (${reason})`));
     this.setStatus(`reconnecting (${reason || 'perdue'})`);
     this.timers.setTimeout(() => this.connect(), Math.min(5000, 400 * this.attempts));

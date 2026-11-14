@@ -18,6 +18,7 @@ export function parseChat(json) {
   const u = json.usage ?? {};
   return {
     text,
+    truncated: json?.choices?.[0]?.finish_reason === 'length', // the model ran out of tokens: the answer stops mid-way
     usage: { promptTokens: Number(u.prompt_tokens) || 0, completionTokens: Number(u.completion_tokens) || 0, cost: Number(u.cost) || 0 },
   };
 }

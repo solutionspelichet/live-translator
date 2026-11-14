@@ -41,6 +41,9 @@ test('sanitizeSettings keeps valid values', () => {
     languages: { A: 'de', B: 'es' },
     strategy: 'classic',
     theme: 'system',
+    uiLang: null,
+    doubaoVoiceKind: 'clone',
+    doubaoVoices: {},
     autoStop: false,
     background: false,
     micGain: 16,
@@ -50,8 +53,17 @@ test('sanitizeSettings keeps valid values', () => {
     streamVoice: false,
     handsFree: false,
     speed: 'normal',
+    outputMode: 'stereo',
     muteWhilePlaying: false,
     voiceBySpeaker: false,
+    voiceLayout: 'face',
+    mistralVoices: {},
+    elevenVoiceForAll: false,
+    mistralQuality: 'best',
+    lowBandwidth: false,
+    mistralTranslator: 'auto',
+    mistralAutoContext: true,
+    mistralGlossary: '',
     minutesLanguage: 'fr',
     minutesTemplate: 'reunion',
     minutesModel: '',
@@ -110,7 +122,8 @@ test('micGain and voiceVolume default to auto / 2 and reject unknown values', ()
   assert.equal(sanitizeSettings({}).micGain, 'auto');
   assert.equal(sanitizeSettings({}).voiceVolume, 2);
   assert.equal(sanitizeSettings({ micGain: 32 }).micGain, 32);
-  assert.equal(sanitizeSettings({ micGain: 7 }).micGain, 'auto');
+  assert.equal(sanitizeSettings({ micGain: 7 }).micGain, 7, 'the slider gives any value between ×1 and ×32');
+  assert.equal(sanitizeSettings({ micGain: 99 }).micGain, 'auto');
   assert.equal(sanitizeSettings({ voiceVolume: 1.5 }).voiceVolume, 1.5);
   assert.equal(sanitizeSettings({ voiceVolume: 10 }).voiceVolume, 2);
 });
@@ -207,4 +220,28 @@ test('sanitizeSettings: theme is system, light or dark', () => {
   assert.equal(sanitizeSettings({ theme: 'light' }).theme, 'light');
   assert.equal(sanitizeSettings({ theme: 'dark' }).theme, 'dark');
   assert.equal(sanitizeSettings({ theme: 'pink' }).theme, 'system');
+});
+
+test('outputMode accepts only stereo or split', () => {
+  assert.equal(sanitizeSettings({ outputMode: 'split' }).outputMode, 'split');
+  assert.equal(sanitizeSettings({ outputMode: 'both' }).outputMode, 'stereo');
+  assert.equal(sanitizeSettings({}).outputMode, 'stereo');
+});
+
+test('interface language: only fr / en / zh are kept, the phone language is the default', async () => {
+  const { sanitizeSettings } = await import('../src/config/settingsModel.js');
+  const { defaultLocale, normalizeLocale } = await import('../src/i18n/index.js');
+  assert.equal(sanitizeSettings({ uiLang: 'zh' }).uiLang, 'zh');
+  assert.equal(sanitizeSettings({ uiLang: 'de' }).uiLang, null);
+  assert.equal(normalizeLocale('en'), 'en');
+  assert.equal(defaultLocale('zh-CN'), 'zh');
+  assert.equal(defaultLocale('en-GB'), 'en');
+  assert.equal(defaultLocale('de-DE'), 'fr');
+});
+
+test('mistralVoices: one voice id per language code, the rest is dropped', async () => {
+  const { sanitizeMistralVoices } = await import('../src/config/settingsModel.js');
+  assert.deepEqual(sanitizeMistralVoices({ fr: 'a1b2-c3d4', en: 'x', zh: 'voice_12', FR: 'abcdef', de: 42 }), { fr: 'a1b2-c3d4', zh: 'voice_12' });
+  assert.deepEqual(sanitizeMistralVoices(null), {});
+  assert.deepEqual(sanitizeSettings({ mistralVoices: { fr: 'abc-def' } }).mistralVoices, { fr: 'abc-def' });
 });

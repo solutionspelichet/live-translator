@@ -118,6 +118,16 @@ export function splitTranscript(text, maxChars = 60000) {
   return chunks;
 }
 
+const MINUTES_MAX_TOKENS = 12000;
+const MAX_CONTINUATIONS = 4;
+
+/** Glue the continuation to the text: a cut in the middle of a line continues it, otherwise a new line starts. */
+export function joinContinuation(text, more) {
+  const next = more.replace(/^\s*```[a-z]*\n?/i, '');
+  if (/\n\s*$/.test(text) || /^\s/.test(next)) return `${text.replace(/\s+$/, '')}\n${next.replace(/^[ \t]*\n?/, '')}`;
+  return text + next;
+}
+
 const addUsage = (a, b) => ({
   promptTokens: a.promptTokens + (b?.promptTokens ?? 0),
   completionTokens: a.completionTokens + (b?.completionTokens ?? 0),
@@ -137,20 +147,36 @@ export async function generateMinutes({ chat, model, transcript, language, templ
     const notes = [];
     for (let i = 0; i < chunks.length; i++) {
       onProgress?.(`Notes ${i + 1}/${chunks.length}…`);
-      const r = await chat({ model, messages: buildChunkNotesMessages({ part: i + 1, total: chunks.length, chunk: chunks[i], language }), maxTokens: 4000 });
+      const r = await chat({ model, messages: buildChunkNotesMessages({ part: i + 1, total: chunks.length, chunk: chunks[i], language }), maxTokens: 6000 });
       usage = addUsage(usage, r.usage);
       notes.push(`--- Notes de la partie ${i + 1}/${chunks.length} ---\n${r.text}`);
     }
     source = notes.join('\n\n');
   }
   onProgress?.('Rédaction du compte rendu…');
-  const r = await chat({
-    model,
-    messages: buildMinutesMessages({ transcript: source, language, templateId, title, dateText, durationText, extra }),
-    maxTokens: 6000,
-  });
+  const messages = buildMinutesMessages({ transcript: source, language, templateId, title, dateText, durationText, extra });
+  const r = await chat({ model, messages, maxTokens: MINUTES_MAX_TOKENS });
   usage = addUsage(usage, r.usage);
-  return { text: r.text.trim(), usage, parts: chunks.length };
+  let text = r.text;
+  // A long meeting makes a long minutes: when the model stops because it ran out of tokens, ask it to go on from exactly there
+  // (the first version cut the minutes in the middle of a section).
+  let truncated = !!r.truncated;
+  for (let i = 0; truncated && i < MAX_CONTINUATIONS; i++) {
+    onProgress?.(`Rédaction du compte rendu (suite ${i + 1})…`);
+    const more = await chat({
+      model,
+      messages: [
+        ...messages,
+        { role: 'assistant', content: text },
+        { role: 'user', content: "Ta réponse a été coupée. Continue EXACTEMENT là où tu t'es arrêté (même mise en forme), sans rien répéter de ce qui précède, jusqu'à la fin de la structure demandée." },
+      ],
+      maxTokens: MINUTES_MAX_TOKENS,
+    });
+    usage = addUsage(usage, more.usage);
+    text = joinContinuation(text, more.text);
+    truncated = !!more.truncated;
+  }
+  return { text: text.trim(), usage, parts: chunks.length, truncated };
 }
 
 /**

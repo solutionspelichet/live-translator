@@ -7,6 +7,7 @@ import { firstOf, message, readFields, utf8Decode } from './protobuf.js';
 export const DOUBAO_SAMPLE_RATE = 16000; // in and out: PCM 16-bit mono
 export const DOUBAO_PACKET_BYTES = 3200; // 100 ms of audio (the service documents ~80 ms)
 export const DOUBAO_TTS_RESOURCE = 'seed-icl-2.0'; // cloned voices (the only kind this client has been proven with)
+export const DOUBAO_TTS_PRESET_RESOURCE = 'seed-tts-2.0'; // preset voices of the TTS 2.0 voice list (EXPERIMENT: not confirmed for live interpretation)
 
 const EVENT = Object.freeze({
   START: 100,
@@ -40,7 +41,7 @@ export function doubaoPairProblem(from, to) {
   return null;
 }
 
-export function startSession({ sessionId, source, target, speakerId, ttsResourceId = DOUBAO_TTS_RESOURCE }) {
+export function startSession({ sessionId, source, target, speakerId, ttsResourceId = DOUBAO_TTS_RESOURCE, custom = true }) {
   return message((w) => {
     w.bytes(1, message((m) => m.string(6, sessionId)));
     w.int32(2, EVENT.START);
@@ -65,9 +66,9 @@ export function startSession({ sessionId, source, target, speakerId, ttsResource
       m.string(1, 's2s');
       m.string(2, source);
       m.string(3, target);
-      m.string(4, speakerId);
+      if (speakerId) m.string(4, speakerId); // none = automatic cloning of the speaker's own voice (experiment)
       m.int32(5, 0); // speech rate
-      m.int32(7, 1); // custom (cloned) speaker
+      m.int32(7, custom ? 1 : 0); // 1 = custom (cloned) speaker, 0 = a preset voice (experiment)
       m.string(8, ttsResourceId);
     }));
   });

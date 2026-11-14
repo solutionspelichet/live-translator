@@ -48,23 +48,95 @@ export function isPassthrough(input, output, threshold = 0.6) {
   for (const t of inn) if (outSet.has(t)) sharedIn++;
   // Either the output is contained in what was said (the usual case), or — the source transcript is often a few words
   // while the voice already produced a whole sentence — what was said is contained in the output.
-  const bigEnough = inn.size >= (cjk ? 5 : 3);
+  // (an output much longer than the source is not that source handed back: three names inside a Chinese sentence are not it)
+  const bigEnough = inn.size >= (cjk ? 5 : 3) && out.length <= inn.size * 3;
   const ratio = Math.max(sharedOut / out.length, bigEnough ? sharedIn / inn.size : 0);
   return ratio >= threshold && Math.max(sharedOut, sharedIn) >= (cjk ? 3 : 2);
 }
 
+// Languages written with another script than Latin or Chinese/Japanese/Korean (Cyrillic, Arabic, Thai, Devanagari, Greek, Hebrew): for the
+// gate they count like Chinese — "not Latin" — when the other language of the pair is written in Latin letters.
+const NONLATIN = /[\p{Script=Cyrillic}\p{Script=Arabic}\p{Script=Thai}\p{Script=Devanagari}\p{Script=Greek}\p{Script=Hebrew}]/u;
+const NONLATIN_LANGS = new Set(['ru', 'uk', 'bg', 'el', 'ar', 'th', 'hi', 'he', 'fa']);
 const CJK_LANGS = new Set(['zh', 'ja', 'ko']);
-const LATIN_LANGS = new Set(['en', 'fr', 'es', 'pt', 'de', 'it', 'id', 'vi']);
+const LATIN_LANGS = new Set(['en', 'fr', 'es', 'pt', 'de', 'it', 'id', 'vi', 'ms', 'nl', 'pl', 'tr', 'ro', 'cs', 'sv', 'da', 'no', 'fi', 'hu', 'sk', 'tl']);
 /** 'cjk' | 'latin' | null (other scripts) */
 export function scriptOf(code) {
   const base = String(code ?? '').toLowerCase().split(/[-_]/)[0];
-  return CJK_LANGS.has(base) ? 'cjk' : LATIN_LANGS.has(base) ? 'latin' : null;
+  return CJK_LANGS.has(base) || NONLATIN_LANGS.has(base) ? 'cjk' : LATIN_LANGS.has(base) ? 'latin' : null;
+}
+
+const STOPWORDS = {
+  en: 'the and you that this with have for are was not but what they there which would about because just yeah okay your from will can its it\'s i\'m don\'t that\'s we our their been were when how than then them these those'.split(' '),
+  fr: 'le la les des une est que qui pas pour dans avec sur vous nous je il elle ils sont mais ou donc très cette ces son ses leur plus bien oui non avoir être fait comme aussi alors parce'.split(' '),
+  es: 'el los las una que por con para pero como está son muy también porque cuando donde esto esta yo tú usted nosotros bueno sí hay del'.split(' '),
+  de: 'der die das und ist nicht ein eine ich sie wir mit für auf aber auch wie ja nein sehr oder wenn dann das'.split(' '),
+  it: 'il lo gli che non per con una sono ma come anche molto perché quando questo questa io tu noi sì bene del della'.split(' '),
+  pt: 'os as uma que não para com mas como também muito porque quando isto eu você nós sim bem do da são está'.split(' '),
+  nl: 'de het een en van dat niet ik je we zijn maar ook voor met op te die dit er wel naar nog dan hebben heeft wat als'.split(' '),
+  id: 'yang dan di ini itu dengan untuk tidak dari ke saya kamu kita akan juga ada pada adalah atau bisa sudah karena kalau'.split(' '),
+  ms: 'yang dan di ini itu dengan untuk tidak dari ke saya awak kita akan juga ada pada adalah atau boleh sudah kerana kalau'.split(' '),
+  tr: 'bir ve bu da de için ile ben sen biz çok ama gibi daha var yok olarak ne mi mı değil evet hayır'.split(' '),
+  pl: 'i w nie na to jest że się z do jak ale tak ja ty my czy co tylko już dla przez może bardzo'.split(' '),
+  ro: 'și în nu este cu pe la de un o care că să sunt mai dar foarte eu tu noi ce din pentru ca'.split(' '),
+  cs: 'a je se na to že v s do ne jak ale tak já ty my co jen už pro by být velmi'.split(' '),
+};
+const STOP_SETS = Object.fromEntries(Object.entries(STOPWORDS).map(([k, v]) => [k, new Set(v)]));
+
+// Letters that only Vietnamese uses (tone marks stacked on a vowel, đ, ơ, ư): French/Spanish/etc. text never has them.
+const VIETNAMESE_ONLY = /[đơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i;
+
+/** Is this text Vietnamese? Several words with letters only Vietnamese uses. */
+export function looksVietnamese(text) {
+  const words = tokens(String(text ?? ''));
+  return words.length >= 2 && words.filter((w) => VIETNAMESE_ONLY.test(w)).length >= 2;
+}
+
+/**
+ * Is this Latin-script text clearly in ANOTHER Latin language than `code` (e.g. English heard in a French↔Chinese pair)?
+ * Counts common function words per language; needs a few of them and a clear lead over `code`. false when unsure.
+ */
+export function isForeignLatin(text, code) {
+  const own = String(code ?? '').toLowerCase().split(/[-_]/)[0];
+  if (own !== 'vi' && looksVietnamese(text)) return true;
+  const words = tokens(String(text ?? '').replace(/[’]/g, "'"));
+  if (words.length < 3) return false;
+  const score = (lang) => words.reduce((n, w) => n + (STOP_SETS[lang]?.has(w) ? 1 : 0), 0);
+  const mine = STOP_SETS[own] ? score(own) : 0;
+  let best = 0;
+  for (const lang of Object.keys(STOP_SETS)) if (lang !== own) best = Math.max(best, score(lang));
+  return best >= 3 && best >= mine * 2 + 2;
+}
+
+/**
+ * The Latin-script language of a text, by its function words: 'en', 'fr'…, or null when unsure (needs two of them and a lead).
+ * Used for pairs of two Latin languages (French↔English), where the script cannot tell a translation from a repetition.
+ */
+export function latinLanguageOf(text) {
+  if (looksVietnamese(text)) return 'vi';
+  const words = tokens(String(text ?? '').replace(/[’]/g, "'"));
+  if (words.length < 2) return null;
+  const scores = Object.keys(STOP_SETS)
+    .map((lang) => [lang, words.reduce((n, w) => n + (STOP_SETS[lang].has(w) ? 1 : 0), 0)])
+    .sort((a, b) => b[1] - a[1]);
+  const [best, second] = scores;
+  return best[1] >= 2 && best[1] >= second[1] + 1 ? best[0] : null;
+}
+
+/** A very short text with Chinese characters and no Latin word (« 左转， », « 没有。 ») is Chinese, whatever its length: 1, else null. */
+export function shortCjkShare(text) {
+  const t = String(text ?? '');
+  const hasCjk = [...t].some((c) => CJK.test(c)) || NONLATIN.test(t);
+  const hasLatin = tokens(t.replace(/[぀-ヿ㐀-鿿가-힯]/gu, ' ')).some((w) => /\p{L}/u.test(w) && !NONLATIN.test(w));
+  return hasCjk && !hasLatin ? 1 : null;
 }
 
 /** Share of CJK in a text, counting a Latin word as ~1.7 characters; null when there is too little text. */
 export function cjkShare(text) {
-  const cjk = [...text].filter((c) => CJK.test(c)).length;
-  const latin = tokens(text.replace(/[぀-ヿ㐀-鿿가-힯]/gu, ' ')).filter((t) => /\p{L}/u.test(t)).length * 1.7;
+  const words = tokens(text.replace(/[぀-ヿ㐀-鿿가-힯]/gu, ' ')).filter((t) => /\p{L}/u.test(t));
+  const alphabetic = words.filter((w) => NONLATIN.test(w)).length * 1.7; // a Cyrillic / Arabic / Thai… word weighs like a Latin one
+  const cjk = [...text].filter((c) => CJK.test(c)).length + alphabetic;
+  const latin = (words.length - words.filter((w) => NONLATIN.test(w)).length) * 1.7;
   return cjk + latin < 4 ? null : cjk / (cjk + latin);
 }
 
@@ -84,12 +156,16 @@ export default class LiveGate {
    * @param {{minChars?: number, holdMs?: number, threshold?: number, windowMs?: number, recheckChars?: number, tailChars?: number, recheckStep?: number, fallback?: () => boolean}} [opts]
    *   `scriptRule`: the two languages use different scripts (e.g. French/Chinese): the script of what was said tells at once
    *   whether a direction repeats it (paraphrases defeat word comparison); only an unclear mix falls back to comparing words
+   *   `foreignRule`: { code, toUser } — `code` is the Latin-script language of the pair, `toUser` whether this direction ends in the
+   *   user's language: Latin speech in another language is then translated for the user only
    *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, shortWindowMs = 6000, fallback = null } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, shortWindowMs, fallback });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null, sourceBase = '', targetBase = '', spokenTtlMs = 7000, peerNeedsOutput = false } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback, faithful, sourceBase, targetBase, spokenTtlMs, peerNeedsOutput });
+    this.spokenLang = null; // { base, at }: the language the service says is spoken (Gemini)
     this.trace = []; // decisions taken (for the journal): { at, mode, basis, why }
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
+    this.peerLog = []; // what the OTHER direction's session transcribed (it hears the same speech, with its own language settings)
     this.reset();
   }
 
@@ -108,6 +184,41 @@ export default class LiveGate {
     return this.mode === 'play';
   }
 
+  /**
+   * The other direction's transcript of the same speech. A service whose sessions each hear one fixed language (Doubao) makes
+   * the English session write an English "transcript" of Chinese speech: only the Chinese session's text tells the truth, so the
+   * script of the speech is judged on both texts (Chinese in either one = Chinese speech).
+   */
+  hear(delta, now = Date.now()) {
+    this.peerLog.push({ at: now, text: delta, confirmed: !this.peerNeedsOutput });
+    this.peerLog = this.peerLog.filter((e) => e.at >= now - this.windowMs * 3);
+  }
+
+  /**
+   * The faithful session produced a TRANSLATION (output text). When Doubao's Chinese session hears English it still writes a Chinese
+   * "transcript" but has nothing to translate (empty output): such a text proves nothing, so with `peerNeedsOutput` the peer's
+   * transcript only counts once that session has translated something since.
+   */
+  confirmPeer() {
+    for (const e of this.peerLog) e.confirmed = true;
+  }
+
+  /** Peer text written lately that no translation has confirmed yet (the decision waits a little for it). */
+  peerPending(now = Date.now()) {
+    return this.peerNeedsOutput && this.peerLog.some((e) => !e.confirmed && e.at >= now - this.shortWindowMs);
+  }
+
+  /** The language the speaker uses, as announced by the service ('zh-CN', 'en'…). */
+  spoken(code, now = Date.now()) {
+    const base = String(code ?? '').toLowerCase().split(/[-_]/)[0];
+    this.spokenLang = base ? { base, at: now } : null; // null: the detector heard speech that is not the spotted language
+  }
+
+  /** What the other direction's session transcribed in the last seconds. */
+  peerText(now = Date.now()) {
+    return this.peerLog.filter((e) => e.confirmed && e.at >= now - this.shortWindowMs).map((e) => e.text).join('');
+  }
+
   /** What was said lately (source transcript of the last `windowMs`). */
   reference(now = Date.now(), windowMs = this.windowMs) {
     return this.log.filter((e) => e.at >= now - windowMs).map((e) => e.text).join('');
@@ -121,22 +232,73 @@ export default class LiveGate {
    * `this.why` keeps the reason for the journal.
    */
   repeats(ref, output, now = Date.now()) {
-    if (isPassthrough(ref, output, this.threshold)) {
+    // The service itself says which language is spoken: a direction whose output is that language only repeats it, a direction that
+    // starts from it translates. A third language (neither of the pair) goes on to the other rules.
+    if (this.spokenLang && now - this.spokenLang.at <= this.spokenTtlMs && this.targetBase) {
+      const said = this.spokenLang.base;
+      if (said === this.targetBase) {
+        this.why = `langue parlée « ${said} » (indiquée par le service) = langue de sortie`;
+        return true;
+      }
+      if (said === this.sourceBase) {
+        this.why = `langue parlée « ${said} » (indiquée par le service) : traduction`;
+        return false;
+      }
+    }
+    // A session that is not the faithful one writes a text of its own: comparing its output with that text proves nothing (a real
+    // translation can match the text it invented). When the faithful session already wrote something, the language rules decide.
+    const ownIsReliable = !(this.faithful === false && this.peerText(now));
+    if (ownIsReliable && isPassthrough(ref, output, this.threshold)) {
       this.why = 'mots communs avec le texte dit';
       return true;
     }
+    if (!this.scriptRule) {
+      // Two Latin languages (French↔English): an output in the language that was JUST spoken repeats it, even before the
+      // transcript of the new sentence has arrived (the words compared above may belong to an earlier sentence).
+      // Doubao: each session hears one fixed language; only the session of the ANCHOR language (the one that is Chinese or English)
+      // writes what was really said (it hands another language back as it is), the other one invents a text in its own language.
+      // `faithful` says which one this direction is: the witness of the language spoken is then the faithful session's transcript.
+      const witness = this.faithful === null || this.faithful ? this.reference(now, this.shortWindowMs) || ref : this.peerText(now);
+      const said = latinLanguageOf(witness);
+      const heard = latinLanguageOf(output);
+      if (said && heard && said === heard) {
+        this.why = `même langue que le texte dit (${said})`;
+        return true;
+      }
+    }
     if (this.scriptRule) {
-      const share = cjkShare(this.reference(now, this.shortWindowMs)) ?? cjkShare(ref);
+      const short = this.reference(now, this.shortWindowMs);
+      // A few characters are enough when they are all Chinese: waiting for more text let both directions speak (Chinese heard twice).
+      const own = cjkShare(short) ?? cjkShare(ref) ?? shortCjkShare(short) ?? shortCjkShare(ref);
+      const peerText = this.peerText(now);
+      const peer = peerText ? cjkShare(peerText) ?? shortCjkShare(peerText) : null;
+      // Doubao: the transcript of the session of the ANCHOR language (Chinese, else English) tells what was said; the other session
+      // invents a text in its own language. Services that share one transcript (or none): both texts count.
+      const share = this.faithful === null ? (own === null && peer === null ? null : Math.max(own ?? 0, peer ?? 0)) : this.faithful ? own : peer;
       if (share !== null) {
-        const outCjk = CJK.test(output);
+        const outCjk = CJK.test(output) || NONLATIN.test(output);
         const pct = Math.round(share * 100);
-        if (share >= 0.7) {
+        if (share >= 0.45) {
           this.why = `texte dit à ${pct} % en CJK`;
           return outCjk; // said in Chinese: a Chinese output repeats it
         }
         if (share <= 0.3) {
+          // Said in a THIRD language (English in a French↔Chinese pair): neither session's own language. It is translated for
+          // the user only (into his language); the direction towards the other person stays silent.
+          if (this.foreignRule && isForeignLatin(this.reference(now, this.shortWindowMs) || ref, this.foreignRule.code)) {
+            this.why = 'langue tierce (ni la mienne ni celle de l\'autre)';
+            return !this.foreignRule.toUser;
+          }
           this.why = `texte dit à ${pct} % en CJK`;
           return !outCjk; // said in French: a French output repeats it
+        }
+        // Mixed (a Chinese sentence full of Latin names: « Samsung », « Email », « Feishu »): a good amount of Chinese heard lately
+        // means a Chinese output only hands it back, so it is silenced; a few Chinese words in French speech do not count.
+        const recent = this.reference(now, this.shortWindowMs) || ref;
+        const cjkChars = [...recent].filter((c) => CJK.test(c)).length;
+        if (cjkChars >= 8 && CJK.test(output)) {
+          this.why = `écritures mélangées (${pct} % CJK, ${cjkChars} caractères chinois) : le chinois répète`;
+          return true;
         }
         this.why = `écritures mélangées (${pct} % CJK)`;
         return false;
@@ -214,6 +376,8 @@ export default class LiveGate {
     const enough = ref.trim().length >= this.minChars && this.output.trim().length >= this.minChars;
     const expired = this.held.length > 0 && now - this.heldSince >= this.holdMs;
     if (!enough && !(expired && onAudio)) return [];
+    // The faithful session wrote a text but has not translated it (yet): wait for its output, it may be English heard as Chinese.
+    if (!expired && this.peerPending(now)) return [];
     // Out of time without a way to compare: ask the fallback (default: let it through, better a duplicate than a loss).
     if (enough) this.setMode(this.repeats(ref, this.output, now) ? 'mute' : 'play', 'compare', this.why, now);
     else this.setMode(this.fallback && !this.fallback() ? 'mute' : 'play', 'fallback', 'rien à comparer (le frère décide)', now);

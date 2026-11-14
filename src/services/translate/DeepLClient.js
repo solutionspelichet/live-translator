@@ -23,6 +23,19 @@ export default class DeepLClient {
     return json.translations[0].text;
   }
 
+  /** Translation WITHOUT telling the source language: DeepL detects it and says which (`detected`, e.g. 'FR', 'ZH'). */
+  async translateAuto(text, toLang) {
+    const res = await fetchWithRetry('DeepL', () =>
+      fetch(`${env.deeplBaseUrl}/v2/translate`, {
+        method: 'POST',
+        headers: { Authorization: `DeepL-Auth-Key ${env.deeplKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: [text], target_lang: getLanguage(toLang).deeplTarget }),
+      }),
+    );
+    const json = await res.json();
+    return { text: json.translations[0].text, detected: String(json.translations[0].detected_source_language ?? '').toUpperCase() };
+  }
+
   /** Open the TLS connection ahead of time so the first real translation skips the handshake. */
   warm() {
     return fetch(`${env.deeplBaseUrl}/v2/usage`, { headers: { Authorization: `DeepL-Auth-Key ${env.deeplKey}` } });

@@ -98,3 +98,21 @@ test('placeSegments re-times a final so that it ends "now" and keeps its inner s
   assert.deepEqual(placeSegments([], 5), []);
   assert.equal(placeSegments([{ speaker: 0, start: 0, end: 10, text: 'x' }], 4)[0].start, 0, 'never negative');
 });
+
+test('generateMinutes goes on when the model is cut by its token limit', async () => {
+  const { generateMinutes, joinContinuation } = await import('../src/utils/minutes.js');
+  const calls = [];
+  const chat = async ({ messages }) => {
+    calls.push(messages.length);
+    const u = { promptTokens: 1, completionTokens: 1, cost: 0.5 };
+    return calls.length === 1 ? { text: '## 1. A\n- point\n## 2. B\n- dé', truncated: true, usage: u } : { text: 'but\n## 3. C\n- fin', truncated: false, usage: u };
+  };
+  const r = await generateMinutes({ chat, model: 'm', transcript: 'x', language: 'Français (fr)', templateId: 'reunion' });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1], 4); // system, user, the cut answer, "continue"
+  assert.match(r.text, /- débutbut|dé\s*but/);
+  assert.match(r.text, /## 3\. C\n- fin$/);
+  assert.equal(r.usage.cost, 1);
+  assert.equal(r.truncated, false);
+  assert.equal(joinContinuation('abc\n', 'def'), 'abc\ndef');
+});

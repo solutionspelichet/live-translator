@@ -1,6 +1,9 @@
 import { AudioContext, AudioManager } from 'react-native-audio-api';
 
+import Power from '../../modules/dualcast-power';
+import { routeFor } from '../utils/outputRoute';
 import { applyLoudness, boostLoudness, clampPan, loudnessGain, pcm16ToFloat, resampleLinear } from '../utils/pcm';
+import SpeakerPlayer from './SpeakerPlayer';
 
 export const CHANNEL = Object.freeze({ LEFT: -1.0, RIGHT: 1.0 });
 
@@ -28,6 +31,17 @@ class AudioRoutingService {
     this.streams = new Set(); // TtsStream being played (stopAll aborts them)
     this.sessionReady = false;
     this.voiceVolume = 2; // loudness of the translated voice (1 = normal speech level)
+    this.outputMode = 'stereo'; // see utils/outputRoute.js: 'split' = me in the headset, the other person on the phone speaker
+    this.speaker = new SpeakerPlayer(Power);
+  }
+
+  setOutputMode(mode) {
+    this.outputMode = mode === 'split' ? 'split' : 'stereo';
+  }
+
+  /** 'speaker' or 'headset': where the voice for this pan (-1 = language A, +1 = language B) is played. */
+  routeOf(pan) {
+    return routeFor(pan, this.outputMode, this.speaker.available).route;
   }
 
   setVoiceVolume(volume) {
@@ -135,7 +149,10 @@ class AudioRoutingService {
    */
   async playPanned(source, pan, opts) {
     await this.init();
-    return this.playDecoded(await this.toAudioBuffer(source), pan, opts);
+    const target = routeFor(pan, this.outputMode, this.speaker.available);
+    const buffer = await this.toAudioBuffer(source);
+    if (target.route === 'speaker') return this.speaker.playSamples(buffer.getChannelData(0), buffer.sampleRate, { voiceVolume: 1 });
+    return this.playDecoded(buffer, target.pan, opts);
   }
 
   playLeft(source, opts) {
@@ -190,6 +207,16 @@ class AudioRoutingService {
    */
   async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15 } = {}) {
     await this.init();
+    const target = routeFor(pan, this.outputMode, this.speaker.available);
+    if (target.route === 'speaker') {
+      this.streams.add(stream);
+      try {
+        return await this.speaker.playStream(stream, { voiceVolume: this.voiceVolume, prebufferSec });
+      } finally {
+        this.streams.delete(stream);
+      }
+    }
+    pan = target.pan;
     const ctx = this.ctx;
     const rate = ctx.sampleRate;
     const inRate = stream.sampleRate ?? 24000;
@@ -277,6 +304,7 @@ class AudioRoutingService {
 
   stopAll() {
     for (const stream of [...this.streams]) stream.abort();
+    this.speaker.stop();
     for (const node of [...this.active]) {
       try {
         node.stop(); // fires onEnded → cleanup + promise resolution

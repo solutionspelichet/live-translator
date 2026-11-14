@@ -179,3 +179,176 @@ test('LiveGate: only the recent seconds decide the script (speech alternates)', 
   assert.equal(g.audio([1], 9300).length, 0);
   assert.equal(g.mode, 'mute');
 });
+
+test('isForeignLatin: English is foreign to French, French is not, unsure short texts are not', async () => {
+  const { isForeignLatin } = await import('../src/utils/live.js');
+  assert.equal(isForeignLatin("Because it was for free to make this. All of them. Yeah, I know it.", 'fr'), true);
+  assert.equal(isForeignLatin("Parce que c'était gratuit de faire ça, oui je le sais bien", 'fr'), false);
+  assert.equal(isForeignLatin('OK. Great.', 'fr'), false);
+  assert.equal(isForeignLatin("Because it was for free to make this", 'en'), false);
+});
+
+test('LiveGate foreignRule: English heard in a French↔Chinese pair is translated for the user only', () => {
+  const said = "We have to be very careful on that, because that is the worst thing";
+  const toUser = new LiveGate({ scriptRule: true, foreignRule: { code: 'fr', toUser: true } });
+  toUser.text('in', said, 1000);
+  toUser.text('out', "Nous devons être très prudents à ce sujet", 1100);
+  assert.equal(toUser.audio([1], 1200).length, 1);
+  assert.equal(toUser.mode, 'play');
+  const toOther = new LiveGate({ scriptRule: true, foreignRule: { code: 'fr', toUser: false } });
+  toOther.text('in', said, 1000);
+  toOther.text('out', '所以我们必须非常小心', 1100);
+  assert.equal(toOther.audio([1], 1200).length, 0);
+  assert.equal(toOther.mode, 'mute');
+  assert.match(toOther.trace.at(-1).why, /tierce/);
+  // French speech: unchanged (Chinese output plays towards the other person)
+  const fr = new LiveGate({ scriptRule: true, foreignRule: { code: 'fr', toUser: false } });
+  fr.text('in', "c'est pas désagréable, c'est pas gênant du tout pour nous", 1000);
+  fr.text('out', '这不难受、不碍事', 1100);
+  assert.equal(fr.audio([1], 1200).length, 1);
+});
+
+test('LiveGate: Chinese full of Latin names is still Chinese — the Chinese output only repeats it', () => {
+  const said = '我设置了 Samsung 的 Email 提醒，然后 Feishu 也连上了';
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', said, 1000);
+  g.text('out', '我设定了三星的邮件提醒，然后飞书也连接上了', 1100);
+  assert.equal(g.audio([1], 1200).length, 0);
+  assert.equal(g.mode, 'mute');
+  const fr = new LiveGate({ scriptRule: true });
+  fr.text('in', said, 1000);
+  fr.text('out', "J'ai réglé le rappel par e-mail de Samsung et Feishu est connecté", 1100);
+  assert.equal(fr.audio([1], 1200).length, 1);
+});
+
+test('LiveGate: a few Chinese words inside French speech do not silence the Chinese translation', () => {
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', "il m'a dit 你好 puis nous avons parlé du projet et de la réunion de demain matin", 1000);
+  g.text('out', '他对我说你好，然后我们谈了项目和明天早上的会议', 1100);
+  assert.equal(g.audio([1], 1200).length, 1);
+});
+
+test('LiveGate: two Chinese characters alone are already Chinese — the Chinese output only repeats them', () => {
+  const g = new LiveGate({ scriptRule: true });
+  g.text('in', '左转，', 1000);
+  g.text('out', '左转，', 1100);
+  g.audio([1], 1200);
+  g.flush(1300);
+  assert.equal(g.mode, 'mute');
+  const fr = new LiveGate({ scriptRule: true });
+  fr.text('in', '左转，', 1000);
+  fr.text('out', 'Tournez à gauche,', 1100);
+  fr.audio([1], 1200);
+  fr.flush(1300);
+  assert.equal(fr.mode, 'play');
+});
+
+test('isForeignLatin: Vietnamese (a third language with Latin letters) is foreign to French, French is not', async () => {
+  const { isForeignLatin, looksVietnamese } = await import('../src/utils/live.js');
+  assert.equal(looksVietnamese('Rồi, thế còn cái này thì sao? Chắc chắn rồi.'), true);
+  assert.equal(isForeignLatin('Đấy lõm đấy. Không phải không phải là cái', 'fr'), true);
+  assert.equal(isForeignLatin('là cái lỗ rồi', 'fr'), true);
+  assert.equal(looksVietnamese("Bonjour, ça va très bien, où êtes-vous allé ? À côté de l'hôtel."), false);
+  assert.equal(isForeignLatin("Il est très français, même à l'étranger.", 'fr'), false);
+});
+
+test('gate: Chinese speech heard as English by one session is Chinese when the other session transcribed it in Chinese', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const gate = new LiveGate({ scriptRule: true });
+  gate.text('in', 'This did not translate from Chinese to English.', 1000); // the English session's invented "transcript"
+  gate.hear('这没有从中文翻译成英文。', 1000); // the Chinese session's true one
+  assert.equal(gate.repeats(gate.reference(1500), '这没有从中文翻译成英文。', 1500), true, 'a Chinese output repeats Chinese speech');
+  assert.equal(gate.repeats(gate.reference(1500), 'It was not translated from the Chinese into English.', 1500), false);
+  const english = new LiveGate({ scriptRule: true });
+  english.text('in', 'What does priority testing mean?', 1000);
+  english.hear('What does priority testing mean?', 1000);
+  assert.equal(english.repeats(english.reference(1500), '优先测试是什么意思？', 1500), false, 'English speech: the Chinese output is the translation');
+});
+
+test('gate (two Latin languages): an output in the language just spoken repeats it, a translation does not', async () => {
+  const { default: LiveGate, latinLanguageOf } = await import('../src/utils/live.js');
+  assert.equal(latinLanguageOf('And for other parts, especially the features for the AI that apply'), 'en');
+  assert.equal(latinLanguageOf("Je pense que c'est la compréhension de l'appareil, pour nous"), 'fr');
+  assert.equal(latinLanguageOf('Taobao'), null);
+  const gate = new LiveGate({ scriptRule: false });
+  // an earlier sentence in another language is still in the window; the new English sentence has not been transcribed yet
+  gate.text('in', 'Um tecnicamente, eu não sei muito sobre isso', 1000);
+  gate.text('in', 'I think it is the understanding of the appliance and the team', 9000);
+  assert.equal(gate.repeats(gate.reference(9500), 'I think that the understanding of the appliance is what we need', 9500), true);
+  assert.equal(gate.repeats(gate.reference(9500), "Je pense que c'est la compréhension de l'appareil que nous avons", 9500), false);
+});
+
+test('gate (Doubao, French ↔ English): English heard by the French session is not replayed in English', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  // the French session (not faithful) invents a French text for English speech; the English session (faithful) wrote the English
+  const fr = new LiveGate({ faithful: false });
+  fr.text('in', 'Avec un arbon qu\'on a à gauche ici', 1000);
+  fr.hear('With charcoal, which we have on the left here', 1000);
+  assert.equal(fr.repeats(fr.reference(1500), 'With a charcoal that we have on the left here', 1500), true, 'English output of English speech is muted');
+  // French speech: the English session hands the French back as it is; the French session plays its English translation
+  const fr2 = new LiveGate({ faithful: false });
+  fr2.text('in', 'On a volontairement pas remis ça dans le classement', 1000);
+  fr2.hear('On a volontairement pas remis ça dans le classement', 1000);
+  assert.equal(fr2.repeats(fr2.reference(1500), 'We deliberately did not put it back in the ranking', 1500), false);
+  // the faithful English session: English speech → French output plays, French speech → French output (repetition) is muted
+  const en = new LiveGate({ faithful: true });
+  en.text('in', 'we can see that charcoal is cheaper in cash', 1000);
+  assert.equal(en.repeats(en.reference(1500), 'nous pouvons voir que le charbon est moins cher en espèces', 1500), false);
+  const en2 = new LiveGate({ faithful: true });
+  en2.text('in', 'On va aller voir rapidement les benchmarks pour nous', 1000);
+  assert.equal(en2.repeats(en2.reference(1500), 'On va aller voir rapidement les benchmarks pour nous', 1500), true);
+});
+
+test('gate: pairs with another script (Russian, Arabic, Thai…) work like Chinese, and more Latin languages are recognised', async () => {
+  const { default: LiveGate, cjkShare, latinLanguageOf, scriptOf } = await import('../src/utils/live.js');
+  assert.equal(scriptOf('ru'), 'cjk');
+  assert.equal(scriptOf('th'), 'cjk');
+  assert.equal(scriptOf('en'), 'latin');
+  assert.ok(cjkShare('Сегодня мы посмотрим на результаты') > 0.9);
+  assert.ok(cjkShare('We will look at the results today') < 0.1);
+  assert.equal(latinLanguageOf('Ik denk dat het een goed idee is en we hebben er over gepraat'), 'nl');
+  assert.equal(latinLanguageOf('Saya tidak tahu apa yang akan kita lakukan dengan ini'), null, 'Indonesian and Malay share their function words: unsure');
+  assert.equal(latinLanguageOf('Bence bu çok güzel bir fikir ve ben de katılıyorum'), 'tr');
+  assert.equal(latinLanguageOf('Tôi nghĩ đó là một ý tưởng rất hay và chúng ta nên làm'), 'vi');
+  // English ↔ Russian with Doubao: the English session (anchor) is faithful
+  const ru = new LiveGate({ scriptRule: true, faithful: false }); // the Russian session: its own text is made up
+  ru.text('in', 'Мы смотрим на результаты сегодня и потом', 1000);
+  ru.hear('We are looking at the results today and then', 1000);
+  assert.equal(ru.repeats(ru.reference(1500), 'Мы смотрим на результаты сегодня', 1500), false, 'English was spoken: the Russian output is the translation');
+  assert.equal(ru.repeats(ru.reference(1500), 'We are looking at the results today', 1500), true, 'the English output of English speech is a repetition');
+});
+
+test('gate: the language announced by the service (Gemini languageCode) decides at once', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const toEnglish = new LiveGate({ scriptRule: true, sourceBase: 'zh', targetBase: 'en' });
+  const toChinese = new LiveGate({ scriptRule: true, sourceBase: 'en', targetBase: 'zh' });
+  for (const g of [toEnglish, toChinese]) g.spoken('en', 1000); // English is spoken
+  // the transcript still says "Chinese" from the previous speaker: the announced language wins
+  for (const g of [toEnglish, toChinese]) g.text('in', '我们现在主要是一些新想法的一个概念验证', 500);
+  assert.equal(toEnglish.repeats(toEnglish.reference(1500), 'Okay, so for example, the um', 1500), true, 'English output of English speech: repetition');
+  assert.equal(toChinese.repeats(toChinese.reference(1500), '好的，比如说，那个', 1500), false, 'Chinese output of English speech: the translation');
+  for (const g of [toEnglish, toChinese]) g.spoken('zh-CN', 2000);
+  assert.equal(toChinese.repeats(toChinese.reference(2500), '好的，比如说，那个', 2500), true);
+  assert.equal(toEnglish.repeats(toEnglish.reference(2500), 'Okay, so for example', 2500), false);
+  // old information is not trusted; a third language goes to the other rules
+  assert.equal(toEnglish.spokenLang.base, 'zh');
+  const third = new LiveGate({ scriptRule: true, sourceBase: 'zh', targetBase: 'en' });
+  third.spoken('fr', 1000);
+  assert.equal(third.repeats('', 'Hello there my friend', 1500), false, 'unknown pair language: no decision from the announcement');
+});
+
+test('gate (Doubao): a Chinese "transcript" the Chinese session did not translate (English heard as Chinese) does not mute the English translation', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const gate = new LiveGate({ scriptRule: true, faithful: false, peerNeedsOutput: true });
+  gate.text('in', 'For example, it is the missing information that can help you.', 1000);
+  gate.hear('例如，是缺失了什么信息能真正帮助你向前推进。', 1000);
+  assert.equal(gate.peerPending(1500), true, 'the decision waits for the Chinese session to translate');
+  assert.equal(gate.repeats(gate.reference(1500), '例如，缺失的信息可以帮助你。', 1500), false, 'unconfirmed Chinese text proves nothing: the Chinese output is the translation');
+  // Chinese speech: the Chinese session translates into English, its transcript is then a witness
+  const zh = new LiveGate({ scriptRule: true, faithful: false, peerNeedsOutput: true });
+  zh.text('in', 'So you do not have a full specification.', 1000);
+  zh.hear('所以你没有完整的规格说明。', 1000);
+  zh.confirmPeer();
+  assert.equal(zh.peerPending(1500), false);
+  assert.equal(zh.repeats(zh.reference(1500), '所以你没有完整的规格说明。', 1500), true, 'a Chinese output repeats confirmed Chinese speech');
+});

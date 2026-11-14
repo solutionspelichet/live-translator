@@ -140,7 +140,8 @@ export default class MeetingRecorder {
 
   flushUsage() {
     if (this.pendingSeconds <= 0) return;
-    this.onUsage?.({ dgNova3Sec: this.pendingSeconds });
+    // Mixed languages (« multi ») are billed at the higher multilingual Nova-3 rate.
+    this.onUsage?.({ [(this.language ?? MULTI) === MULTI ? 'dgNova3MultiSec' : 'dgNova3Sec']: this.pendingSeconds });
     this.pendingSeconds = 0;
   }
 

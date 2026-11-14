@@ -9,6 +9,10 @@ type Native = {
   requestIgnoreBatteryOptimizations(): boolean;
   startCapture(source: string, deviceId: number, agc: boolean, ns: boolean): string;
   stopCapture(): boolean;
+  speakerOpen(sampleRate: number): string;
+  speakerWrite(base64Pcm16: string): boolean;
+  speakerDrain(timeoutMs: number): Promise<boolean>;
+  speakerStop(): boolean;
   setTimer(id: number, delayMs: number): boolean;
   clearTimer(id: number): boolean;
   addListener(event: 'onAudio', listener: (e: { data: string }) => void): { remove(): void };
@@ -61,6 +65,22 @@ export default {
   releaseWakeLocks: () => safe((n) => n.releaseWakeLocks(), false),
   isIgnoringBatteryOptimizations: () => safe((n) => n.isIgnoringBatteryOptimizations(), false),
   requestIgnoreBatteryOptimizations: () => safe((n) => n.requestIgnoreBatteryOptimizations(), false),
+
+  /**
+   * Phone SPEAKER stream (Android): mono PCM16 sent to the built-in speaker even when a headset is connected.
+   * `speakerAvailable` is false on iOS / when the native side is older.
+   */
+  speakerAvailable: native != null && typeof (native as Partial<Native>).speakerOpen === 'function',
+  speakerOpen: (sampleRate: number) => safe((n) => n.speakerOpen(sampleRate), 'unavailable'),
+  speakerWrite: (base64Pcm16: string) => safe((n) => n.speakerWrite(base64Pcm16), false),
+  speakerDrain: async (timeoutMs: number) => {
+    try {
+      return native ? await native.speakerDrain(timeoutMs) : true;
+    } catch {
+      return true;
+    }
+  },
+  speakerStop: () => safe((n) => n.speakerStop(), false),
 
   /**
    * Native microphone capture (Android): 16 kHz mono PCM16 chunks of 100 ms, base64 encoded, with a

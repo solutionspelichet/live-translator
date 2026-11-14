@@ -98,3 +98,17 @@ test('close sends FinishSession and resolves on SessionFinished', async () => {
   await pause();
   assert.equal(ws.closed, true);
 });
+
+test('SessionFailed with a server-side timeout (55001010, 45000081) starts a new session instead of ending the turn', async () => {
+  const { session, sockets, got } = make({ timers: { setTimeout: (fn) => setTimeout(fn, 1), clearTimeout } });
+  session.connect();
+  sockets[0].serve((w) => { w.int32(2, 153); w.bytes(1, message((m) => { m.int32(3, 55001010); m.string(4, '[Server processing timeout] node execution timeout'); })); });
+  await pause(30);
+  assert.equal(got.errors.length, 0);
+  assert.equal(sockets.length, 2, 'a new connection was opened');
+  assert.equal(sockets[0].closed, true);
+  sockets[1].serve((w) => { w.int32(2, 153); w.bytes(1, message((m) => { m.int32(3, 45000081); m.string(4, 'x'); })); });
+  await pause(30);
+  assert.equal(got.errors.length, 0);
+  assert.equal(sockets.length, 3);
+});

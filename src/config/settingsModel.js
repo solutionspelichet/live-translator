@@ -1,4 +1,7 @@
 // Pure part of the persisted settings (no React Native import → unit-testable).
+import { normalizeLocale } from '../i18n/index.js';
+import { DOUBAO_VOICE_ID } from '../utils/doubaoVoices.js';
+import { sanitizeGain } from '../utils/gainSlider.js';
 import { TEMPLATE_IDS } from '../utils/minutes.js';
 import { LANGUAGES } from './languages.js';
 
@@ -34,6 +37,15 @@ export function engineOptions(settings) {
     streamTts: Boolean(settings.streamVoice),
     muteWhilePlaying: Boolean(settings.muteWhilePlaying),
     voiceBySpeaker: Boolean(settings.voiceBySpeaker),
+    elevenVoiceForAll: Boolean(settings.elevenVoiceForAll),
+    mistralQuality: settings.mistralQuality === 'fast' ? 'fast' : 'best',
+    lowBandwidth: Boolean(settings.lowBandwidth),
+    mistralTranslator: ['deepl', 'mistral'].includes(settings.mistralTranslator) ? settings.mistralTranslator : 'auto',
+    doubaoVoiceKind: ['preset', 'auto'].includes(settings.doubaoVoiceKind) ? settings.doubaoVoiceKind : 'clone',
+    doubaoVoices: sanitizeDoubaoVoices(settings.doubaoVoices),
+    mistralVoices: sanitizeMistralVoices(settings.mistralVoices),
+    mistralGlossary: String(settings.mistralGlossary ?? ''),
+    mistralAutoContext: settings.mistralAutoContext !== false,
     endpointingMs,
     utteranceEndMs,
     flushAfterMs,
@@ -48,18 +60,25 @@ export function engineOptions(settings) {
  *  - classic : Deepgram (listen) → DeepL (translate) → ElevenLabs (voice) — three keys, own voices, 32 languages;
  *  - openai  : OpenAI live translation, one service and one key — lower delay, but the service's voice and 13 spoken languages;
  *  - gemini  : Gemini Live translation, one key, 70+ languages;
+ *  - mistral : Mistral Voxtral cascade (realtime transcription → Mistral Small → Voxtral voice), one key, any language (voice in 9);
  *  - doubao  : BytePlus Doubao live interpretation, one key + one CLONED voice, Chinese/English with 18 other languages.
  */
 export const STRATEGIES = Object.freeze({
   classic: { label: 'Classique', hint: 'Deepgram → DeepL → ElevenLabs : vos voix, 32 langues, trois clés' },
   openai: { label: 'OpenAI live (expérimental)', hint: 'un seul service et une seule clé, la voix d\'OpenAI, 13 langues parlées' },
+  mistral: { label: 'Mistral live (expérimental)', hint: 'Voxtral : une seule clé, hébergé en Europe ; voix en 9 langues (français, anglais, espagnol…), les autres langues s\'affichent en texte' },
   doubao: { label: 'Doubao live (expérimental)', hint: 'BytePlus : une clé et une voix clonée, le chinois ou l\'anglais d\'un côté ; un seul sens par session (deux en mains libres)' },
   gemini: { label: 'Gemini live (expérimental)', hint: 'un seul service et une seule clé, la voix de Gemini, toutes les langues de l\'app, un filtre coupe les répétitions' },
 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
+  doubaoVoiceKind: 'clone', // 'clone' (the cloned voice of the BytePlus console) | 'preset' (a voice of the BytePlus list) | 'auto' (the model clones each speaker's voice by itself — experiment)
+  doubaoVoices: Object.freeze({}), // preset voice chosen per language spoken: { fr: 'fr_female_…', zh: 'zh_female_…' }
+  mistralVoices: Object.freeze({}), // Mistral voice chosen per language spoken: { fr: '<voice id>' } (none = the app picks a neutral one)
+  uiLang: null, // interface language chosen with the flags: 'fr' | 'en' | 'zh' (null = follow the phone: Chinese or English if the phone is set so, else French)
   strategy: 'classic', // see STRATEGIES
   theme: 'system', // 'system' (follows the phone) | 'light' | 'dark'
+  voiceLayout: 'face', // voice screen: 'face' (two people facing each other: the top card is turned upside down) | 'side' (one reader: both cards upright)
   languages: Object.freeze({ A: 'fr', B: 'en' }),
   autoStop: true,
   background: true, // keep working with the screen off (Android foreground service)
@@ -68,9 +87,16 @@ export const DEFAULT_SETTINGS = Object.freeze({
   micAgc: true, // use the phone's own automatic gain control when it has one
   voiceVolume: 2, // loudness of the translated voice: 1 (normal) … 2.5 (loud)
   speed: 'normal', // see SPEEDS
+  outputMode: 'stereo', // where the voices play: 'stereo' (A left, B right) | 'split' (me in the headset, the other person on the phone speaker)
   muteWhilePlaying: false, // hands-free: stop listening while the translated voice plays (kills echo, no interruption)
   recentPairs: Object.freeze([]), // last language pairs used: [{A, B}], newest first
   prices: Object.freeze({}), // unit prices overriding the defaults of the usage counter
+  mistralTranslator: 'auto', // Mistral live translation: 'auto' (Mistral, DeepL when Mistral refuses) | 'deepl' (always) | 'mistral' (never DeepL)
+  lowBandwidth: false, // weak connection: nothing is sent while nobody speaks, lighter voices, more patience, no background calls
+  mistralQuality: 'best', // Mistral live translation: 'best' (larger models first) | 'fast' (small models first)
+  mistralAutoContext: true, // the translator finds the topic, names and terms of the conversation by itself
+  mistralGlossary: '', // topic, names and terms of the meeting, given to the Mistral translator
+  elevenVoiceForAll: false, // Mistral live: ElevenLabs (my voices, cloned ones included) speaks every language instead of Mistral's 9
   voiceBySpeaker: false, // the voice follows who is speaking (own cloned voice for own words) instead of the language heard
   minutesLanguage: 'fr', // language of the last minutes written
   minutesTemplate: 'reunion',
@@ -88,7 +114,7 @@ function sanitizePairs(raw) {
     .slice(0, 4);
 }
 
-export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin', 'geminiInPerMin', 'geminiOutPerMin', 'doubaoPerMin']);
+export const PRICE_KEYS = Object.freeze(['deepgramNova2PerMin', 'deepgramNova3PerMin', 'deepgramNova3MultiPerMin', 'deepgramPrePerMin', 'deeplPerMillionChars', 'elevenPerThousandChars', 'openaiLivePerMin', 'openaiTranscribePerMin', 'geminiInPerMin', 'geminiOutPerMin', 'doubaoInPerMin', 'doubaoOutPerMin', 'mistralSttPerMin', 'mistralTtsPerKChars']);
 
 function sanitizePrices(raw) {
   const out = {};
@@ -110,6 +136,27 @@ function sanitizeInput(raw) {
 }
 
 /** Turn whatever was stored (possibly old/corrupt) into a valid settings object. */
+function sanitizeDoubaoVoices(raw) {
+  const out = {};
+  if (raw && typeof raw === 'object') {
+    for (const [code, id] of Object.entries(raw)) {
+      if (/^[a-z]{2}$/.test(code) && typeof id === 'string' && DOUBAO_VOICE_ID.test(id)) out[code] = id;
+    }
+  }
+  return out;
+}
+
+/** Mistral voice chosen per language spoken: { fr: '<voice id>' } (ids are opaque strings, a few dozen characters). */
+export function sanitizeMistralVoices(raw) {
+  const out = {};
+  if (raw && typeof raw === 'object') {
+    for (const [code, id] of Object.entries(raw)) {
+      if (/^[a-z]{2}$/.test(code) && typeof id === 'string' && /^[\w.:-]{3,80}$/.test(id)) out[code] = id;
+    }
+  }
+  return out;
+}
+
 export function sanitizeSettings(raw) {
   const input = raw && typeof raw === 'object' ? raw : {};
   const a = LANGUAGES[input.languages?.A] ? input.languages.A : DEFAULT_SETTINGS.languages.A;
@@ -123,17 +170,29 @@ export function sanitizeSettings(raw) {
 
   return {
     languages: { A: a, B: b },
+    uiLang: normalizeLocale(input.uiLang),
+    doubaoVoiceKind: ['preset', 'auto'].includes(input.doubaoVoiceKind) ? input.doubaoVoiceKind : 'clone',
+    doubaoVoices: sanitizeDoubaoVoices(input.doubaoVoices),
+    mistralVoices: sanitizeMistralVoices(input.mistralVoices),
     theme: ['system', 'light', 'dark'].includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
+    voiceLayout: input.voiceLayout === 'side' ? 'side' : 'face',
     strategy: STRATEGIES[input.strategy] && STRATEGIES[input.strategy].available !== false ? input.strategy : DEFAULT_SETTINGS.strategy,
     autoStop: typeof input.autoStop === 'boolean' ? input.autoStop : DEFAULT_SETTINGS.autoStop,
     background: typeof input.background === 'boolean' ? input.background : DEFAULT_SETTINGS.background,
-    micGain: MIC_GAIN_CHOICES.includes(gain) ? gain : DEFAULT_SETTINGS.micGain,
+    micGain: sanitizeGain(gain),
     voiceVolume: VOICE_VOLUME_CHOICES.includes(volume) ? volume : DEFAULT_SETTINGS.voiceVolume,
     speed: SPEEDS[input.speed] ? input.speed : DEFAULT_SETTINGS.speed,
+    outputMode: input.outputMode === 'split' ? 'split' : DEFAULT_SETTINGS.outputMode,
     muteWhilePlaying: typeof input.muteWhilePlaying === 'boolean' ? input.muteWhilePlaying : DEFAULT_SETTINGS.muteWhilePlaying,
     recentPairs: sanitizePairs(input.recentPairs),
     prices: sanitizePrices(input.prices),
     voiceBySpeaker: typeof input.voiceBySpeaker === 'boolean' ? input.voiceBySpeaker : DEFAULT_SETTINGS.voiceBySpeaker,
+    mistralTranslator: ['deepl', 'mistral'].includes(input.mistralTranslator) ? input.mistralTranslator : 'auto',
+    lowBandwidth: typeof input.lowBandwidth === 'boolean' ? input.lowBandwidth : DEFAULT_SETTINGS.lowBandwidth,
+    mistralQuality: input.mistralQuality === 'fast' ? 'fast' : 'best',
+    mistralAutoContext: input.mistralAutoContext !== false,
+    mistralGlossary: typeof input.mistralGlossary === 'string' ? input.mistralGlossary.slice(0, 600) : '',
+    elevenVoiceForAll: typeof input.elevenVoiceForAll === 'boolean' ? input.elevenVoiceForAll : DEFAULT_SETTINGS.elevenVoiceForAll,
     minutesLanguage: LANGUAGES[input.minutesLanguage] ? input.minutesLanguage : DEFAULT_SETTINGS.minutesLanguage,
     minutesTemplate: TEMPLATE_IDS.includes(input.minutesTemplate) ? input.minutesTemplate : DEFAULT_SETTINGS.minutesTemplate,
     minutesModel: typeof input.minutesModel === 'string' ? input.minutesModel.trim().slice(0, 100) : DEFAULT_SETTINGS.minutesModel,

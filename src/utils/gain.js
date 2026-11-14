@@ -73,7 +73,8 @@ export default class MicGain {
     // and falls slowly: a pause, a tap on the phone or a cough must not make us forget it.
     if (rms > Math.max(this.minSpeechRms, this.noise * 2.2)) {
       const wanted = Math.max(0.5, Math.min(this.target / rms, this.maxGain));
-      this.ref += (wanted - this.ref) * (wanted < this.ref ? 0.08 : 0.3);
+      // Quick attack: after a loud passage a quiet voice must not lose its first words while the gain climbs (0.3 took ~0.5 s).
+      this.ref += (wanted - this.ref) * (wanted < this.ref ? 0.08 : 0.85);
     }
 
     // Clipping guard: a loud transient cuts the gain right now, but only for that chunk —

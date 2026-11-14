@@ -170,3 +170,78 @@ test('a payload refused by the service (1007) fails at once with its reason, ins
   assert.equal(got.errors[0].status, 400);
   assert.match(String(got.errors[0].message), /Unknown name/);
 });
+
+test('goAway: the next connection opens beside the live one and takes over when it is quiet, with no audio lost', async () => {
+  const { session, sockets, got } = make({ timers: { setTimeout: (fn) => setTimeout(fn, 1), clearTimeout }, swapQuietMs: 10 });
+  session.connect();
+  sockets[0].open();
+  sockets[0].message({ setupComplete: {} });
+  sockets[0].message({ goAway: { timeLeft: '30s' } });
+  assert.equal(sockets.length, 2, 'the second socket is opened at once');
+  assert.equal(sockets[0].closed, false, 'the live one keeps working meanwhile');
+  sockets[1].open();
+  assert.ok(sockets[1].sent.some((m) => m.setup), 'the standby connection sends its own setup');
+  assert.equal(sockets[0].sent.filter((m) => m.setup).length, 1, 'the live connection never gets a second setup');
+  sockets[1].message({ setupComplete: {} });
+  session.sendAudio('AAAA');
+  const audioFrames = (s) => s.sent.filter((m) => m.realtimeInput).length;
+  assert.equal(audioFrames(sockets[0]), 1);
+  assert.equal(audioFrames(sockets[1]), 1, 'both hear the audio during the overlap');
+  await pause(80);
+  assert.equal(sockets[0].closed, true, 'the old one was handed over');
+  session.sendAudio('BBBB');
+  assert.equal(audioFrames(sockets[0]), 1);
+  assert.equal(audioFrames(sockets[1]), 2);
+  assert.deepEqual(got.errors, []);
+});
+
+test('goAway: if the live connection ends before the handover, the standby takes over; a duration close is not fatal', async () => {
+  const { session, sockets, got } = make({ timers: { setTimeout: (fn) => setTimeout(fn, 1), clearTimeout }, swapQuietMs: 100000 });
+  session.connect();
+  sockets[0].open();
+  sockets[0].message({ setupComplete: {} });
+  sockets[0].message({ goAway: { timeLeft: '30s' } });
+  sockets[1].open();
+  sockets[1].message({ setupComplete: {} });
+  sockets[0].onclose?.({ code: 1007, reason: 'GoAway signal once the session duration' });
+  session.sendAudio('CCCC');
+  assert.equal(sockets[1].sent.filter((m) => m.realtimeInput).length, 1);
+  assert.deepEqual(got.errors, []);
+});
+
+test('depleted prepayment credits end the turn with a clear error instead of reconnecting forever', () => {
+  const { session, sockets, got } = make();
+  session.connect();
+  sockets[0].onclose?.({ code: 1011, reason: 'Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing.' });
+  assert.equal(got.errors.length, 1);
+  assert.equal(got.errors[0].status, 402);
+  assert.equal(sockets.length, 1, 'no reconnection');
+});
+
+test('a 1007 refusal in the middle of a working conversation reconnects; at the start, or when it keeps happening, it is fatal', async () => {
+  const { session, sockets, got } = make({ timers: { setTimeout: (fn) => setTimeout(fn, 1), clearTimeout } });
+  session.connect();
+  sockets[0].open();
+  sockets[0].message({ setupComplete: {} });
+  sockets[0].onclose?.({ code: 1007, reason: 'Request contains an invalid argument.' });
+  await pause(30);
+  assert.equal(got.errors.length, 0, 'not fatal once it worked');
+  assert.equal(sockets.length, 2, 'a new connection was opened');
+  const fresh = make();
+  fresh.session.connect();
+  fresh.sockets[0].onclose?.({ code: 1007, reason: 'Request contains an invalid argument.' });
+  assert.equal(fresh.got.errors.length, 1, 'refused before it ever worked: fatal');
+  assert.equal(fresh.got.errors[0].status, 400);
+});
+
+test('the language announced with the input transcription reaches the engine', () => {
+  const langs = [];
+  const { session, sockets, got } = make({ transcribeInput: true, onInputLanguage: (c) => langs.push(c) });
+  session.connect();
+  sockets[0].open();
+  sockets[0].message({ setupComplete: {} });
+  sockets[0].message({ serverContent: { inputTranscription: { text: 'Okay, so', languageCode: 'en' } } });
+  sockets[0].message({ serverContent: { inputTranscription: { languageCode: 'zh-CN' } } });
+  assert.deepEqual(langs, ['en', 'zh-CN']);
+  assert.deepEqual(got.inText, ['Okay, so']);
+});

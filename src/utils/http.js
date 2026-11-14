@@ -1,4 +1,5 @@
 // Network helpers shared by the DeepL / ElevenLabs clients (pure → unit-tested).
+import { t } from '../i18n/index.js';
 
 /** An HTTP/network failure of one of the services. `status` is 0 for "no connection". */
 export class ApiError extends Error {
@@ -27,13 +28,17 @@ const RETRYABLE = (status) => status === 429 || (status >= 500 && status <= 599)
  */
 export async function fetchWithRetry(service, request, { retries = 2, baseDelayMs = 350, sleep = defaultSleep } = {}) {
   let last;
+  let wait = 0; // what the service asked for (Retry-After), when it did
   for (let attempt = 0; attempt <= retries; attempt++) {
-    if (attempt > 0) await sleep(baseDelayMs * attempt);
+    if (attempt > 0) await sleep(wait || baseDelayMs * attempt);
+    wait = 0;
     try {
       const res = await request();
       if (res.ok) return res;
       last = new ApiError(service, res.status, (await res.text().catch(() => '')).slice(0, 300));
       if (!RETRYABLE(res.status)) throw last;
+      const asked = Number(res.headers?.get?.('retry-after'));
+      if (Number.isFinite(asked) && asked > 0) wait = Math.min(asked, 5) * 1000;
     } catch (err) {
       if (err instanceof ApiError && !RETRYABLE(err.status)) throw err;
       last = err instanceof ApiError ? err : new ApiError(service, 0, String(err?.message ?? err));
@@ -46,14 +51,15 @@ export async function fetchWithRetry(service, request, { retries = 2, baseDelayM
 export function describeError(error) {
   if (!(error instanceof ApiError)) return String(error?.message ?? error);
   const { service, status, detail } = error;
-  if (status === 0) return `Pas de connexion à ${service}. Vérifiez internet (Wi-Fi / données mobiles) puis réessayez.`;
-  if (/quota/i.test(detail) || status === 456) return `Quota ${service} épuisé : rechargez le compte ou changez de clé dans les réglages.`;
-  if (status === 402) return `Crédit ${service} insuffisant : rechargez votre compte.`;
-  if (status === 404 && service === 'OpenRouter') return 'Modèle OpenRouter introuvable : choisissez-en un autre dans la liste.';
-  if (status === 401 || status === 403) return `Clé ${service} refusée (invalide, expirée ou sans les droits nécessaires). Vérifiez-la dans les réglages.`;
-  if (status === 404 && service === 'ElevenLabs') return 'Voice ID ElevenLabs introuvable : vérifiez les deux identifiants de voix dans les réglages.';
-  if (status === 400 && service === 'DeepL') return 'DeepL ne prend pas en charge cette paire de langues avec votre clé. Changez de langue dans les réglages (« Tester mes clés » indique lesquelles posent problème).';
-  if (status === 429) return `${service} : trop de requêtes en même temps. Patientez quelques secondes.`;
-  if (status >= 500) return `${service} est momentanément indisponible (erreur ${status}). Réessayez dans un instant.`;
-  return `${service} a refusé la demande (erreur ${status}). ${detail}`.trim();
+  if (status === 0) return t('Pas de connexion à {service}. Vérifiez internet (Wi-Fi / données mobiles) puis réessayez.', { service });
+  if (/quota/i.test(detail) || status === 456) return t('Quota {service} épuisé : rechargez le compte ou changez de clé dans les réglages.', { service });
+  if (status === 402) return t('Crédit {service} insuffisant : rechargez votre compte.', { service });
+  if (status === 404 && service === 'OpenRouter') return t('Modèle OpenRouter introuvable : choisissez-en un autre dans la liste.');
+  if ((status === 401 || status === 403) && service === 'Doubao') return t('Doubao refuse la connexion ({status}) : clé invalide, quota épuisé ou trop de sessions ouvertes. Vérifiez la clé et le quota dans la console BytePlus, attendez une minute puis réessayez.', { status });
+  if (status === 401 || status === 403) return t('Clé {service} refusée (invalide, expirée ou sans les droits nécessaires). Vérifiez-la dans les réglages.', { service });
+  if (status === 404 && service === 'ElevenLabs') return t('Voice ID ElevenLabs introuvable : vérifiez les deux identifiants de voix dans les réglages.');
+  if (status === 400 && service === 'DeepL') return t('DeepL ne prend pas en charge cette paire de langues avec votre clé. Changez de langue dans les réglages (« Tester mes clés » indique lesquelles posent problème).');
+  if (status === 429) return t('{service} : trop de requêtes en même temps. Patientez quelques secondes.', { service });
+  if (status >= 500) return t('{service} est momentanément indisponible (erreur {status}). Réessayez dans un instant.', { service, status });
+  return `${t('{service} a refusé la demande (erreur {status}).', { service, status })} ${detail}`.trim();
 }

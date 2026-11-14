@@ -77,3 +77,21 @@ test('estimateCost: Gemini live counts audio sent and voice received at their ow
   assert.ok(Math.abs(cost.total - cost.geminiLive) < 1e-9);
   assert.ok(Math.abs(estimateCost({ geminiInSec: 60 }, { geminiInPerMin: 1 }).geminiLive - 1) < 1e-9);
 });
+
+test('prices checked against the public price lists: ElevenLabs 0.05 $/1k chars, Nova-3 multilingual 0.0092 $/min', async () => {
+  const { estimateCost, DEFAULT_PRICES, emptyUsage } = await import('../src/utils/usage.js');
+  assert.equal(DEFAULT_PRICES.elevenPerThousandChars, 0.05);
+  assert.equal(DEFAULT_PRICES.deepgramNova3MultiPerMin, 0.0092);
+  const c = estimateCost({ ...emptyUsage(), dgNova3MultiSec: 600, elevenChars: 2000 });
+  assert.ok(Math.abs(c.deepgram - 10 * 0.0092) < 1e-9);
+  assert.ok(Math.abs(c.eleven - 0.1) < 1e-9);
+});
+
+test('a service used without a price is flagged: the total is incomplete (0 $ must not look free)', async () => {
+  const { estimateCost, emptyUsage } = await import('../src/utils/usage.js');
+  assert.deepEqual(estimateCost({ ...emptyUsage(), doubaoSec: 120 }, { doubaoInPerMin: 0, doubaoOutPerMin: 0 }).unpriced, ['Doubao live']);
+  const c = estimateCost({ ...emptyUsage(), doubaoSec: 120, doubaoOutSec: 60 });
+  assert.deepEqual(c.unpriced, []);
+  assert.ok(Math.abs(c.doubaoLive - (2 * 0.0045 + 0.069)) < 1e-9, 'tokens of audio in (2 min) and out (1 min)');
+  assert.deepEqual(estimateCost(emptyUsage()).unpriced, []);
+});

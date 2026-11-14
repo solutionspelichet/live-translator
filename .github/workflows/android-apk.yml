@@ -33,9 +33,63 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
 
+      - name: react-native-audio-api without its prebuilt FFmpeg / codec libraries
+        run: |
+          # The library downloads ~tens of MB of prebuilt libs (FFmpeg, opus, vorbis) from github.com/…/releases while building; that host has
+          # been answering 504 and the build then fails on a missing libavcodec.so. The app decodes nothing compressed (the voices
+          # are PCM/WAV decoded in JavaScript, the microphone is raw PCM): the library supports switching them off.
+          printf '\ndisableAudioapiFFmpeg=true\ndisableAudioapiStaticExternalLibs=true\n' >> android/gradle.properties
+          tail -4 android/gradle.properties
+
+      - name: Gradle init script — Maven Central through Google's mirror
+        run: |
+          # On the GitHub runners repo.maven.apache.org redirects some jars (the Kotlin compiler) to github.com/…/releases, which has been
+          # answering 504: Google's public mirror of Maven Central serves the same files.
+          mkdir -p ~/.gradle/init.d
+          cat > ~/.gradle/init.d/central-mirror.gradle <<'EOF'
+          def mirror = 'https://maven-central.storage-download.googleapis.com/maven2/'
+          def swap = { repos ->
+            repos.all { repo ->
+              if (repo instanceof MavenArtifactRepository && repo.url.toString().contains('repo.maven.apache.org')) {
+                repo.setUrl(mirror)
+              }
+            }
+          }
+          beforeSettings { settings ->
+            swap(settings.pluginManagement.repositories)
+            swap(settings.dependencyResolutionManagement.repositories)
+          }
+          allprojects {
+            swap(buildscript.repositories)
+            swap(repositories)
+          }
+          EOF
+          cat ~/.gradle/init.d/central-mirror.gradle
+
+      - name: Fetch Gradle (retries, official CDN host)
+        working-directory: android
+        run: |
+          # services.gradle.org (the redirector) sometimes answers 504: ask the download host directly and retry for a few minutes.
+          sed -i 's#https\\://services.gradle.org/distributions/#https\\://downloads.gradle.org/distributions/#' gradle/wrapper/gradle-wrapper.properties
+          grep distributionUrl gradle/wrapper/gradle-wrapper.properties
+          for attempt in 1 2 3 4 5 6; do
+            ./gradlew --version --no-daemon && exit 0
+            echo "Gradle download failed (attempt $attempt), waiting before the next one"
+            sleep $((attempt * 20))
+          done
+          exit 1
+
       - name: Build release APK (JS bundled, signed with the debug key — fine for sideloading)
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          # The dependencies are downloaded from Maven Central / GitHub releases, which sometimes answer 504: what was already
+          # downloaded stays in the Gradle cache, so a second and a third pass only fetch what is missing.
+          for attempt in 1 2 3; do
+            ./gradlew assembleRelease --no-daemon && exit 0
+            echo "Gradle build failed (attempt $attempt), waiting before the next one"
+            sleep $((attempt * 30))
+          done
+          exit 1
 
       - uses: actions/upload-artifact@v4
         with:

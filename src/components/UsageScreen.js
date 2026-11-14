@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, View } from 'react-native';
 
 import { env } from '../config/env';
 import { PRICE_KEYS } from '../config/settingsModel';
 import { fetchQuotas } from '../utils/keyTest';
 import { DEFAULT_PRICES, deepgramSeconds, estimateCost, formatCount, formatDuration, formatMoney } from '../utils/usage';
 import { palette, themedStyles } from '../theme';
+import { Text, TextInput } from '../i18n/Text';
+import { t } from '../i18n';
 
 const PRICE_LABELS = {
   deepgramNova2PerMin: 'Deepgram Nova-2 — $ par minute',
   deepgramNova3PerMin: 'Deepgram Nova-3 (arabe) — $ par minute',
+  deepgramNova3MultiPerMin: 'Deepgram Nova-3 multilingue (réunions) — $ par minute',
   deepgramPrePerMin: 'Deepgram différé (réunions) — $ par minute',
   deeplPerMillionChars: 'DeepL — $ par million de caractères',
   elevenPerThousandChars: 'ElevenLabs — $ par 1 000 caractères',
@@ -17,7 +20,10 @@ const PRICE_LABELS = {
   openaiTranscribePerMin: 'OpenAI live, transcription du texte source — $ par minute',
   geminiInPerMin: 'Gemini live, audio envoyé — $ par minute',
   geminiOutPerMin: 'Gemini live, voix traduite reçue — $ par minute',
-  doubaoPerMin: 'Doubao live, audio envoyé — $ par minute (à lire dans la console BytePlus)',
+  mistralSttPerMin: 'Mistral live, transcription — $ par minute',
+  mistralTtsPerKChars: 'Mistral live, voix — $ pour 1 000 caractères',
+  doubaoInPerMin: 'Doubao live, audio envoyé — $ par minute (6,25 jetons/s à 12 $ le million)',
+  doubaoOutPerMin: 'Doubao live, voix traduite reçue — $ par minute (25 jetons/s à 46 $ le million)',
 };
 
 /**
@@ -42,7 +48,7 @@ export default function UsageScreen({ visible, usage, prices, onPrices, onReset,
     ['Cette session (depuis l’ouverture de l’app)', usage.session],
     ['Aujourd’hui', usage.today],
     ['Ce mois-ci', usage.monthTotals],
-    [`Depuis le ${usage.since}`, usage.total],
+    [t('Depuis le {date}', { date: usage.since }), usage.total],
   ];
 
   return (
@@ -61,14 +67,18 @@ export default function UsageScreen({ visible, usage, prices, onPrices, onReset,
               <View key={title} style={styles.card}>
                 <Text style={styles.cardTitle}>{title}</Text>
                 <Row label="Deepgram (écoute)" value={formatDuration(deepgramSeconds(u))} money={cost.deepgram} />
-                <Row label="DeepL (traduction)" value={`${formatCount(u.deeplChars)} car.`} money={cost.deepl} />
-                <Row label="ElevenLabs (voix)" value={`${formatCount(u.elevenChars)} car.`} money={cost.eleven} />
+                <Row label="DeepL (traduction)" value={`${formatCount(u.deeplChars)} ${t('car.')}`} money={cost.deepl} />
+                <Row label="ElevenLabs (voix)" value={`${formatCount(u.elevenChars)} ${t('car.')}`} money={cost.eleven} />
                 <Row label="OpenAI live (traduction + texte source)" value={formatDuration(u.oaiLiveSec || 0)} money={cost.openaiLive} />
                 <Row label="Gemini live (audio envoyé + voix reçue)" value={formatDuration((u.geminiInSec || 0) + (u.geminiOutSec || 0))} money={cost.geminiLive} />
-                <Row label="Doubao live (audio envoyé)" value={formatDuration(u.doubaoSec || 0)} money={cost.doubaoLive} />
-                <Row label="OpenRouter (comptes rendus)" value={`${formatCount(u.orTokens)} jetons`} money={cost.openrouter} />
+                <Row label="Mistral live (transcription + voix)" value={`${formatDuration(u.mistralSttSec || 0)} · ${formatCount(u.mistralTtsChars || 0)} ${t('car.')}`} money={cost.mistralLive} />
+                <Row label="Doubao live (audio envoyé + voix reçue)" value={formatDuration((u.doubaoSec || 0) + (u.doubaoOutSec || 0))} money={cost.doubaoLive} />
+                <Row label="OpenRouter (comptes rendus)" value={`${formatCount(u.orTokens)} ${t('jetons')}`} money={cost.openrouter} />
                 <View style={styles.sep} />
                 <Row label="Estimation totale" value="" money={cost.total} bold />
+                {cost.unpriced.length > 0 && (
+                  <Text style={styles.note}>{t('Incomplète : prix non renseigné pour {list} (saisissez-le plus bas, à lire dans la console du service).', { list: cost.unpriced.join(', ') })}</Text>
+                )}
               </View>
             );
           })}
@@ -129,9 +139,9 @@ function Row({ label, value, money, bold }) {
 }
 
 function QuotaRow({ label, quota, loading }) {
-  let text = 'non disponible';
+  let text = t('non disponible');
   if (loading) text = '…';
-  else if (quota) text = `${formatCount(quota.used)} / ${formatCount(quota.limit)} car. utilisés (reste ${formatCount(Math.max(0, quota.limit - quota.used))})`;
+  else if (quota) text = t('{used} / {limit} car. utilisés (reste {left})', { used: formatCount(quota.used), limit: formatCount(quota.limit), left: formatCount(Math.max(0, quota.limit - quota.used)) });
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>

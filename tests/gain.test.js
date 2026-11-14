@@ -90,3 +90,14 @@ test('a long monologue does not turn the voice into "noise"', () => {
   for (let i = 0; i < 600; i++) g.process(tone(0.0025)); // 60 s non-stop
   assert.ok(g.current > 30, `gain ${g.current}`);
 });
+
+test('auto gain: a quiet voice right after a loud passage is lifted within two chunks (its first words are not lost)', async () => {
+  const { default: MicGain } = await import('../src/utils/gain.js');
+  const noise = (a) => Float32Array.from({ length: 1600 }, () => a * (Math.random() * 2 - 1));
+  const g = new MicGain({ mode: 'auto' });
+  for (let i = 0; i < 40; i++) g.process(noise(0.2)); // a loud film
+  g.process(noise(0.003));
+  g.process(noise(0.015));
+  g.process(noise(0.015));
+  assert.ok(g.ref > 8, `gain after 3 chunks of quiet speech: ${g.ref.toFixed(1)}`);
+});
