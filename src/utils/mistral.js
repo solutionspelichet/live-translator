@@ -250,7 +250,7 @@ export async function listVoiceCandidates(getJson, language) {
 }
 
 /** A refusal that says the MODEL is the problem for this account (rate-limited, unknown, not allowed): try another one. */
-export const isModelRefusal = (error) => error instanceof ApiError && (error.status === 429 || error.status === 404 || ((error.status === 400 || error.status === 403) && /model/i.test(error.detail ?? '')));
+export const isModelRefusal = (error) => error instanceof ApiError && (error.status === 429 || error.status === 404 || ((error.status === 400 || error.status === 403) && /model/i.test(error.detail ?? '') && !/guardrail/i.test(error.detail ?? '')));
 
 /**
  * A 429 that is about the whole ACCOUNT ("Rate limit exceeded", about one request per second on the small plans) and not about one
@@ -259,6 +259,17 @@ export const isModelRefusal = (error) => error instanceof ApiError && (error.sta
 export const isAccountRateLimit = (error) => error instanceof ApiError && error.status === 429 && /rate[\s_-]*limit/i.test(error.detail ?? '') && !/model|capacity|tier/i.test(error.detail ?? '');
 
 /** A refusal that says the VOICE is the problem (try another one), not the key or the quota. */
+/**
+ * The account's content moderation (guardrail policy) blocked this request: 403 « guardrail_violation » naming the categories. It is
+ * about the SENTENCE (a film dialogue about war, say), not about the key: the sentence is skipped, the turn goes on.
+ */
+export const isGuardrail = (error) => error instanceof ApiError && [400, 403, 422].includes(error.status) && /guardrail/i.test(String(error.detail ?? ''));
+
+/** The categories the moderation says were violated, for the journal: « hate_and_discrimination, violence ». */
+export function guardrailCategories(detail) {
+  return [...String(detail ?? '').matchAll(/"(\w+)":\{"violated":true/g)].map((m) => m[1]).join(', ') || 'catégorie inconnue';
+}
+
 export const isVoiceRefusal = (error) => error instanceof ApiError && (error.status === 400 || error.status === 404 || error.status === 422) && /voice/i.test(error.detail ?? '');
 
 /**

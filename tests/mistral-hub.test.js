@@ -496,6 +496,27 @@ test('a hub still connecting can be taken over by the next turn (claimable) inst
   assert.equal(hub.claimable(), false);
 });
 
+const GUARD = '{"object":"error","message":"Request blocked by guardrail policy","type":"guardrail_violation","code":"1920","raw_status_code":403,"guardrails":[{"moderation_llm_v2":{"action":"block","categories":{"sexual":{"violated":false},"hate_and_discrimination":{"violated":true},"violence":{"violated":true}}}}]}';
+
+test('the moderation (guardrail) of the account blocking a SENTENCE does not end the turn: it is skipped and said in the journal', async () => {
+  const { sockets, got } = await setup({ chatFail: () => ({ ok: false, status: 403, text: async () => GUARD, headers: { get: () => null } }) });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(900);
+  assert.equal(got.errors.length, 0, 'no alert, no stop');
+  assert.ok(got.notes.some((n) => /bloquée par la modération/.test(n) && /hate_and_discrimination, violence/.test(n)), got.notes.join('\n'));
+});
+
+test('the moderation blocking the VOICE gives the text only', async () => {
+  const { sockets, got } = await setup({ speech: () => ({ ok: false, status: 403, text: async () => GUARD, headers: { get: () => null } }) });
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+  await pause(900);
+  assert.equal(got.errors.length, 0);
+  assert.ok(got.outText.length >= 1, 'the translation is shown');
+  assert.ok(got.notes.some((n) => /voix bloquée par la modération/.test(n)));
+});
+
 test('a rate limit (429 on every model) never stops the turn: the sentence is dropped, requests are spaced out, listening goes on', async () => {
   const { hub, sockets, got } = await setup({ chatFail: () => ({ ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } }) });
   sockets[0].serve({ type: 'session.created' });

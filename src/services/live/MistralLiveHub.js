@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { dropRepeats, chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { dropRepeats, guardrailCategories, isGuardrail, chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 
 const MAX_PENDING = 600; // 60 s of audio: a slow start (token + socket took up to 10 s on a weak network) must not cost the first words
@@ -357,6 +357,11 @@ export default class MistralLiveHub {
       }
       return result;
     }).catch((error) => {
+      if (isGuardrail(error)) {
+        // The moderation of the Mistral account blocked this sentence: a content matter, not a broken key. Skipped, the turn goes on.
+        this.note(`Mistral live : phrase bloquée par la modération de votre compte Mistral (${guardrailCategories(error.detail)}) « ${text.slice(0, 50)} » — à régler dans la console Mistral (garde-fous)`);
+        return null;
+      }
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) this.fail(error);
       else {
         this.note(`Mistral live : phrase abandonnée (${error?.message ?? error})`);
@@ -534,7 +539,7 @@ export default class MistralLiveHub {
         verdict = parseInterpretation(chat?.choices?.[0]?.message?.content);
       } catch (error) {
         // Mistral refuses (limits per model, a model not in the subscription…): DeepL translates this sentence instead of losing it.
-        if (!this.deepl || !(isModelRefusal(error) || error?.timeout)) throw error;
+        if (!this.deepl || !(isModelRefusal(error) || isGuardrail(error) || error?.timeout)) throw error;
         viaDeepl = true;
         if (!this.deeplFallbackNoted) {
           this.deeplFallbackNoted = true;
@@ -652,9 +657,10 @@ export default class MistralLiveHub {
       result.rate = decoded.sampleRate;
       session.onUsage?.({ mistralTtsChars: verdict.text.length });
     } catch (error) {
-      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
+      if (isGuardrail(error)) this.note(`Mistral live : voix bloquée par la modération (${guardrailCategories(error.detail)}) : texte seulement pour cette phrase`);
+      else if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error;
       if (error?.status === 429) this.slowDown();
-      this.note(`Mistral live : voix indisponible pour cette phrase (${error?.message ?? error})`);
+      if (!isGuardrail(error)) this.note(`Mistral live : voix indisponible pour cette phrase (${error?.message ?? error})`);
     }
     result.ttsMs = this.now() - t1;
     return result;
