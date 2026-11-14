@@ -1,0 +1,81 @@
+name: Build web app (PWA)
+
+# Lancer à la main : onglet Actions → "Build web app (PWA)" → Run workflow.
+# La version web (installable sur iPhone : Safari → Partager → « Sur l'écran d'accueil ») est publiée :
+#   1. en version GitHub « latest-web » (un zip à héberger où vous voulez : Netlify, Cloudflare Pages, votre serveur…) ;
+#   2. sur GitHub Pages si Pages est activé (Settings → Pages → Source : « GitHub Actions ») :
+#        https://<propriétaire>.github.io/<dépôt>/
+# Aucun secret n'est injecté : les clés API se saisissent dans l'application, elles restent dans le navigateur de l'appareil.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # la version « latest-web »
+  pages: write # le déploiement GitHub Pages
+  id-token: write
+
+concurrency:
+  group: web-pwa
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --test tests/*.test.js
+
+      # Two builds: the site at the root (the zip, for a custom host) and the site under /<repo>/ (GitHub Pages).
+      - name: Build for a host that serves the site at its root
+        run: |
+          npx expo export --platform web --output-dir dist-root
+          node scripts/web-postbuild.mjs dist-root
+      - name: Build for GitHub Pages (/<repo>/)
+        env:
+          EXPO_BASE_URL: /${{ github.event.repository.name }}
+        run: |
+          npx expo export --platform web --output-dir dist-pages
+          node scripts/web-postbuild.mjs dist-pages
+
+      - name: Zip for any static host
+        run: |
+          cd dist-root && zip -r ../DualCast-Web.zip . && cd ..
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dualcast-web
+          path: DualCast-Web.zip
+          retention-days: 7
+
+      - name: Publish the zip as the "latest-web" GitHub release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest-web --yes --cleanup-tag || true
+          gh release create latest-web DualCast-Web.zip \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "DualCast Translate — version web (PWA)" \
+            --notes "Build #${{ github.run_number }} — commit ${GITHUB_SHA::7}. Décompressez DualCast-Web.zip et hébergez le dossier (Netlify Drop, Cloudflare Pages, GitHub Pages…). Le site doit être servi en HTTPS."
+
+      - uses: actions/upload-pages-artifact@v3
+        continue-on-error: true
+        with:
+          path: dist-pages
+
+  deploy-pages:
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true # Pages may not be enabled for the repository: the zip release above is enough
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -66,6 +66,16 @@
       ],
       "expo-secure-store",
       "expo-font"
-    ]
+    ],
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png",
+      "name": "DualCast Translate",
+      "shortName": "DualCast",
+      "description": "Traduction vocale simultanée à deux",
+      "backgroundColor": "#0A0B10",
+      "themeColor": "#0A0B10"
+    }
   }
 }

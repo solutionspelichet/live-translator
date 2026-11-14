@@ -2,6 +2,7 @@ import { ApiError } from '../../utils/http.js';
 import { LIVE_OUTPUT_RATE } from '../../utils/live.js';
 import { pcm16Base64ToFloat } from '../../utils/pcm.js';
 import { defaultTimers } from '../../utils/timers.js';
+import { openSocket } from '../../utils/webProxy.js';
 
 const MAX_PENDING = 100; // audio chunks kept while the socket is (re)connecting
 const MAX_ATTEMPTS = 30;
@@ -53,8 +54,9 @@ export default class OpenAiLiveSession {
     let ws;
     try {
       // React Native's WebSocket accepts a non-standard third argument with the headers.
-      ws = new this.WebSocketImpl(`${this.url}?model=gpt-realtime-translate`, undefined, {
+      ws = openSocket(this.WebSocketImpl, `${this.url}?model=gpt-realtime-translate`, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
+        webProtocols: ['realtime', `openai-insecure-api-key.${this.apiKey}`], // a browser cannot send headers: OpenAI takes the key as a sub-protocol
       });
     } catch (error) {
       return this.lost(String(error?.message ?? error));

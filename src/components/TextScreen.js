@@ -11,6 +11,7 @@ import { ask } from '../services/LlmService';
 import { describeError } from '../utils/http';
 import { translationMessages } from '../utils/tools';
 import { palette, themedStyles } from '../theme';
+import { topInset } from '../theme/insets';
 import Icon from './Icon';
 import { Card, LargeTitle, PrimaryButton } from './ui';
 
@@ -115,7 +116,7 @@ export default function TextScreen({ settings }) {
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
-  content: { padding: 20, paddingTop: 44, gap: 16 },
+  content: { padding: 20, paddingTop: topInset(44), gap: 16 },
   pair: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   langBox: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.surface, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
   flag: { fontSize: 22 },

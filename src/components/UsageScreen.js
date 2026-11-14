@@ -6,6 +6,7 @@ import { PRICE_KEYS } from '../config/settingsModel';
 import { fetchQuotas } from '../utils/keyTest';
 import { DEFAULT_PRICES, deepgramSeconds, estimateCost, formatCount, formatDuration, formatMoney } from '../utils/usage';
 import { palette, themedStyles } from '../theme';
+import { topInset } from '../theme/insets';
 import { Text, TextInput } from '../i18n/Text';
 import { t } from '../i18n';
 
@@ -152,7 +153,7 @@ function QuotaRow({ label, quota, loading }) {
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 20, paddingTop: 40 },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 20, paddingTop: topInset(40) },
   title: { flex: 1, color: c.text, fontSize: 24, fontWeight: '700' },
   link: { color: c.link, fontSize: 16 },
   content: { padding: 16, paddingTop: 0, paddingBottom: 40 },

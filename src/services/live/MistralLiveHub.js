@@ -1,6 +1,7 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
 import { dropRepeats, guardrailCategories, isGuardrail, chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
+import { openSocket } from '../../utils/webProxy.js';
 
 const MAX_PENDING = 600; // 60 s of audio: a slow start (token + socket took up to 10 s on a weak network) must not cost the first words
 const MAX_ATTEMPTS = 8;
@@ -180,7 +181,7 @@ export default class MistralLiveHub {
     let ws;
     try {
       const url = `${this.wsUrl}?model=${encodeURIComponent(MISTRAL_STT_MODEL)}`;
-      ws = token ? new this.WebSocketImpl(url, ['realtime', token]) : new this.WebSocketImpl(url, undefined, { headers: { Authorization: `Bearer ${this.apiKey}` } });
+      ws = token ? new this.WebSocketImpl(url, ['realtime', token]) : openSocket(this.WebSocketImpl, url, { headers: { Authorization: `Bearer ${this.apiKey}` } });
       ws.binaryType = 'arraybuffer';
     } catch (error) {
       return this.lost(String(error?.message ?? error).replace(this.apiKey ?? '', '…'));
