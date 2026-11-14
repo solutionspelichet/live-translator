@@ -60,6 +60,7 @@ export default class MistralLiveHub {
     this.models = modelsForQuality(quality); // the translation models, best first or fastest first // preferFallback: the other voice speaks EVERY language (e.g. one's own cloned voice) // fallbackSpeak(text, target) → { samples, rate } | null: another voice for the languages Mistral cannot speak
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.fetchImpl = fetchImpl ?? ((...args) => fetch(...args));
+    this.createdAt = this.now();
     this.sessions = [];
     this.ws = null;
     this.ready = false;
@@ -117,6 +118,16 @@ export default class MistralLiveHub {
       session.status = 'open';
       this.warmVoices();
     }
+  }
+
+  /**
+   * A hub opened ahead of the tap that the next turn should take over: ready (token and socket done), or still connecting
+   * (taking it over saves what was already spent; replacing it started everything again, which a quick second tap did).
+   */
+  claimable(maxReadyAgeMs = 60000, maxConnectingMs = 15000) {
+    if (this.dead || this.closing) return false;
+    if (this.ready) return this.usable(maxReadyAgeMs);
+    return this.now() - this.createdAt <= maxConnectingMs && (this.connecting || !!this.ws);
   }
 
   /** A hub connected ahead of the tap (no session yet) that can still take the next turn: token and socket are already done. */

@@ -479,6 +479,23 @@ test('a hub that is connected and ready can be reused by the next turn (usable) 
   assert.equal(hub.usable(), false);
 });
 
+test('a hub still connecting can be taken over by the next turn (claimable) instead of being replaced', async () => {
+  let t = 1000;
+  const { hub, sockets } = await setup();
+  hub.now = () => t;
+  hub.createdAt = 1000;
+  assert.equal(sockets.length, 1);
+  assert.equal(hub.ready, false);
+  assert.equal(hub.claimable(), true, 'connecting: taken over');
+  t += 16000;
+  assert.equal(hub.claimable(), false, 'connecting for too long: a new one');
+  t = 1000;
+  sockets[0].serve({ type: 'session.created' });
+  assert.equal(hub.claimable(), true, 'ready: taken over');
+  hub.abort();
+  assert.equal(hub.claimable(), false);
+});
+
 test('a rate limit (429 on every model) never stops the turn: the sentence is dropped, requests are spaced out, listening goes on', async () => {
   const { hub, sockets, got } = await setup({ chatFail: () => ({ ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } }) });
   sockets[0].serve({ type: 'session.created' });

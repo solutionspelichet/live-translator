@@ -79,7 +79,7 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       lowBandwidth: options.lowBandwidth,
       createSession: (opts) => {
         if (opts.transcribeInput || !hub) {
-          if (opts.transcribeInput && warm?.usable()) hub = warm;
+          if (opts.transcribeInput && warm?.claimable()) hub = warm;
           else {
             warm?.abort();
             hub = makeHub();
@@ -90,7 +90,7 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       },
     });
     const keepWarm = () => {
-      if (warm?.usable(50000)) return;
+      if (warm?.claimable(50000)) return;
       warm?.abort();
       warm = makeHub();
       warm.connect();
