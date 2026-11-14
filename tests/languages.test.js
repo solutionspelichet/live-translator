@@ -57,6 +57,7 @@ test('sanitizeSettings keeps valid values', () => {
     muteWhilePlaying: false,
     voiceBySpeaker: false,
     voiceLayout: 'face',
+    voiceSpeed: 1,
     mistralVoices: {},
     elevenVoiceForAll: false,
     mistralQuality: 'best',

@@ -2,6 +2,7 @@ import { AudioContext, AudioManager } from 'react-native-audio-api';
 
 import Power from '../../modules/dualcast-power';
 import { routeFor } from '../utils/outputRoute';
+import TimeStretcher, { stretchAll } from '../utils/timeStretch';
 import { applyLoudness, boostLoudness, clampPan, loudnessGain, pcm16ToFloat, resampleLinear } from '../utils/pcm';
 import SpeakerPlayer from './SpeakerPlayer';
 
@@ -24,6 +25,14 @@ export const CHANNEL = Object.freeze({ LEFT: -1.0, RIGHT: 1.0 });
  *   AudioBufferSourceNode → StereoPannerNode(pan ±1) → GainNode → destination
  * A mono source through a StereoPannerNode at pan=-1 gives L=1.0, R=0.0 (exactly silent).
  */
+const concat = (a, b) => {
+  if (!b.length) return a;
+  const out = new Float32Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
+};
+
 class AudioRoutingService {
   constructor() {
     this.ctx = null;
@@ -31,6 +40,7 @@ class AudioRoutingService {
     this.streams = new Set(); // TtsStream being played (stopAll aborts them)
     this.sessionReady = false;
     this.voiceVolume = 2; // loudness of the translated voice (1 = normal speech level)
+    this.voiceSpeed = 1; // speed of the translated voice (1 = as generated, 1.3 = 30 % faster, same pitch)
     this.outputMode = 'stereo'; // see utils/outputRoute.js: 'split' = me in the headset, the other person on the phone speaker
     this.speaker = new SpeakerPlayer(Power);
   }
@@ -46,6 +56,10 @@ class AudioRoutingService {
 
   setVoiceVolume(volume) {
     this.voiceVolume = volume;
+  }
+
+  setVoiceSpeed(speed) {
+    this.voiceSpeed = Number(speed) > 0 ? Number(speed) : 1;
   }
 
   /**
@@ -133,7 +147,7 @@ class AudioRoutingService {
       // on a 48 kHz context played back at double speed on device.
       const rate = this.ctx.sampleRate;
       // ElevenLabs speech is fairly quiet: bring it to a comfortable loudness first.
-      const loud = boostLoudness(pcm16ToFloat(source.data), this.voiceVolume);
+      const loud = stretchAll(boostLoudness(pcm16ToFloat(source.data), this.voiceVolume), source.sampleRate, this.voiceSpeed);
       const samples = resampleLinear(loud, source.sampleRate, rate);
       const buffer = this.ctx.createBuffer(1, samples.length, rate);
       buffer.getChannelData(0).set(samples);
@@ -211,7 +225,7 @@ class AudioRoutingService {
     if (target.route === 'speaker') {
       this.streams.add(stream);
       try {
-        return await this.speaker.playStream(stream, { voiceVolume: this.voiceVolume, prebufferSec });
+        return await this.speaker.playStream(stream, { voiceVolume: this.voiceVolume, voiceSpeed: this.voiceSpeed, prebufferSec });
       } finally {
         this.streams.delete(stream);
       }
@@ -237,6 +251,7 @@ class AudioRoutingService {
       let failure = null;
       let voiceGain = null; // one gain for the whole sentence, so loudness doesn't jump between pieces
       let first = true;
+      const stretcher = new TimeStretcher(inRate, this.voiceSpeed); // faster voice, same pitch (pass-through at 1×)
 
       const settle = () => {
         if (!finished || running > 0) return;
@@ -251,7 +266,7 @@ class AudioRoutingService {
       const flush = (force) => {
         // Wait for a little audio before the first sound (jitter buffer), then ~0.1 s pieces.
         const need = (first ? prebufferSec : 0.1) * inRate;
-        if (!pendingLen || (!force && pendingLen < need)) return;
+        if (!force && (!pendingLen || pendingLen < need)) return;
         const joined = new Float32Array(pendingLen);
         let o = 0;
         for (const part of pending) {
@@ -260,8 +275,11 @@ class AudioRoutingService {
         }
         pending = [];
         pendingLen = 0;
-        if (voiceGain == null) voiceGain = loudnessGain(joined, this.voiceVolume) ?? 1;
-        const samples = resampleLinear(applyLoudness(joined, voiceGain), inRate, rate);
+        if (voiceGain == null && joined.length) voiceGain = loudnessGain(joined, this.voiceVolume) ?? 1;
+        let voice = joined.length ? stretcher.push(applyLoudness(joined, voiceGain ?? 1)) : new Float32Array(0);
+        if (force) voice = concat(voice, stretcher.flush()); // the end of the sentence: what the stretcher kept back
+        if (!voice.length) return; // the stretcher keeps a few milliseconds back until it has enough audio
+        const samples = resampleLinear(voice, inRate, rate);
         const buffer = ctx.createBuffer(1, samples.length, rate);
         buffer.getChannelData(0).set(samples);
         const node = ctx.createBufferSource();

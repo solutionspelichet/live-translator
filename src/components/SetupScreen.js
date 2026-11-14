@@ -18,6 +18,7 @@ import { listVoices, testGeminiKey, testKeys, testLanguages, testOpenAiKey } fro
 import { cardShadow, palette, THEME_CHOICES, themedStyles } from '../theme';
 import { Text, TextInput } from '../i18n/Text';
 import { formatGain, gainToValue, valueToGain } from '../utils/gainSlider';
+import { formatSpeed, speedToValue, valueToSpeed } from '../utils/voiceSpeed';
 import Icon from './Icon';
 import { Hint, Select, Slider } from './ui';
 import { defaultLocale, t } from '../i18n';
@@ -35,6 +36,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
   const [background, setBackground] = useState(settings.background);
   const [micGain, setMicGain] = useState(settings.micGain);
   const [voiceVolume, setVoiceVolume] = useState(settings.voiceVolume);
+  const [voiceSpeed, setVoiceSpeed] = useState(settings.voiceSpeed ?? 1);
   const [input, setInput] = useState(settings.input);
   const [micSource, setMicSource] = useState(settings.micSource);
   const [micAgc, setMicAgc] = useState(settings.micAgc);
@@ -463,6 +465,19 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
         <Hint>
           Amplifie la voix dans les écouteurs sans la déformer. Pensez aussi à monter le volume « média » du téléphone et des écouteurs.
         </Hint>
+        <View style={styles.gainHead}>
+          <Text style={styles.labelInline}>Vitesse de la voix traduite</Text>
+          <Text style={styles.gainValue}>{formatSpeed(voiceSpeed)}</Text>
+        </View>
+        <Slider value={speedToValue(voiceSpeed)} onChange={(v) => setVoiceSpeed(valueToSpeed(v))} />
+        <View style={styles.chips}>
+          {[1, 1.2, 1.4, 1.6].map((v) => (
+            <Chip key={v} label={v === 1 ? 'Normale' : `×${v}`} on={Math.abs(voiceSpeed - v) < 0.03} onPress={() => setVoiceSpeed(v)} />
+          ))}
+        </View>
+        <Hint>
+          Accélère la parole traduite sans la rendre aiguë (le ton de la voix reste le même). Utile quand la traduction prend du retard sur celui qui parle : une voix plus rapide rattrape plus vite. Au-delà de ×1.5 elle devient moins naturelle. Cela s'applique à tous les services.
+        </Hint>
         {!live && (<>
         <Text style={styles.label}>Réactivité de la traduction</Text>
         <View style={styles.chips}>
@@ -602,7 +617,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, doubaoVoiceKind, doubaoVoices, mistralVoices, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, voiceSpeed, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, doubaoVoiceKind, doubaoVoices, mistralVoices, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

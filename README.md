@@ -397,3 +397,7 @@ détection du micro intégré (`AudioManager.getDevicesInfo` renvoie des catégo
 ### Scrollable zones
 
 Each zone of the voice screen shows the whole conversation of the session as seen from its side (what this side said in italics, what it heard in bold, then the live text larger at the end — `src/utils/zoneLog.js`). The finger scrolls back through it; while the view is at the end it follows the new text, once scrolled up it stays put and a « Direct » pill brings it back.
+
+### Voice speed
+
+Settings → Voix → « Vitesse de la voix traduite »: 0.8× … 2× (step 0.05), **pitch unchanged**. A streaming WSOLA time-scale modifier (`src/utils/timeStretch.js`) runs on the PCM before it is played, in the headset path (`AudioRoutingService`) and the phone-speaker path (`SpeakerPlayer`), for every service. It costs a few milliseconds of CPU per second of audio and adds about 30 ms of latency; at 1× it is a pass-through.
