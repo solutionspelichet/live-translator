@@ -43,6 +43,8 @@ const ICONS = {
   clock: [['circle', { cx: 12, cy: 12, r: 8.5 }], ['path', { d: 'M12 7v5l3 2' }]],
   chart: [['path', { d: 'M5 20V11M12 20V4M19 20v-6' }]],
   record: [['circle', { cx: 12, cy: 12, r: 5, fill: true }]],
+  speaker: [['path', { d: 'M4 10v4h3.5L12 18V6L7.5 10z' }], ['path', { d: 'M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10' }]],
+  bookmark: [['path', { d: 'M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z' }]],
   swap: [['path', { d: 'M8 4L4 8l4 4M4 8h14M16 20l4-4-4-4M20 16H6' }]],
   close: [['path', { d: 'M6 6l12 12M18 6L6 18' }]],
   back: [['path', { d: 'M15 5l-7 7 7 7' }]],

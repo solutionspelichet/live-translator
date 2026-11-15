@@ -13,11 +13,13 @@ import { translationMessages } from '../utils/tools';
 import { palette, themedStyles } from '../theme';
 import { topInset } from '../theme/insets';
 import Icon from './Icon';
-import { Card, LargeTitle, PrimaryButton } from './ui';
+import { Card, LargeTitle, PrimaryButton, Segmented } from './ui';
+import WordPanel from './WordPanel';
 
 /** Text translation between the two languages of the app (DeepL when its key is set, else a language model). */
 export default function TextScreen({ settings }) {
   const c = palette();
+  const [mode, setMode] = useState('text');
   const [reversed, setReversed] = useState(false);
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
@@ -49,6 +51,12 @@ export default function TextScreen({ settings }) {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <LargeTitle title="Texte" subtitle={env.deeplKey ? 'Traduit par DeepL' : 'Traduit par un modèle de langage'} />
 
+        <Segmented
+          options={[{ id: 'text', label: 'Texte' }, { id: 'word', label: 'Mot' }]}
+          value={mode}
+          onChange={setMode}
+        />
+
         <View style={styles.pair}>
           <View style={styles.langBox}>
             <Plain style={styles.flag}>{from.flag}</Plain>
@@ -58,7 +66,7 @@ export default function TextScreen({ settings }) {
             style={styles.swap}
             onPress={() => {
               setReversed(!reversed);
-              if (output) {
+              if (output && mode === 'text') {
                 setInput(output);
                 setOutput('');
               }
@@ -75,6 +83,10 @@ export default function TextScreen({ settings }) {
           </View>
         </View>
 
+        {mode === 'word' ? (
+          <WordPanel settings={settings} fromKey={fromKey} toKey={toKey} />
+        ) : (
+          <>
         <Card>
           <TextInput
             style={styles.input}
@@ -108,6 +120,8 @@ export default function TextScreen({ settings }) {
               <Text style={[styles.ghostText, { color: c.accent }]}>Partager / copier</Text>
             </Pressable>
           </Card>
+        )}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>

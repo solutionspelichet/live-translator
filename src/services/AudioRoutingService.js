@@ -166,7 +166,7 @@ class AudioRoutingService {
       // on a 48 kHz context played back at double speed on device.
       const rate = this.ctx.sampleRate;
       // ElevenLabs speech is fairly quiet: bring it to a comfortable loudness first.
-      const loud = stretchAll(boostLoudness(pcm16ToFloat(source.data), this.voiceVolume), source.sampleRate, this.voiceSpeed);
+      const loud = stretchAll(boostLoudness(pcm16ToFloat(source.data), this.voiceVolume), source.sampleRate, source.speed ?? this.voiceSpeed);
       const samples = resampleLinear(loud, source.sampleRate, rate);
       const buffer = this.ctx.createBuffer(1, samples.length, rate);
       buffer.getChannelData(0).set(samples);
