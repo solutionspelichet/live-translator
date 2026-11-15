@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { Text } from '../i18n/Text';
 import { palette, themedStyles } from '../theme';
@@ -41,7 +41,7 @@ export default function TabBar({ tab, onTab, theme, onTheme }) {
 }
 
 const styles = themedStyles((c) => StyleSheet.create({
-  bar: { flexDirection: 'row', backgroundColor: c.glass, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border, paddingTop: 8, paddingBottom: 16, paddingHorizontal: 6 },
+  bar: { flexDirection: 'row', backgroundColor: c.glass, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border, paddingTop: 8, paddingBottom: Platform.select({ web: 'max(16px, env(safe-area-inset-bottom))', default: 16 }), paddingHorizontal: 6 },
   item: { flex: 1, alignItems: 'center', gap: 3 },
   pill: { width: 52, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   pillOn: { backgroundColor: c.accentSoft },

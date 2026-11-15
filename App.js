@@ -2,7 +2,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Haptics from 'expo-haptics';
-import { Alert, AppState, Pressable, ScrollView, Share, StyleSheet, useColorScheme, View } from 'react-native';
+import { Alert, AppState, Platform, Pressable, ScrollView, Share, StyleSheet, useColorScheme, View } from 'react-native';
 
 import HistoryScreen from './src/components/HistoryScreen';
 import MeetingsScreen from './src/components/MeetingsScreen';
@@ -32,11 +32,16 @@ import { nextHistoryId, parseHistory } from './src/utils/history';
 import { describeError } from './src/utils/http';
 import MicIdleController from './src/utils/micIdle';
 import { deepgramSeconds } from './src/utils/usage';
-import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
+import { useFonts } from 'expo-font';
+import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
+import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
+import { Inter_600SemiBold } from '@expo-google-fonts/inter/600SemiBold';
+import { Inter_700Bold } from '@expo-google-fonts/inter/700Bold';
 import Icon from './src/components/Icon';
 import { Segmented } from './src/components/ui';
 import { ListenHub, SideHub, TelemetryBar } from './src/components/VoiceBar';
 import { flagsFor, modeOf, VOICE_MODES } from './src/utils/voiceUi';
+import AlertHost from './src/web/AlertHost';
 import { cardShadow, palette, resolveTheme, setTheme, themedStyles } from './src/theme';
 import { setFontsReady } from './src/theme/fonts';
 import LanguageFlags from './src/i18n/LanguageFlags';
@@ -59,6 +64,11 @@ export default function App() {
   const [previewTheme, setPreviewTheme] = useState(null);
   const [previewLang, setPreviewLang] = useState(null); // the flags of the settings screen: the interface changes at once, saved with the rest
   setTheme(resolveTheme(previewTheme ?? settings.theme, systemScheme));
+  if (Platform.OS === 'web' && typeof document !== 'undefined') {
+    document.documentElement.style.backgroundColor = palette().bg; // the page itself (behind the app, around the safe areas)
+    document.body.style.backgroundColor = palette().bg;
+    document.querySelector('meta[name=theme-color]')?.setAttribute('content', palette().bg);
+  }
   setLocale(previewLang ?? settings.uiLang ?? defaultLocale()); // the interface language (flags), read by every screen when it renders
 
   useEffect(() => {
@@ -88,10 +98,11 @@ export default function App() {
   // Keys missing (first start): the settings form alone, no navigation.
   if (missingEnv(settings.strategy, { doubaoPreset: settings.doubaoVoiceKind !== 'clone' }).length) {
     return (
-      <>
+      <View style={[styles.flex, { backgroundColor: palette().bg }]}>
         {bar}
         {setup}
-      </>
+        {Platform.OS === 'web' && <AlertHost />}
+      </View>
     );
   }
   const cycleTheme = () => {
@@ -105,10 +116,11 @@ export default function App() {
   else if (tab === 'tools') body = <ToolsScreen settings={settings} onOpenSettings={() => setTab('settings')} />;
   else body = <Translator key={version} settings={settings} onSettingsChange={save} onOpenSettings={() => setTab('settings')} onOpenMeetings={() => setTab('meetings')} />;
   return (
-    <View style={styles.flex}>
+    <View style={[styles.flex, { backgroundColor: palette().bg }]}>
       {bar}
       <View style={styles.flex}>{body}</View>
       <TabBar tab={tab} onTab={setTab} theme={settings.theme} onTheme={cycleTheme} />
+      {Platform.OS === 'web' && <AlertHost />}
     </View>
   );
 }
@@ -170,8 +182,8 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       .init()
       .then(() => audio.selectInput(settings.input))
       .then(whenForeground) // a recorder started while the app is still 'background' (launch flicker) can be silenced by Android
-      .then(() => engine.warmUp())
-      .then(() => micIdle.verifySoon()) // the recorder just started: make sure it delivers sound, not zeros
+      .then(() => (Platform.OS === 'web' ? null : engine.warmUp())) // a browser opens the microphone at the first tap (gesture + permission)
+      .then(() => (Platform.OS === 'web' ? null : micIdle.verifySoon())) // the recorder just started: make sure it delivers sound, not zeros
       .then(() => {
         // Optional and non-blocking: must never get in the way of the microphone.
         if (settings.background) BackgroundService.start();
@@ -352,7 +364,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
       {/* Top of the strip: the microphone button(s) that start and stop listening (the zones only scroll) */}
       <View style={styles.hubRow}>
         {handsFree ? (
-          <ListenHub live={state === STATE.LISTENING} busy={state === STATE.STARTING} onPress={() => engine.toggle(AUTO)} />
+          <ListenHub live={state === STATE.LISTENING} busy={state === STATE.STARTING} onPress={() => { audio.unlock(); engine.toggle(AUTO); }} />
         ) : (
           [SIDE.A, SIDE.B].map((side) => (
             <SideHub
@@ -360,7 +372,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
               flag={getLanguage(languages[side]).flag}
               live={sideLive(side)}
               busy={sideBusy(side)}
-              onPress={() => engine.toggle(side)}
+              onPress={() => { audio.unlock(); engine.toggle(side); }}
               label={t('Parler en {lang}', { lang: getLanguage(languages[side]).label })}
             />
           ))
@@ -416,7 +428,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
   );
 
   return (
-    <View style={styles.flex}>
+    <View style={[styles.flex, { backgroundColor: c.bg }]}>
       <StatusBar style={c.scheme === 'dark' ? 'light' : 'dark'} />
       <TelemetryBar
         strategy={settings.strategy}

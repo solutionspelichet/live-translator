@@ -1,5 +1,7 @@
 import { Platform } from 'react-native';
-import { AudioManager, AudioRecorder } from 'react-native-audio-api';
+import { AudioManager } from 'react-native-audio-api';
+
+import { AudioRecorder } from './audioRecorder';
 
 import Power from '../../modules/dualcast-power';
 import MicGain from '../utils/gain';

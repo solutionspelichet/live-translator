@@ -1,6 +1,7 @@
 import { ApiError } from '../../utils/http.js';
 import { DOUBAO_PACKET_BYTES, DOUBAO_SAMPLE_RATE, DOUBAO_TTS_RESOURCE, audioPacket, finishSession, parseServerMessage, startSession } from '../../utils/doubao.js';
 import { defaultTimers } from '../../utils/timers.js';
+import { openSocket } from '../../utils/webProxy.js';
 
 const MAX_PENDING = 100; // packets kept while the service is (re)starting a session
 const MAX_ATTEMPTS = 8;
@@ -69,7 +70,7 @@ export default class DoubaoLiveSession {
     if (this.dead) return;
     let ws;
     try {
-      ws = new this.WebSocketImpl(this.url, undefined, { headers: { 'X-Api-Key': this.apiKey, 'X-Api-Resource-Id': this.resourceId } });
+      ws = openSocket(this.WebSocketImpl, this.url, { headers: { 'X-Api-Key': this.apiKey, 'X-Api-Resource-Id': this.resourceId } });
       ws.binaryType = 'arraybuffer';
     } catch (error) {
       return this.lost(String(error?.message ?? error).replace(this.apiKey ?? '', '…'));

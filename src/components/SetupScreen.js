@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, View } from 'react-native';
 
 import { currentValues, env, requiredFields, saveKeys, SETUP_FIELDS } from '../config/env';
 import { getLanguage, LANGUAGES, LIVE_OUTPUT_LANGUAGES } from '../config/languages';
@@ -16,6 +16,7 @@ import { describeError, fetchWithRetry } from '../utils/http';
 import VoiceCloneCard from './VoiceCloneCard';
 import { listVoices, testGeminiKey, testKeys, testLanguages, testOpenAiKey } from '../utils/keyTest';
 import { cardShadow, palette, THEME_CHOICES, themedStyles } from '../theme';
+import { topInset } from '../theme/insets';
 import { Text, TextInput } from '../i18n/Text';
 import { formatGain, gainToValue, valueToGain } from '../utils/gainSlider';
 import { formatSpeed, speedToValue, valueToSpeed } from '../utils/voiceSpeed';
@@ -48,6 +49,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
   const [mistralVoices, setMistralVoices] = useState(settings.mistralVoices ?? {});
   const [mistralVoiceList, setMistralVoiceList] = useState({}); // language → voices of the Mistral account
   const [uiLang, setUiLang] = useState(settings.uiLang ?? defaultLocale());
+  const web = Platform.OS === 'web'; // the browser version: no microphone source / Bluetooth choice, no split output, no background service
   const live = strategy !== 'classic'; // one live-translation service (OpenAI or Gemini) instead of the Deepgram → DeepL → ElevenLabs chain
   const LIVE_FIELDS = { openai: ['EXPO_PUBLIC_OPENAI_API_KEY'], gemini: ['EXPO_PUBLIC_GEMINI_API_KEY'], mistral: ['EXPO_PUBLIC_MISTRAL_API_KEY'], doubao: ['EXPO_PUBLIC_BYTEPLUS_API_KEY', 'EXPO_PUBLIC_DOUBAO_SPEAKER_ID'] };
   const OTHER_LIVE_FIELDS = Object.values(LIVE_FIELDS).flat();
@@ -242,7 +244,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
         </Section>
 
         <Section title="Clés API" subtitle={complete ? '✓ complètes' : '⚠ à renseigner'} open={!!openSection.keys} onToggle={() => toggle('keys')}>
-        {SETUP_FIELDS.filter((f) => (live ? LIVE_FIELDS[strategy].includes(f.name) : !OTHER_LIVE_FIELDS.includes(f.name))).map((f) => (
+        {SETUP_FIELDS.filter((f) => (f.name === 'EXPO_PUBLIC_WEB_PROXY_URL' ? web : live ? LIVE_FIELDS[strategy].includes(f.name) : !OTHER_LIVE_FIELDS.includes(f.name))).map((f) => (
           <Fragment key={f.name}>
             <Text style={styles.label}>{f.label}</Text>
             <TextInput
@@ -335,6 +337,8 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
         </Section>
 
         <Section title="Micro" subtitle={`${t(MIC_SOURCES[micSource].label)} · ${t('sensibilité {g}', { g: micGain === 'auto' ? t('auto') : formatGain(micGain) })}`} open={!!openSection.mic} onToggle={() => toggle('mic')}>
+        {!web && (
+          <>
         <Text style={styles.label}>Source du micro</Text>
         <View style={styles.chips}>
           {Object.entries(MIC_SOURCES).map(([key, src]) => (
@@ -368,6 +372,8 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           ⚠ Un micro Bluetooth fait passer les écouteurs en mono : la séparation gauche/droite des deux voix est perdue.
         </Text>
 
+          </>
+        )}
         <View style={styles.gainHead}>
           <Text style={styles.labelInline}>Sensibilité du micro</Text>
           <Text style={styles.gainValue}>{formatGain(micGain)}</Text>
@@ -378,6 +384,8 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           Auto amplifie fortement la voix faible ou lointaine (jusqu'à ×60) sans amplifier le bruit. Évitez les gains fixes élevés (×16, ×32) : ils font saturer la voix dès qu'elle monte, ce qui fait rater des mots.
           La barre de volume s'affiche pendant l'enregistrement.
         </Hint>
+        {!web && (
+          <>
         <Text style={styles.label}>Où entendre chaque langue</Text>
         <View style={styles.chips}>
           {Object.entries(OUTPUT_MODES).map(([key, m]) => (
@@ -391,6 +399,8 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             : ''}
         </Hint>
 
+          </>
+        )}
         {strategy === 'mistral' && (
           <>
             <Text style={styles.label}>Qui traduit dans Mistral live</Text>
@@ -580,6 +590,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           </View>
         </Section>
 
+        {!web && (
         <Section title="Arrière-plan" subtitle={background ? 'actif écran éteint' : 'désactivé'} open={!!openSection.bg} onToggle={() => toggle('bg')}>
         <Pressable
           style={[styles.chip, background && styles.chipOn, { alignSelf: 'flex-start', marginTop: 8 }]}
@@ -609,6 +620,17 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           </>
         )}
         </Section>
+        )}
+        {web && (
+          <Section title="Version web" subtitle="écran allumé, page au premier plan" open={!!openSection.web} onToggle={() => toggle('web')}>
+            <Hint>
+              Dans un navigateur, la page doit rester au premier plan avec l'écran allumé : le micro et les minuteurs s'arrêtent quand l'écran se verrouille ou qu'on change d'application. Le navigateur ne permet pas non plus de séparer casque et haut-parleur (la langue A à gauche et la B à droite restent possibles avec un casque). DeepL et Doubao passent par la « Passerelle web » (Clés API), les autres services marchent directement.
+            </Hint>
+            <Hint>
+              Vos clés sont gardées dans le stockage de ce navigateur, sur cet appareil seulement, sans chiffrement : n'utilisez pas la version web sur un ordinateur partagé.
+            </Hint>
+          </Section>
+        )}
       </ScrollView>
       <View style={styles.footer}>
         <Pressable
@@ -617,7 +639,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, voiceSpeed, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, doubaoVoiceKind, doubaoVoices, mistralVoices, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, voiceSpeed, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode: web ? 'stereo' : outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, doubaoVoiceKind, doubaoVoices, mistralVoices, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}
@@ -716,7 +738,7 @@ const styles = themedStyles((c) => StyleSheet.create({
   chipOn: { backgroundColor: c.accentSoft, borderColor: c.accent },
   chipText: { color: c.text, fontSize: 15 },
   root: { flex: 1, backgroundColor: c.bg },
-  content: { padding: 20, paddingTop: 48, paddingBottom: 24 },
+  content: { padding: 20, paddingTop: topInset(48), paddingBottom: 24 },
   title: { color: c.text, fontSize: 34, fontWeight: '700', letterSpacing: -0.8 },
   hint: { color: c.textMuted, fontSize: 15, marginVertical: 12 },
   label: { color: c.textSoft, fontSize: 13, fontWeight: '600', marginTop: 18, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },

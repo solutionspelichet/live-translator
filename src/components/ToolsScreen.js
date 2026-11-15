@@ -9,6 +9,7 @@ import { ask } from '../services/LlmService';
 import { describeError } from '../utils/http';
 import { buildToolMessages, TONES, TOOL_IDS, TOOLS } from '../utils/tools';
 import { palette, themedStyles } from '../theme';
+import { topInset } from '../theme/insets';
 import Icon from './Icon';
 import { Card, IconBadge, LargeTitle, Pill, PrimaryButton } from './ui';
 
@@ -131,7 +132,7 @@ export default function ToolsScreen({ settings, onOpenSettings }) {
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
-  content: { padding: 20, paddingTop: 44, gap: 16 },
+  content: { padding: 20, paddingTop: topInset(44), gap: 16 },
   empty: { alignItems: 'flex-start', gap: 16 },
   note: { color: c.textSoft, fontSize: 15, lineHeight: 22 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },

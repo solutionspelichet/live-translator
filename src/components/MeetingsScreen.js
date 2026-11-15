@@ -12,6 +12,7 @@ import { formatDuration } from '../utils/usage';
 import { wavMegabytes } from '../utils/wav';
 import MeetingDetail from './MeetingDetail';
 import { cardShadow, palette, themedStyles } from '../theme';
+import { topInset } from '../theme/insets';
 import { Plain as RNText, Text, TextInput } from '../i18n/Text';
 import { dateLocale, t } from '../i18n';
 
@@ -265,7 +266,7 @@ function Chip({ label, on, onPress }) {
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 20, paddingTop: 40 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 16, padding: 20, paddingTop: topInset(40) },
   title: { flex: 1, color: c.text, fontSize: 34, fontWeight: '700', letterSpacing: -0.8 },
   link: { color: c.link, fontSize: 16 },
   danger: { color: c.danger, fontSize: 16 },

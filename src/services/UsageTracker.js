@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '../utils/secureStore';
 
 import BackgroundTimers from './BackgroundTimers';
 import { applyDelta, emptyUsage, addUsage, newUsageState, parseUsageState } from '../utils/usage';

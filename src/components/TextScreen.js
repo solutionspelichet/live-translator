@@ -11,12 +11,17 @@ import { ask } from '../services/LlmService';
 import { describeError } from '../utils/http';
 import { translationMessages } from '../utils/tools';
 import { palette, themedStyles } from '../theme';
+import { topInset } from '../theme/insets';
 import Icon from './Icon';
-import { Card, LargeTitle, PrimaryButton } from './ui';
+import { Card, LargeTitle, PrimaryButton, Segmented } from './ui';
+import PhotoPanel from './PhotoPanel';
+import WordPanel from './WordPanel';
 
 /** Text translation between the two languages of the app (DeepL when its key is set, else a language model). */
 export default function TextScreen({ settings }) {
   const c = palette();
+  const [mode, setMode] = useState('text');
+  const [seed, setSeed] = useState({ text: '', n: 0 }); // a text sent to the word tab (from a photo)
   const [reversed, setReversed] = useState(false);
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
@@ -48,6 +53,12 @@ export default function TextScreen({ settings }) {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <LargeTitle title="Texte" subtitle={env.deeplKey ? 'Traduit par DeepL' : 'Traduit par un modèle de langage'} />
 
+        <Segmented
+          options={[{ id: 'text', label: 'Texte' }, { id: 'word', label: 'Mot' }, { id: 'photo', label: 'Photo' }]}
+          value={mode}
+          onChange={setMode}
+        />
+
         <View style={styles.pair}>
           <View style={styles.langBox}>
             <Plain style={styles.flag}>{from.flag}</Plain>
@@ -57,7 +68,7 @@ export default function TextScreen({ settings }) {
             style={styles.swap}
             onPress={() => {
               setReversed(!reversed);
-              if (output) {
+              if (output && mode === 'text') {
                 setInput(output);
                 setOutput('');
               }
@@ -74,6 +85,12 @@ export default function TextScreen({ settings }) {
           </View>
         </View>
 
+        {mode === 'word' ? (
+          <WordPanel settings={settings} fromKey={fromKey} toKey={toKey} seed={seed} />
+        ) : mode === 'photo' ? (
+          <PhotoPanel from={from} to={to} onWord={(text) => { setSeed({ text, n: seed.n + 1 }); setMode('word'); }} />
+        ) : (
+          <>
         <Card>
           <TextInput
             style={styles.input}
@@ -108,6 +125,8 @@ export default function TextScreen({ settings }) {
             </Pressable>
           </Card>
         )}
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -115,7 +134,7 @@ export default function TextScreen({ settings }) {
 
 const styles = themedStyles((c) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
-  content: { padding: 20, paddingTop: 44, gap: 16 },
+  content: { padding: 20, paddingTop: topInset(44), gap: 16 },
   pair: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   langBox: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.surface, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
   flag: { fontSize: 22 },
