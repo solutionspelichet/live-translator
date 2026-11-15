@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { batchTranslationMessages, blocksToItems, parseStringArray, fitFontSize, isWorthTranslating, mapFrame, scriptFor, textKey, TranslationCache, trackItems, uprightSize } from '../src/utils/liveOcr.js';
+import { batchTranslationMessages, blocksToItems, layoutLabels, matchesScript, textWidth, parseStringArray, fitFontSize, isWorthTranslating, mapFrame, scriptFor, textKey, TranslationCache, trackItems, uprightSize } from '../src/utils/liveOcr.js';
 
 test('the recogniser follows the language', () => {
   assert.equal(scriptFor('zh'), 'Chinese');
@@ -100,4 +100,42 @@ test('batch translation request and answer', () => {
   assert.deepEqual(parseStringArray('["Sortie"]', 3), ['Sortie', '', '']);
   assert.deepEqual(parseStringArray('nope', 2), ['', '']);
   assert.deepEqual(parseStringArray(null, 1), ['']);
+});
+
+test('a text must be in the script that was read, else it is noise', () => {
+  assert.equal(matchesScript('纯手工制作的', 'Chinese'), true);
+  assert.equal(matchesScript('Nougat 手工制作', 'Chinese'), true);
+  assert.equal(matchesScript('EKSS 19', 'Chinese'), false);
+  assert.equal(matchesScript('uots ngl:s or99 12', 'Chinese'), false);
+  assert.equal(matchesScript('Sortie de secours', 'Latin'), true);
+  assert.equal(matchesScript('出口 exit', 'Latin'), false);
+  assert.equal(matchesScript('こんにちは', 'Japanese'), true);
+  assert.equal(matchesScript('안녕하세요', 'Korean'), true);
+  assert.equal(matchesScript('12', 'Latin'), false);
+  assert.equal(matchesScript('abc', 'Unknown'), true);
+});
+
+test('width of a text: ideograms are wider than Latin letters', () => {
+  assert.equal(textWidth('你好', 20), 40);
+  assert.ok(Math.abs(textWidth('ab', 20) - 22) < 1e-9);
+});
+
+test('labels are wide enough, inside the view, and never on top of each other', () => {
+  const view = { width: 400, height: 400 };
+  const item = (key, text, frame) => ({ key, text, translation: `tr ${key}`, frame });
+  const out = layoutLabels(
+    [
+      item('narrow', '短', { left: 10, top: 10, width: 20, height: 200 }),
+      item('edge', '很长很长的文字', { left: 390, top: 380, width: 100, height: 60 }),
+      item('over', '叠', { left: 15, top: 20, width: 100, height: 20 }),
+      { key: 'empty', text: 'x', translation: '', frame: { left: 0, top: 0, width: 50, height: 20 } },
+    ],
+    view,
+  );
+  const narrow = out.find((l) => l.key === 'narrow');
+  assert.ok(narrow.width >= 130, 'a narrow box gets a readable width');
+  assert.ok(out.every((l) => l.left >= 0 && l.left + l.width <= 400 && l.top >= 0 && l.top + l.height <= 400), 'inside the view');
+  assert.equal(out.find((l) => l.key === 'over'), undefined, 'a label over another is dropped');
+  assert.equal(out.find((l) => l.key === 'empty'), undefined, 'no translation, no label');
+  assert.ok(layoutLabels(Array.from({ length: 40 }, (_, i) => item(`k${i}`, 'ab', { left: (i % 5) * 80, top: Math.floor(i / 5) * 45, width: 70, height: 20 })), view).length <= 12);
 });

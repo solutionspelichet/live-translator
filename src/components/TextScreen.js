@@ -60,6 +60,7 @@ export default function TextScreen({ settings }) {
           onChange={setMode}
         />
 
+        {mode !== 'live' && (
         <View style={styles.pair}>
           <View style={styles.langBox}>
             <Plain style={styles.flag}>{from.flag}</Plain>
@@ -85,13 +86,14 @@ export default function TextScreen({ settings }) {
             <Plain style={styles.langName} numberOfLines={1}>{to.label}</Plain>
           </View>
         </View>
+        )}
 
         {mode === 'word' ? (
           <WordPanel settings={settings} fromKey={fromKey} toKey={toKey} seed={seed} />
         ) : mode === 'photo' ? (
           <PhotoPanel from={from} to={to} onWord={(text) => { setSeed({ text, n: seed.n + 1 }); setMode('word'); }} />
         ) : mode === 'live' ? (
-          <LiveCameraPanel from={from} to={to} fromKey={fromKey} toKey={toKey} onWord={(text) => { setSeed({ text, n: seed.n + 1 }); setMode('word'); }} />
+          <LiveCameraPanel aKey={settings.languages.A} bKey={settings.languages.B} onWord={(text) => { setSeed({ text, n: seed.n + 1 }); setMode('word'); }} />
         ) : (
           <>
         <Card>

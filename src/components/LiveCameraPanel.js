@@ -8,7 +8,8 @@ import { t } from '../i18n';
 import { env } from '../config/env';
 import { translateTexts } from '../services/LiveTextTranslator';
 import { describeError } from '../utils/http';
-import { blocksToItems, fitFontSize, mapFrame, scriptFor, TranslationCache, trackItems, uprightSize } from '../utils/liveOcr';
+import { getLanguage } from '../config/languages';
+import { blocksToItems, layoutLabels, mapFrame, matchesScript, scriptFor, textKey, TranslationCache, trackItems, uprightSize } from '../utils/liveOcr';
 import { palette, themedStyles } from '../theme';
 import Icon from './Icon';
 import { PrimaryButton } from './ui';
@@ -20,8 +21,14 @@ const VIEW_HEIGHT = 440;
  * "Direct" mode: the camera takes a picture about once a second, the phone reads its text (ML Kit, offline), the new
  * texts are translated (one DeepL request for all of them) and drawn over the live image, where the original text is.
  */
-export default function LiveCameraPanel({ from, to, fromKey, toKey, onWord }) {
+export default function LiveCameraPanel({ aKey, bKey, onWord }) {
   const c = palette();
+  // Reading a foreign text: by default the text is in language B (the other person's) and is translated into language A (yours).
+  const [reversed, setReversed] = useState(false);
+  const fromKey = reversed ? aKey : bKey;
+  const toKey = reversed ? bKey : aKey;
+  const from = getLanguage(fromKey);
+  const to = getLanguage(toKey);
   const [permission, requestPermission] = useCameraPermissions();
   const [on, setOn] = useState(false);
   const [frozen, setFrozen] = useState(false);
@@ -44,10 +51,12 @@ export default function LiveCameraPanel({ from, to, fromKey, toKey, onWord }) {
   }, [fromKey, toKey]);
 
   const draw = (items) => {
+    const view = size.current;
     setBoxes(
-      items
-        .filter((i) => cache.current.has(i.key) && cache.current.get(i.key))
-        .map((i) => ({ key: i.key, text: i.text, translation: cache.current.get(i.key), ...i.frameView })),
+      layoutLabels(
+        items.map((i) => ({ key: i.key, text: i.text, translation: cache.current.get(i.key) ?? '', frame: i.frameView })),
+        view,
+      ),
     );
   };
 
@@ -59,7 +68,9 @@ export default function LiveCameraPanel({ from, to, fromKey, toKey, onWord }) {
     const result = await TextRecognition.recognize(pic.uri, script);
     if (id !== loop.current) return;
     const image = uprightSize(pic.width, pic.height, view.width, view.height);
-    const items = blocksToItems(result.blocks).map((i) => ({ ...i, frameView: mapFrame(i.frame, image, view) }));
+    const items = blocksToItems(result.blocks)
+      .filter((i) => matchesScript(i.text, script)) // the recogniser returns noise on text of another script
+      .map((i) => ({ ...i, frameView: mapFrame(i.frame, image, view) }));
     frameNo.current += 1;
     tracked.current = trackItems(tracked.current, items, frameNo.current);
     // the position follows the latest picture; the text and its translation are remembered
@@ -69,7 +80,8 @@ export default function LiveCameraPanel({ from, to, fromKey, toKey, onWord }) {
       const unique = [...new Map(fresh.map((i) => [i.key, i.text])).entries()].slice(0, 20);
       const translations = await translateTexts(unique.map(([, text]) => text), fromKey, toKey);
       if (id !== loop.current) return;
-      unique.forEach(([key], n) => cache.current.set(key, translations[n] || ''));
+      // a text that comes back unchanged is already in the target language: nothing to draw over it
+      unique.forEach(([key], n) => cache.current.set(key, translations[n] && textKey(translations[n]) !== key ? translations[n] : ''));
       draw(tracked.current);
     }
     setStatus(tracked.current.length ? '' : t('Pointez la caméra vers un texte.'));
@@ -128,8 +140,20 @@ export default function LiveCameraPanel({ from, to, fromKey, toKey, onWord }) {
     return <Text style={styles.note}>La caméra en direct lit le texte en alphabet latin, chinois, japonais, coréen et devanagari. Pour cette langue, utilisez l’onglet Photo.</Text>;
   }
 
+  const swap = () => {
+    stop();
+    setReversed(!reversed);
+  };
+
   return (
     <>
+      <View style={styles.langBar}>
+        <Plain style={styles.langText} numberOfLines={1}>{`${from.flag} ${from.label}`}</Plain>
+        <Pressable onPress={swap} hitSlop={10} accessibilityRole="button" accessibilityLabel={t('Inverser les langues')} style={styles.swap}>
+          <Icon name="swap" size={18} color={c.accent} />
+        </Pressable>
+        <Plain style={styles.langText} numberOfLines={1}>{`${to.flag} ${to.label}`}</Plain>
+      </View>
       <View style={styles.frame} onLayout={(e) => { size.current = { width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height }; }}>
         {on || frozen ? (
           <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" animateShutter={false} />
@@ -140,12 +164,8 @@ export default function LiveCameraPanel({ from, to, fromKey, toKey, onWord }) {
           </View>
         )}
         {boxes.map((b) => (
-          <Pressable
-            key={b.key}
-            onPress={() => onWord?.(b.text)}
-            style={[styles.box, { left: Math.max(0, b.left), top: Math.max(0, b.top), width: Math.max(40, b.width), minHeight: b.height }]}
-          >
-            <Plain style={[styles.boxText, { fontSize: fitFontSize(b.translation, b) }]}>{b.translation}</Plain>
+          <Pressable key={b.key} onPress={() => onWord?.(b.text)} style={[styles.box, { left: b.left, top: b.top, width: b.width, minHeight: b.height }]}>
+            <Plain style={[styles.boxText, { fontSize: b.fontSize }]}>{b.translation}</Plain>
           </Pressable>
         ))}
         {!!status && on && <Text style={styles.status}>{status}</Text>}
@@ -178,6 +198,9 @@ export default function LiveCameraPanel({ from, to, fromKey, toKey, onWord }) {
 }
 
 const styles = themedStyles((c) => StyleSheet.create({
+  langBar: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  langText: { flex: 1, color: c.text, fontSize: 15, fontWeight: '600', textAlign: 'center' },
+  swap: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.accentSoft, alignItems: 'center', justifyContent: 'center' },
   frame: { height: VIEW_HEIGHT, borderRadius: 20, overflow: 'hidden', backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
   idle: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   idleText: { color: c.textMuted, fontSize: 15, textAlign: 'center' },

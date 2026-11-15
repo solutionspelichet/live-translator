@@ -138,3 +138,54 @@ export function parseStringArray(text, count) {
   }
   return Array.from({ length: count }, (_, i) => (typeof list[i] === 'string' ? list[i].trim() : ''));
 }
+
+const SCRIPT_LETTERS = {
+  Latin: /\p{Script=Latin}/u,
+  Chinese: /\p{Script=Han}/u,
+  Japanese: /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u,
+  Korean: /\p{Script=Hangul}/u,
+  Devanagari: /\p{Script=Devanagari}/u,
+};
+
+/**
+ * Is this text really in the script the recogniser was asked to read? A recogniser reading the wrong script returns
+ * noise ("EKSS 19", "uots ngl:s") that must not be translated: at least 30 % of its letters (70 % for Latin) must be of the script, so a Chinese sign with a Latin brand name still counts.
+ */
+export function matchesScript(text, script) {
+  const re = SCRIPT_LETTERS[script];
+  if (!re) return true;
+  const letters = [...String(text ?? '')].filter((ch) => /\p{L}/u.test(ch));
+  if (!letters.length) return false;
+  const own = letters.filter((ch) => re.test(ch)).length;
+  return own > 0 && own / letters.length >= (script === 'Latin' ? 0.7 : 0.3);
+}
+
+const isWide = (ch) => /[ᄀ-ᇿ⺀-꓏가-힯豈-﫿＀-￯]/.test(ch);
+
+/** Width of a text in pixels at a font size (ideograms are about one em wide, Latin letters about 0.55). */
+export const textWidth = (text, fontSize) => [...String(text ?? '')].reduce((w, ch) => w + (isWide(ch) ? 1 : 0.55) * fontSize, 0);
+
+const rectsOverlap = (a, b) => a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
+
+/**
+ * Where to draw the translations: a label at least 130 px wide (a narrow box would wrap the text letter by letter),
+ * kept inside the view, with a readable size, and no label over another (the ones with the longest source win).
+ * @param items [{ key, text, translation, frame }]  frame in view coordinates
+ * @returns [{ key, text, translation, left, top, width, height, fontSize }]
+ */
+export function layoutLabels(items, view, { maxLabels = 12 } = {}) {
+  const placed = [];
+  const order = [...items].filter((i) => i.translation).sort((a, b) => b.text.length - a.text.length);
+  for (const it of order) {
+    if (placed.length >= maxLabels) break;
+    const width = Math.min(view.width, Math.max(130, Math.min(it.frame.width, view.width * 0.8)));
+    const fontSize = Math.round(Math.max(13, Math.min(20, it.frame.height * 0.5)));
+    const lines = Math.max(1, Math.ceil(textWidth(it.translation, fontSize) / Math.max(20, width - 12)));
+    const height = lines * fontSize * 1.3 + 8;
+    const left = Math.min(Math.max(0, it.frame.left), Math.max(0, view.width - width));
+    const top = Math.min(Math.max(0, it.frame.top), Math.max(0, view.height - height));
+    const rect = { key: it.key, text: it.text, translation: it.translation, left, top, width, height, fontSize };
+    if (!placed.some((p) => rectsOverlap(p, rect))) placed.push(rect);
+  }
+  return placed;
+}
