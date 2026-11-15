@@ -209,9 +209,17 @@ export default class LiveGate {
   }
 
   /** The language the speaker uses, as announced by the service ('zh-CN', 'en'…). */
-  spoken(code, now = Date.now()) {
+  spoken(code, now = Date.now(), spotted = '') {
     const base = String(code ?? '').toLowerCase().split(/[-_]/)[0];
     this.spokenLang = base ? { base, at: now } : null; // null: the detector heard speech that is not the spotted language
+    // « not the spotted language » (French): the direction that starts from it has nothing to translate until its own text proves otherwise.
+    const sp = String(spotted ?? '').toLowerCase().split(/[-_]/)[0];
+    this.notSpoken = !base && sp ? { base: sp, at: now } : null;
+  }
+
+  /** The detector heard speech that is NOT this direction's source language (lately): this direction must stay silent. */
+  sourceNotSpoken(now = Date.now()) {
+    return !!(this.notSpoken && this.sourceBase && this.notSpoken.base === this.sourceBase && now - this.notSpoken.at <= this.spokenTtlMs);
   }
 
   /** What the other direction's session transcribed in the last seconds. */
@@ -267,6 +275,13 @@ export default class LiveGate {
       }
     }
     if (this.scriptRule) {
+      // A direction that must write Chinese (Japanese, Korean…) but wrote something else (Doubao's French→Chinese session answers in English to
+      // Chinese speech): that text is not a translation into the target language, it is never played.
+      const targetCjk = scriptOf(this.targetBase) === 'cjk';
+      if (targetCjk && !CJK.test(output) && !NONLATIN.test(output) && (output.match(/\p{L}/gu) ?? []).length >= 4) {
+        this.why = 'texte ni dans la langue cible ni dans celle de l\'autre côté';
+        return true;
+      }
       const short = this.reference(now, this.shortWindowMs);
       // A few characters are enough when they are all Chinese: waiting for more text let both directions speak (Chinese heard twice).
       const own = cjkShare(short) ?? cjkShare(ref) ?? shortCjkShare(short) ?? shortCjkShare(ref);
@@ -280,7 +295,9 @@ export default class LiveGate {
         const pct = Math.round(share * 100);
         if (share >= 0.45) {
           this.why = `texte dit à ${pct} % en CJK`;
-          return outCjk; // said in Chinese: a Chinese output repeats it
+          // said in Chinese: a Chinese output repeats it, and a direction that WRITES Chinese has nothing to translate (the speech is not
+          // in its source language), whatever it wrote
+          return targetCjk ? true : outCjk;
         }
         if (share <= 0.3) {
           // Said in a THIRD language (English in a French↔Chinese pair): neither session's own language. It is translated for
@@ -364,7 +381,8 @@ export default class LiveGate {
   flush(now = Date.now()) {
     if (this.mode !== 'undecided' || !this.held.length) return [];
     const compare = !!(this.reference(now).trim() && this.output.trim());
-    const mute = this.repeats(this.reference(now), this.output, now);
+    // with no text to compare, the detector's « not the source language » decides (it is only a hint: real text always has the last word)
+    const mute = compare ? this.repeats(this.reference(now), this.output, now) : this.sourceNotSpoken(now) || this.repeats(this.reference(now), this.output, now);
     this.setMode(mute ? 'mute' : 'play', compare ? 'compare' : 'fallback', compare ? this.why : 'rien à comparer', now);
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
@@ -380,7 +398,7 @@ export default class LiveGate {
     if (!expired && this.peerPending(now)) return [];
     // Out of time without a way to compare: ask the fallback (default: let it through, better a duplicate than a loss).
     if (enough) this.setMode(this.repeats(ref, this.output, now) ? 'mute' : 'play', 'compare', this.why, now);
-    else this.setMode(this.fallback && !this.fallback() ? 'mute' : 'play', 'fallback', 'rien à comparer (le frère décide)', now);
+    else this.setMode(this.sourceNotSpoken(now) || (this.fallback && !this.fallback()) ? 'mute' : 'play', 'fallback', this.sourceNotSpoken(now) ? "le son n'est pas dans la langue de départ de ce sens" : 'rien à comparer (le frère décide)', now);
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
     return released;

@@ -288,7 +288,7 @@ export default class LiveTranslationEngine {
   /** The service tells which language the speaker uses: every direction's gate knows it (a direction that outputs it only repeats). */
   onSpokenLanguage(turn, code) {
     if (this.turnId !== turn.id) return;
-    for (const x of turn.dirs) x.gate?.spoken(code);
+    for (const x of turn.dirs) x.gate?.spoken(code, Date.now(), turn.spotter?.code);
   }
 
   onText(turn, d, kind, delta) {
@@ -367,7 +367,6 @@ export default class LiveTranslationEngine {
       d.stream = stream;
       turn.streams.add(stream);
       this.playingCount++;
-      const startedAt = Date.now(); // the burst begins here: any wait before its voice can start means the voice is behind
       const toSpeaker = this.audio.routeOf?.(PAN[d.to]) === 'speaker';
       if (toSpeaker) this.speakerCount++;
       // In order PER DIRECTION (the next burst of this ear waits for this one); the two ears play independently.
@@ -387,7 +386,7 @@ export default class LiveTranslationEngine {
             turn.speakerMuteNoted = true;
             this.emit({ type: 'note', text: 'haut-parleur : le micro est coupé pendant sa lecture (évite que le téléphone se réécoute)' });
           }
-          return this.audio.playStream(stream, PAN[d.to], { lagMs: Math.max(0, Date.now() - startedAt - 300) });
+          return this.audio.playStream(stream, PAN[d.to]); // no catch-up here: a live voice arrives at the pace of the speech, speeding it up would cut it
         })
         .catch((error) => this.emit({ type: 'note', text: `lecture du flux live impossible : ${error?.message ?? error}` }))
         .then(() => {

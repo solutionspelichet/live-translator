@@ -226,6 +226,30 @@ test('the journal says when audio goes in and nothing comes back', async () => {
   assert.ok(got.notes.some((n) => /reçu \{"type":"session.created"/.test(n)));
 });
 
+test('voice goes in and no word comes back: one fresh connection is opened (a dead or stale socket), once', async () => {
+  const { sockets, got, ab } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  const loud = Buffer.alloc(32000, 0x40).toString('base64'); // one second of a loud tone
+  for (let i = 0; i < 6; i++) ab.sendAudio(loud);
+  assert.ok(got.notes.some((n) => /aucun texte reçu après 5 s de voix envoyée/.test(n) && /nouvelle connexion/.test(n)));
+  assert.equal(sockets[0].closed, true, 'the silent socket is dropped');
+  await pause(600);
+  assert.equal(sockets.length, 2, 'a new socket (and a new token) is opened');
+  sockets[1].serve({ type: 'session.created' });
+  for (let i = 0; i < 12; i++) ab.sendAudio(loud);
+  await pause(600);
+  assert.equal(sockets.length, 2, 'only once');
+});
+
+test('a quiet microphone is told apart from a dead transcription', async () => {
+  const { sockets, got, ab } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  const quiet = Buffer.alloc(32000).toString('base64');
+  for (let i = 0; i < 9; i++) ab.sendAudio(quiet);
+  assert.ok(got.notes.some((n) => /dont 0\.0 s avec une voix/.test(n) && /presque rien entendu/.test(n)));
+  assert.equal(sockets.length, 1, 'no reconnection for silence');
+});
+
 test('a voice the speech endpoint refuses is skipped: the next one is tried and remembered', async () => {
   const tried = [];
   const { sockets, got, calls } = await setup({

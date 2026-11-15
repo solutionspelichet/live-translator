@@ -29,6 +29,7 @@ const decodeText = (data) => {
   return s;
 };
 const NO_TEXT_AFTER_SEC = 8; // audio sent without a single word back: say so in the journal
+const NO_TEXT_VOICE_SEC = 5; // seconds of VOICE sent without a single word back: the transcription is mute, reconnect once
 
 /**
  * ONE Mistral pipeline per turn, shared by the two direction sessions (A→B and B→A) of the engine:
@@ -106,6 +107,9 @@ export default class MistralLiveHub {
     this.sawText = 0;
     this.events = 0; // events received (the first ones are copied to the journal)
     this.sentBytes = 0;
+    this.voicedBytes = 0; // of which with a voice in it
+    this.peak = 0; // loudest chunk sent
+    this.silentRetried = false;
     this.silentNoted = false;
     this.mode = 'token'; // how the socket authenticates: a short-lived token (documented), or the key as a header
     this.connecting = false;
@@ -200,7 +204,7 @@ export default class MistralLiveHub {
         this.note(`Mistral live : message illisible « ${String(raw ?? '').slice(0, 100)} »`);
         return;
       }
-      if (this.events++ < 4 && msg.type !== 'transcription.text.delta') this.note(`Mistral live : reçu ${JSON.stringify(msg).slice(0, 160)}`);
+      if (this.events++ < 4 && msg.type !== 'transcription.text.delta') this.note(`Mistral live : reçu ${JSON.stringify(msg).slice(0, 400)}`);
       this.onEvent(msg);
     };
     ws.onerror = (e) => {
@@ -297,11 +301,31 @@ export default class MistralLiveHub {
   /** @param {string} base64Pcm16  16 kHz mono PCM16 */
   sendAudio(base64Pcm16) {
     if (this.dead || this.closing) return;
-    this.sentBytes += (base64Pcm16.length * 3) / 4;
-    if (chunkLevel(base64Pcm16) > 0.08) this.lastVoiceAt = this.now();
-    if (!this.silentNoted && this.sawText === 0 && this.ready && this.sentBytes / 32000 >= NO_TEXT_AFTER_SEC) {
-      this.silentNoted = true;
-      this.note(`Mistral live : aucun texte reçu après ${NO_TEXT_AFTER_SEC} s d'audio envoyé (la transcription ne répond pas : parole trop faible, ou événement non reconnu — voir les lignes « reçu »)`);
+    const bytes = (base64Pcm16.length * 3) / 4;
+    const level = chunkLevel(base64Pcm16);
+    this.sentBytes += bytes;
+    if (level > this.peak) this.peak = level;
+    if (level > 0.08) {
+      this.lastVoiceAt = this.now();
+      this.voicedBytes += bytes;
+    }
+    if (this.sawText === 0 && this.ready) {
+      // Voice went in and not a single word came back: the socket may be dead or stale (opened ahead, then the phone slept):
+      // open a fresh one, once, keeping what is waiting to be sent.
+      if (!this.silentRetried && this.voicedBytes / 32000 >= NO_TEXT_VOICE_SEC) {
+        this.silentRetried = true;
+        this.note(`Mistral live : aucun texte reçu après ${NO_TEXT_VOICE_SEC} s de voix envoyée (crête ${this.peak.toFixed(2)}) : la transcription ne répond pas → nouvelle connexion`);
+        const old = this.ws;
+        this.ws = null;
+        this.ready = false;
+        try {
+          old?.close();
+        } catch {}
+        this.lost('transcription muette');
+      } else if (!this.silentNoted && this.sentBytes / 32000 >= NO_TEXT_AFTER_SEC) {
+        this.silentNoted = true;
+        this.note(`Mistral live : aucun texte reçu après ${NO_TEXT_AFTER_SEC} s d'audio envoyé, dont ${(this.voicedBytes / 32000).toFixed(1)} s avec une voix (crête du micro ${this.peak.toFixed(2)})${this.voicedBytes / 32000 < 1 ? ' : le micro n\'a presque rien entendu (parole trop faible ou trop loin)' : ''}`);
+      }
     }
     if (!this.ready) {
       this.pending.push(base64Pcm16);

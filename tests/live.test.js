@@ -352,3 +352,57 @@ test('gate (Doubao): a Chinese "transcript" the Chinese session did not translat
   assert.equal(zh.peerPending(1500), false);
   assert.equal(zh.repeats(zh.reference(1500), '所以你没有完整的规格说明。', 1500), true, 'a Chinese output repeats confirmed Chinese speech');
 });
+
+test('gate: the French→Chinese direction stays silent when Chinese is spoken, even if it answers in English (Doubao)', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const toChinese = () => new LiveGate({ scriptRule: true, sourceBase: 'fr', targetBase: 'zh' });
+  const toFrench = () => new LiveGate({ scriptRule: true, sourceBase: 'zh', targetBase: 'fr' });
+  const said = (g, text) => {
+    g.hear(text, 1000);
+    return g.reference(1500);
+  };
+
+  const a = toChinese();
+  assert.equal(a.repeats(said(a, '日方这一企图是实现其核武装的前奏。'), "Japan's attempt is a prelude to achieving nuclear armament.", 1500), true, 'English output of the French→Chinese session: not played');
+  assert.match(a.why, /ni dans la langue cible/);
+  const b = toChinese();
+  assert.equal(b.repeats(said(b, '日方这一企图是实现其核武装的前奏。'), '日方这一企图是实现其核武装的前奏。', 1500), true, 'a Chinese output repeats Chinese speech');
+  const c = toChinese();
+  assert.equal(c.repeats(said(c, "Pour lui, la solution est de louer un bout de terrain, rien de plus."), '对他来说，办法就是租一块地，仅此而已。', 1500), false, 'French speech: the Chinese output is the translation');
+  const d = toChinese();
+  assert.equal(d.repeats(said(d, '部活を決めたり、'), '决定社团活动，', 1500), true, 'Japanese speech is not French: nothing to translate towards Chinese');
+
+  const e = toFrench();
+  assert.equal(e.repeats(said(e, '日方这一企图是实现其核武装的前奏。'), 'Cette tentative du Japon est un prélude à la réalisation', 1500), false, 'Chinese→French keeps translating');
+  const f = toChinese();
+  assert.equal(f.repeats(said(f, '日本'), 'OK', 1500), true, 'Chinese speech, even a short one: the direction towards Chinese stays silent');
+});
+
+test('gate: when the detector says the sound is not the direction\'s source language, that direction stays silent (no short echoes before the text arrives)', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const g = new LiveGate({ scriptRule: true, sourceBase: 'fr', targetBase: 'zh', holdMs: 2000 });
+  g.spoken(null, 1000, 'fr'); // "not French" (Deepgram)
+  assert.equal(g.sourceNotSpoken(1500), true);
+  assert.equal(g.sourceNotSpoken(9000), false, 'the verdict expires');
+  // audio before any text: held, then at the hold limit it is muted instead of being let through
+  g.audio('chunk', 1000);
+  const released = g.audio('chunk2', 3500);
+  assert.equal(g.mode, 'mute');
+  assert.deepEqual(released, []);
+  // the opposite direction (Chinese→French) is not concerned
+  const other = new LiveGate({ scriptRule: true, sourceBase: 'zh', targetBase: 'fr' });
+  other.spoken(null, 1000, 'fr');
+  assert.equal(other.sourceNotSpoken(1500), false);
+  // French is heard again: the verdict is dropped
+  g.spoken('fr', 3600, 'fr');
+  assert.equal(g.sourceNotSpoken(3700), false);
+});
+
+test('gate: the detector\'s hint never overrides real text (a missed French sentence is still translated)', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const g = new LiveGate({ scriptRule: true, sourceBase: 'fr', targetBase: 'zh' });
+  g.spoken(null, 1000, 'fr');
+  g.text('in', 'Je voudrais réserver une table pour deux personnes.', 1100);
+  g.text('out', '我想订一张两个人的桌子。', 1200);
+  assert.equal(g.repeats(g.reference(1300), g.output, 1300), false, 'French text → Chinese output is a translation');
+});
