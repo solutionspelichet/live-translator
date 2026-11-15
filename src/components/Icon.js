@@ -45,6 +45,8 @@ const ICONS = {
   record: [['circle', { cx: 12, cy: 12, r: 5, fill: true }]],
   speaker: [['path', { d: 'M4 10v4h3.5L12 18V6L7.5 10z' }], ['path', { d: 'M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10' }]],
   bookmark: [['path', { d: 'M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z' }]],
+  camera: [['path', { d: 'M4 8h3l1.5-2.5h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z' }], ['circle', { cx: 12, cy: 13, r: 3.5 }]],
+  image: [['rect', { x: 3, y: 4.5, width: 18, height: 15, rx: 2.5 }], ['circle', { cx: 8.5, cy: 10, r: 1.5 }], ['path', { d: 'M4 17l5-4.5 4 3.5 3-2.5 4 3.5' }]],
   swap: [['path', { d: 'M8 4L4 8l4 4M4 8h14M16 20l4-4-4-4M20 16H6' }]],
   close: [['path', { d: 'M6 6l12 12M18 6L6 18' }]],
   back: [['path', { d: 'M15 5l-7 7 7 7' }]],

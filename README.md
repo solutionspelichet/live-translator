@@ -414,3 +414,7 @@ The same app runs in a browser and installs on an iPhone without an Apple develo
 ## Fiches de mots (onglet Texte → « Mot »)
 
 Un mot ou une courte phrase en langue A donne une fiche : sa traduction en langue B (DeepL, ou un modèle de langage sans clé DeepL), sa prononciation écrite et un fichier audio. La prononciation vient de la clé OpenRouter (trois styles : écriture facile à lire, alphabet latin — pinyin, romaji… — ou API), l'audio d'ElevenLabs avec la voix réglée pour la langue. « Enregistrer » garde la fiche (et son audio, sur le téléphone) dans la liste « Mots enregistrés » ; chaque mot peut être réécouté (normal ou lent), partagé en fichier audio WAV ou en texte, ou supprimé. Dans la version web, l'audio n'est pas gardé : il est régénéré à la demande.
+
+## Traduction d'une photo (onglet Texte → « Photo »)
+
+Photo prise avec la caméra ou image de la galerie (recadrable) : un modèle de langage qui lit les images (via la clé OpenRouter) en extrait chaque morceau de texte et le traduit dans la langue B. Chaque ligne peut être envoyée vers l'onglet « Mot » pour obtenir sa fiche (prononciation, audio), et le tout se partage en texte. Nouvelle dépendance native : `expo-image-picker` (permissions caméra et photos déclarées dans `app.json`). Fonctionne aussi dans la version web.

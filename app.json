@@ -64,6 +64,13 @@
           }
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "DualCast lit le texte d'une photo de votre galerie pour le traduire.",
+          "cameraPermission": "DualCast lit le texte d'une photo prise avec la caméra pour le traduire."
+        }
+      ],
       "expo-secure-store",
       "expo-font"
     ],

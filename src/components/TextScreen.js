@@ -14,12 +14,14 @@ import { palette, themedStyles } from '../theme';
 import { topInset } from '../theme/insets';
 import Icon from './Icon';
 import { Card, LargeTitle, PrimaryButton, Segmented } from './ui';
+import PhotoPanel from './PhotoPanel';
 import WordPanel from './WordPanel';
 
 /** Text translation between the two languages of the app (DeepL when its key is set, else a language model). */
 export default function TextScreen({ settings }) {
   const c = palette();
   const [mode, setMode] = useState('text');
+  const [seed, setSeed] = useState({ text: '', n: 0 }); // a text sent to the word tab (from a photo)
   const [reversed, setReversed] = useState(false);
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
@@ -52,7 +54,7 @@ export default function TextScreen({ settings }) {
         <LargeTitle title="Texte" subtitle={env.deeplKey ? 'Traduit par DeepL' : 'Traduit par un modèle de langage'} />
 
         <Segmented
-          options={[{ id: 'text', label: 'Texte' }, { id: 'word', label: 'Mot' }]}
+          options={[{ id: 'text', label: 'Texte' }, { id: 'word', label: 'Mot' }, { id: 'photo', label: 'Photo' }]}
           value={mode}
           onChange={setMode}
         />
@@ -84,7 +86,9 @@ export default function TextScreen({ settings }) {
         </View>
 
         {mode === 'word' ? (
-          <WordPanel settings={settings} fromKey={fromKey} toKey={toKey} />
+          <WordPanel settings={settings} fromKey={fromKey} toKey={toKey} seed={seed} />
+        ) : mode === 'photo' ? (
+          <PhotoPanel from={from} to={to} onWord={(text) => { setSeed({ text, n: seed.n + 1 }); setMode('word'); }} />
         ) : (
           <>
         <Card>

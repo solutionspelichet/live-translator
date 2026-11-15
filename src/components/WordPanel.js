@@ -20,7 +20,7 @@ import { Card, Pill, PrimaryButton } from './ui';
 const hasVoice = () => Boolean(env.elevenLabsKey && (env.voiceA || env.voiceB));
 
 /** "Mot" mode of the text tab: a word in language A → translation in B, how to say it, its sound; saved words are kept in a list. */
-export default function WordPanel({ settings, fromKey, toKey }) {
+export default function WordPanel({ settings, fromKey, toKey, seed }) {
   const c = palette();
   const from = getLanguage(fromKey);
   const to = getLanguage(toKey);
@@ -34,6 +34,14 @@ export default function WordPanel({ settings, fromKey, toKey }) {
   const [query, setQuery] = useState('');
   const pcm = useRef(new Map()); // card key → decoded sound, for this session
   const run = useRef(0); // a newer lookup makes the older one stop updating the screen
+
+  // A text sent from the photo tab: put it in the box and look it up.
+  useEffect(() => {
+    if (seed?.text) {
+      setInput(cleanWord(seed.text));
+      setCard(null);
+    }
+  }, [seed?.n]);
 
   useEffect(() => {
     WordStore.load().then(setSaved);
