@@ -367,6 +367,7 @@ export default class LiveTranslationEngine {
       d.stream = stream;
       turn.streams.add(stream);
       this.playingCount++;
+      const startedAt = Date.now(); // the burst begins here: any wait before its voice can start means the voice is behind
       const toSpeaker = this.audio.routeOf?.(PAN[d.to]) === 'speaker';
       if (toSpeaker) this.speakerCount++;
       // In order PER DIRECTION (the next burst of this ear waits for this one); the two ears play independently.
@@ -386,7 +387,7 @@ export default class LiveTranslationEngine {
             turn.speakerMuteNoted = true;
             this.emit({ type: 'note', text: 'haut-parleur : le micro est coupé pendant sa lecture (évite que le téléphone se réécoute)' });
           }
-          return this.audio.playStream(stream, PAN[d.to]);
+          return this.audio.playStream(stream, PAN[d.to], { lagMs: Math.max(0, Date.now() - startedAt - 300) });
         })
         .catch((error) => this.emit({ type: 'note', text: `lecture du flux live impossible : ${error?.message ?? error}` }))
         .then(() => {

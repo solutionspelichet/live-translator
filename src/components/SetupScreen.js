@@ -9,6 +9,7 @@ import audio from '../services/AudioRoutingService';
 import Power from '../../modules/dualcast-power';
 import { doubaoCode, doubaoPairProblem } from '../utils/doubao';
 import { defaultDoubaoVoice, doubaoVoicesFor } from '../utils/doubaoVoices';
+import { GEMINI_VOICES } from '../utils/geminiVoices';
 import { OUTPUT_MODES } from '../utils/outputRoute';
 import { listVoiceCandidates, mistralVoiceLanguage } from '../utils/mistral';
 import { checkMistral } from '../utils/mistralCheck';
@@ -38,6 +39,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
   const [micGain, setMicGain] = useState(settings.micGain);
   const [voiceVolume, setVoiceVolume] = useState(settings.voiceVolume);
   const [voiceSpeed, setVoiceSpeed] = useState(settings.voiceSpeed ?? 1);
+  const [voiceCatchUp, setVoiceCatchUp] = useState(settings.voiceCatchUp !== false);
   const [input, setInput] = useState(settings.input);
   const [micSource, setMicSource] = useState(settings.micSource);
   const [micAgc, setMicAgc] = useState(settings.micAgc);
@@ -47,6 +49,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
   const [doubaoVoiceKind, setDoubaoVoiceKind] = useState(settings.doubaoVoiceKind);
   const [doubaoVoices, setDoubaoVoices] = useState(settings.doubaoVoices ?? {});
   const [mistralVoices, setMistralVoices] = useState(settings.mistralVoices ?? {});
+  const [geminiVoice, setGeminiVoice] = useState(settings.geminiVoice ?? '');
   const [mistralVoiceList, setMistralVoiceList] = useState({}); // language → voices of the Mistral account
   const [uiLang, setUiLang] = useState(settings.uiLang ?? defaultLocale());
   const web = Platform.OS === 'web'; // the browser version: no microphone source / Bluetooth choice, no split output, no background service
@@ -188,6 +191,17 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
             <Hint>
               Expérimental : la documentation de BytePlus ne dit pas si l'interprétation simultanée accepte les voix prédéfinies de sa liste. Si Doubao refuse la session, le journal le dit : repassez alors sur « Ma voix clonée ». La voix choisie est celle qui PARLE chaque langue.
             </Hint>
+          </>
+        )}
+        {strategy === 'gemini' && (
+          <>
+            <Text style={styles.label}>Voix de Gemini</Text>
+            <Select
+              value={geminiVoice || null}
+              onChange={(id) => setGeminiVoice(id ?? '')}
+              options={[{ id: null, label: t('Automatique (la voix du modèle)') }, ...GEMINI_VOICES.map((v) => ({ id: v, label: v }))]}
+            />
+            <Hint>Expérimental : le modèle de traduction de Gemini est en préversion et la documentation de Google ne dit pas s’il accepte une voix choisie. Si le service la refuse, l’application réessaie toute seule avec la voix du modèle et le journal le dit. OpenAI ne propose aucun choix de voix pour sa traduction en direct.</Hint>
           </>
         )}
         {strategy === 'mistral' && (() => {
@@ -488,6 +502,14 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
         <Hint>
           Accélère la parole traduite sans la rendre aiguë (le ton de la voix reste le même). Utile quand la traduction prend du retard sur celui qui parle : une voix plus rapide rattrape plus vite. Au-delà de ×1.5 elle devient moins naturelle. Cela s'applique à tous les services.
         </Hint>
+        <Chip
+          label={voiceCatchUp ? '✓ Rattrapage automatique du retard' : 'Rattrapage automatique du retard (désactivé)'}
+          on={voiceCatchUp}
+          onPress={() => setVoiceCatchUp(!voiceCatchUp)}
+        />
+        <Hint>
+          Quand une phrase traduite doit attendre que la précédente ait fini d'être dite, elle est lue un peu plus vite (jusqu'à +0,5, sans dépasser ×1,6) pour que la voix rattrape celui qui parle. La vitesse que vous avez choisie n'est jamais baissée, et rien ne change quand la voix est à l'heure.
+        </Hint>
         {!live && (<>
         <Text style={styles.label}>Réactivité de la traduction</Text>
         <View style={styles.chips}>
@@ -639,7 +661,7 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
           onPress={async () => {
             setSaving(true);
             await saveKeys(values);
-            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, voiceSpeed, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode: web ? 'stereo' : outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, doubaoVoiceKind, doubaoVoices, mistralVoices, recentPairs: rememberPair(settings.recentPairs, languages) });
+            const saved = await saveSettings({ ...settings, strategy, languages, background, micGain, voiceVolume, voiceSpeed, voiceCatchUp, input, micSource, micAgc, streamVoice, speed, muteWhilePlaying, outputMode: web ? 'stereo' : outputMode, elevenVoiceForAll, mistralQuality, mistralGlossary, mistralAutoContext, mistralTranslator, lowBandwidth, voiceBySpeaker, theme, uiLang, doubaoVoiceKind, doubaoVoices, mistralVoices, geminiVoice, recentPairs: rememberPair(settings.recentPairs, languages) });
             setSaving(false);
             onDone(saved);
           }}

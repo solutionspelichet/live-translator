@@ -528,6 +528,7 @@ export default class TranslationEngine {
     const prepared = this.translator.translate(text, language, targetLanguage).then(async (translated) => {
       if (this.turnId !== id) return null;
       timing.translateMs = Date.now() - t0;
+      timing.translatedAt = Date.now();
       turn.shown[targetSide][index] = translated;
       this.emit({ type: 'translation', side: targetSide, text: turn.shown[targetSide].filter(Boolean).join(' ') });
       this.emit({ type: 'segment', from: side, to: targetSide, fromLang: language, toLang: targetLanguage, source: text, translated, at: Date.now(), service: 'Classique' });
@@ -555,8 +556,10 @@ export default class TranslationEngine {
         if (this.turnId !== id || !source) return;
         turn.playing = true;
         this.syncState(turn);
-        if (source.stream) await this.playStreamed(turn, source, targetSide, voice);
-        else await this.audio.playPanned(source, PAN[targetSide]);
+        // How long this sentence waited for the previous one to end (after the ~1.5 s its voice takes to be generated anyway): the voice is behind
+        const lagMs = timing.translatedAt ? Math.max(0, Date.now() - timing.translatedAt - 1500) : 0;
+        if (source.stream) await this.playStreamed(turn, source, targetSide, voice, lagMs);
+        else await this.audio.playPanned(source, PAN[targetSide], { lagMs });
         const ready = source.stream?.firstAudioAt ?? timing.readyAt;
         this.emit({
           type: 'timing',
@@ -574,15 +577,15 @@ export default class TranslationEngine {
   }
 
   /** Play a sentence while it is still being generated; fall back to the classic request if the stream is unusable. */
-  async playStreamed(turn, { stream, translated }, targetSide, voice) {
+  async playStreamed(turn, { stream, translated }, targetSide, voice, lagMs = 0) {
     try {
-      await this.audio.playStream(stream, PAN[targetSide]);
+      await this.audio.playStream(stream, PAN[targetSide], { lagMs });
     } catch (error) {
       if (stream.gotAudio || this.turnId !== turn.id) throw error;
       this.streamTts = false; // don't pay that detour again this session
       this.emit({ type: 'note', text: `voix en flux indisponible (${error?.message ?? error}) → mode classique` });
       const source = await this.tts.synthesize(translated, voice);
-      if (this.turnId === turn.id) await this.audio.playPanned(source, PAN[targetSide]);
+      if (this.turnId === turn.id) await this.audio.playPanned(source, PAN[targetSide], { lagMs });
     }
   }
 

@@ -58,7 +58,9 @@ test('sanitizeSettings keeps valid values', () => {
     voiceBySpeaker: false,
     voiceLayout: 'face',
     voiceSpeed: 1,
+    voiceCatchUp: true,
     mistralVoices: {},
+    geminiVoice: '',
     elevenVoiceForAll: false,
     mistralQuality: 'best',
     lowBandwidth: false,
@@ -245,4 +247,13 @@ test('mistralVoices: one voice id per language code, the rest is dropped', async
   assert.deepEqual(sanitizeMistralVoices({ fr: 'a1b2-c3d4', en: 'x', zh: 'voice_12', FR: 'abcdef', de: 42 }), { fr: 'a1b2-c3d4', zh: 'voice_12' });
   assert.deepEqual(sanitizeMistralVoices(null), {});
   assert.deepEqual(sanitizeSettings({ mistralVoices: { fr: 'abc-def' } }).mistralVoices, { fr: 'abc-def' });
+});
+
+test('geminiVoice: a voice of the list, else the model\'s own (empty)', async () => {
+  const { sanitizeSettings, engineOptions } = await import('../src/config/settingsModel.js');
+  assert.equal(sanitizeSettings({ geminiVoice: 'Kore' }).geminiVoice, 'Kore');
+  assert.equal(sanitizeSettings({ geminiVoice: 'Nope' }).geminiVoice, '');
+  assert.equal(sanitizeSettings({}).geminiVoice, '');
+  assert.equal(engineOptions({ geminiVoice: 'Puck' }).geminiVoice, 'Puck');
+  assert.equal(engineOptions({}).geminiVoice, '');
 });

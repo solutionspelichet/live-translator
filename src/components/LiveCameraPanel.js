@@ -204,7 +204,7 @@ const styles = themedStyles((c) => StyleSheet.create({
   frame: { height: VIEW_HEIGHT, borderRadius: 20, overflow: 'hidden', backgroundColor: c.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
   idle: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   idleText: { color: c.textMuted, fontSize: 15, textAlign: 'center' },
-  box: { position: 'absolute', backgroundColor: 'rgba(10,11,16,0.82)', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 2, justifyContent: 'center' },
+  box: { position: 'absolute', backgroundColor: 'rgba(10,11,16,0.82)', borderRadius: 6, borderLeftWidth: 3, borderLeftColor: '#22D3EE', paddingHorizontal: 5, paddingVertical: 2, justifyContent: 'center' },
   boxText: { color: '#FFFFFF', fontWeight: '600' },
   status: { position: 'absolute', bottom: 12, alignSelf: 'center', color: '#FFFFFF', backgroundColor: 'rgba(10,11,16,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, fontSize: 13, overflow: 'hidden' },
   row: { flexDirection: 'row', gap: 10 },

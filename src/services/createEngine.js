@@ -62,7 +62,7 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       profile: GEMINI_LIVE,
       muteWhilePlaying: options.muteWhilePlaying,
       lowBandwidth: options.lowBandwidth,
-      createSession: (opts) => new GeminiLiveSession({ ...opts, url: env.geminiLiveWsUrl, apiKey: env.geminiKey, timers: BackgroundTimers }),
+      createSession: (opts) => new GeminiLiveSession({ ...opts, voice: options.geminiVoice, url: env.geminiLiveWsUrl, apiKey: env.geminiKey, timers: BackgroundTimers }),
     });
   }
   if (strategy === 'mistral') {

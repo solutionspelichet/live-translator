@@ -30,13 +30,14 @@ const contrast = (a, b) => {
 test('text is readable on its backgrounds in both themes (contrast ≥ 4.5, hints ≥ 3.5)', () => {
   for (const [name, p] of Object.entries(PALETTES)) {
     for (const bg of ['bg', 'surface', 'inset', 'panel']) {
-      for (const fg of ['text', 'textBody', 'textSoft', 'link', 'danger', 'success', 'warn']) {
+      for (const fg of ['text', 'textBody', 'textSoft', 'link', 'cyan', 'danger', 'success', 'warn']) {
         assert.ok(contrast(p[fg], p[bg]) >= 4.5, `${name}: ${fg} on ${bg} = ${contrast(p[fg], p[bg]).toFixed(2)}`);
       }
       for (const fg of ['textMuted', 'textFaint']) {
         assert.ok(contrast(p[fg], p[bg]) >= 3.5, `${name}: ${fg} on ${bg} = ${contrast(p[fg], p[bg]).toFixed(2)}`);
       }
     }
+    assert.ok(contrast(p.cyan, p.cyanSoft) >= 4.5, `${name}: second accent on its tinted background`);
     assert.ok(contrast(p.onAccent, p.accent) >= 4, `${name}: text on the accent button`);
     assert.ok(contrast(p.text, p.chipOn) >= 4.5, `${name}: text on a selected chip`);
     assert.ok(contrast(p.danger, p.dangerBg) >= 4.5, `${name}: text on the danger background`);

@@ -299,7 +299,7 @@ const styles = themedStyles((c) => StyleSheet.create({
   save: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 14 },
   saveText: { color: c.textMuted, fontSize: 13, fontWeight: '600' },
   word: { color: c.text, fontSize: 34, lineHeight: 42, fontWeight: '700', letterSpacing: -0.5 },
-  phonetic: { color: c.accent, fontSize: 22, lineHeight: 30, fontWeight: '500' },
+  phonetic: { color: c.cyan, fontSize: 22, lineHeight: 30, fontWeight: '500' },
   phoneticWait: { color: c.textFaint, fontSize: 14 },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -310,5 +310,5 @@ const styles = themedStyles((c) => StyleSheet.create({
   empty: { color: c.textMuted, fontSize: 14, lineHeight: 20 },
   item: { gap: 12 },
   itemWord: { color: c.text, fontSize: 22, fontWeight: '700' },
-  itemPhonetic: { color: c.accent, fontSize: 16, marginTop: 2 },
+  itemPhonetic: { color: c.cyan, fontSize: 16, marginTop: 2 },
 }));

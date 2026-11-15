@@ -4,6 +4,7 @@ import { AudioContext, AudioManager } from 'react-native-audio-api';
 import Power from '../../modules/dualcast-power';
 import { routeFor } from '../utils/outputRoute';
 import TimeStretcher, { stretchAll } from '../utils/timeStretch';
+import { catchUpSpeed } from '../utils/voiceSpeed';
 import { applyLoudness, boostLoudness, clampPan, loudnessGain, pcm16ToFloat, resampleLinear } from '../utils/pcm';
 import SpeakerPlayer from './SpeakerPlayer';
 
@@ -41,6 +42,7 @@ class AudioRoutingService {
     this.streams = new Set(); // TtsStream being played (stopAll aborts them)
     this.sessionReady = false;
     this.voiceVolume = 2; // loudness of the translated voice (1 = normal speech level)
+    this.catchUp = true; // a sentence that had to wait is played a bit faster (see catchUpSpeed)
     this.voiceSpeed = 1; // speed of the translated voice (1 = as generated, 1.3 = 30 % faster, same pitch)
     this.outputMode = 'stereo'; // see utils/outputRoute.js: 'split' = me in the headset, the other person on the phone speaker
     this.speaker = new SpeakerPlayer(Power);
@@ -57,6 +59,15 @@ class AudioRoutingService {
 
   setVoiceVolume(volume) {
     this.voiceVolume = volume;
+  }
+
+  setCatchUp(on) {
+    this.catchUp = on !== false;
+  }
+
+  /** Speed for a sentence that waited `lagMs` before it could start: the chosen speed, raised when the voice is behind. */
+  speedFor(lagMs) {
+    return this.catchUp ? catchUpSpeed(this.voiceSpeed, lagMs) : this.voiceSpeed;
   }
 
   setVoiceSpeed(speed) {
@@ -158,7 +169,7 @@ class AudioRoutingService {
     }
   }
 
-  async toAudioBuffer(source) {
+  async toAudioBuffer(source, speed = this.voiceSpeed) {
     if (source.url) return this.ctx.decodeAudioData(source.url);
     if (source.data && source.encoded) return this.ctx.decodeAudioData(source.data);
     if (source.data && source.sampleRate) {
@@ -166,7 +177,7 @@ class AudioRoutingService {
       // on a 48 kHz context played back at double speed on device.
       const rate = this.ctx.sampleRate;
       // ElevenLabs speech is fairly quiet: bring it to a comfortable loudness first.
-      const loud = stretchAll(boostLoudness(pcm16ToFloat(source.data), this.voiceVolume), source.sampleRate, source.speed ?? this.voiceSpeed);
+      const loud = stretchAll(boostLoudness(pcm16ToFloat(source.data), this.voiceVolume), source.sampleRate, source.speed ?? speed);
       const samples = resampleLinear(loud, source.sampleRate, rate);
       const buffer = this.ctx.createBuffer(1, samples.length, rate);
       buffer.getChannelData(0).set(samples);
@@ -183,7 +194,7 @@ class AudioRoutingService {
   async playPanned(source, pan, opts) {
     await this.init();
     const target = routeFor(pan, this.outputMode, this.speaker.available);
-    const buffer = await this.toAudioBuffer(source);
+    const buffer = await this.toAudioBuffer(source, this.speedFor(opts?.lagMs));
     if (target.route === 'speaker') return this.speaker.playSamples(buffer.getChannelData(0), buffer.sampleRate, { voiceVolume: 1 });
     return this.playDecoded(buffer, target.pan, opts);
   }
@@ -238,13 +249,14 @@ class AudioRoutingService {
    * back to back on the Web Audio clock as they arrive, so speech starts after ~0.3 s instead of
    * after the whole sentence is ready. Rejects only when nothing at all could be played.
    */
-  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15 } = {}) {
+  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15, lagMs = 0 } = {}) {
     await this.init();
+    const speed = this.speedFor(lagMs);
     const target = routeFor(pan, this.outputMode, this.speaker.available);
     if (target.route === 'speaker') {
       this.streams.add(stream);
       try {
-        return await this.speaker.playStream(stream, { voiceVolume: this.voiceVolume, voiceSpeed: this.voiceSpeed, prebufferSec });
+        return await this.speaker.playStream(stream, { voiceVolume: this.voiceVolume, voiceSpeed: speed, prebufferSec });
       } finally {
         this.streams.delete(stream);
       }
@@ -270,7 +282,7 @@ class AudioRoutingService {
       let failure = null;
       let voiceGain = null; // one gain for the whole sentence, so loudness doesn't jump between pieces
       let first = true;
-      const stretcher = new TimeStretcher(inRate, this.voiceSpeed); // faster voice, same pitch (pass-through at 1×)
+      const stretcher = new TimeStretcher(inRate, speed); // faster voice, same pitch (pass-through at 1×)
 
       const settle = () => {
         if (!finished || running > 0) return;

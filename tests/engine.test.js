@@ -48,7 +48,7 @@ function setup({ flushAfterMs = 1000, autoEndMs = 20, noAudioMs = 1000, transcri
     },
     tts: { synthesize: async (t, o) => (calls.tts.push([t, o]), { text: t, data: new ArrayBuffer(4), sampleRate: 24000 }) },
     audio: {
-      playPanned: async (src, pan) => { calls.play.push(pan); calls.played.push(src.text); },
+      playPanned: async (src, pan, opts) => { calls.play.push(pan); calls.played.push(src.text); (calls.opts ??= []).push(opts); },
       stopAll: () => { calls.stopAll++; },
     },
   });
@@ -760,4 +760,12 @@ test('hands-free: a short phrase with a modest score is translated, a long one w
   a.onFinal('OK je pense que ça ira ici demain', 0.45);
   await pause(600);
   assert.equal(calls.translate.length, 1);
+});
+
+test('each sentence is played with how late it is (lagMs), so the voice can catch up', async () => {
+  const { calls, speak } = setup();
+  await speak('A');
+  assert.equal(calls.opts.length, 1);
+  assert.equal(typeof calls.opts[0].lagMs, 'number');
+  assert.ok(calls.opts[0].lagMs >= 0 && calls.opts[0].lagMs < 1000, 'a voice that was not kept waiting is on time');
 });

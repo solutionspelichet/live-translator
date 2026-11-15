@@ -422,3 +422,9 @@ Photo prise avec la caméra ou image de la galerie (recadrable) : un modèle de 
 ## Caméra en direct (onglet Texte → « Direct »)
 
 La caméra prend une image environ chaque seconde ; le téléphone lit le texte (ML Kit, hors ligne : alphabet latin, chinois, japonais, coréen, devanagari), les textes nouveaux sont traduits en une seule requête (DeepL, ou un modèle de langage sans clé DeepL) et la traduction est dessinée sur le texte d'origine. Les traductions déjà obtenues sont gardées en mémoire (un texte n'est traduit qu'une fois), le résultat est lissé d'une image à l'autre, « Figer » arrête la prise d'images en gardant l'affichage, et toucher une traduction l'ouvre en fiche de mot. Nouvelles dépendances natives : `expo-camera` et `@react-native-ml-kit/text-recognition` (APK plus lourd). Non disponible dans la version web (onglet Photo à la place).
+
+## Petits réglages de la voix et du design
+
+- **Voix de Gemini** (Réglages → Traduction, stratégie Gemini live) : liste des 30 voix prédéfinies de Google. Le modèle de traduction est en préversion et rien ne prouve qu'il accepte une voix choisie : si le service la refuse au démarrage, la session réessaie seule sans voix et le journal le dit. OpenAI ne propose aucun choix de voix pour sa traduction en direct (rien dans sa documentation).
+- **Rattrapage automatique du retard** (Réglages → Voix, activé par défaut) : une phrase qui a dû attendre la précédente est lue plus vite (+0,12 par seconde de retard au-delà de 1 s, au plus +0,5, jamais au-delà de ×1,6 ; la vitesse choisie n'est jamais baissée). Valable pour tous les services.
+- **Second accent cyan** : les résultats produits pour vous (prononciations, traductions de photo, étiquettes de la caméra) sont en cyan ; l'indigo reste celui des actions.

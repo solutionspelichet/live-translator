@@ -153,7 +153,7 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     audio.setVoiceSpeed(settings.voiceSpeed);
     audio.setOutputMode(settings.outputMode);
     return e;
-  }, [languages.A, languages.B, settings.strategy]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [languages.A, languages.B, settings.strategy, settings.geminiVoice]); // eslint-disable-line react-hooks/exhaustive-deps
   const [state, setState] = useState(STATE.IDLE);
   const [activeSide, setActiveSide] = useState(null);
   const [level, setLevel] = useState(0);
@@ -264,8 +264,9 @@ function Translator({ settings, onSettingsChange, onOpenSettings, onOpenMeetings
     engine.mic.setGain(settings.micGain);
     audio.setVoiceVolume(settings.voiceVolume);
     audio.setVoiceSpeed(settings.voiceSpeed);
+    audio.setCatchUp(settings.voiceCatchUp);
     audio.setOutputMode(settings.outputMode);
-  }, [engine, settings.micGain, settings.voiceVolume, settings.voiceSpeed, settings.outputMode]);
+  }, [engine, settings.micGain, settings.voiceVolume, settings.voiceSpeed, settings.voiceCatchUp, settings.outputMode]);
   useEffect(() => {
     if (firstRun.current) {
       firstRun.current = false; // the initial selection is done in the startup chain
