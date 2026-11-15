@@ -24,6 +24,19 @@ export default class DeepLClient {
     return json.translations[0].text;
   }
 
+  /** Several texts in ONE request (the live camera): → translations in the same order. */
+  async translateMany(texts, fromLang, toLang) {
+    const res = await fetchWithRetry('DeepL', () =>
+      webFetch(`${env.deeplBaseUrl}/v2/translate`, {
+        method: 'POST',
+        headers: { Authorization: `DeepL-Auth-Key ${env.deeplKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: texts, source_lang: getLanguage(fromLang).deeplSource, target_lang: getLanguage(toLang).deeplTarget }),
+      }),
+    );
+    const json = await res.json();
+    return texts.map((_, i) => json.translations?.[i]?.text ?? '');
+  }
+
   /** Translation WITHOUT telling the source language: DeepL detects it and says which (`detected`, e.g. 'FR', 'ZH'). */
   async translateAuto(text, toLang) {
     const res = await fetchWithRetry('DeepL', () =>

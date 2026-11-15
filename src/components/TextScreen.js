@@ -14,6 +14,7 @@ import { palette, themedStyles } from '../theme';
 import { topInset } from '../theme/insets';
 import Icon from './Icon';
 import { Card, LargeTitle, PrimaryButton, Segmented } from './ui';
+import LiveCameraPanel from './LiveCameraPanel';
 import PhotoPanel from './PhotoPanel';
 import WordPanel from './WordPanel';
 
@@ -54,7 +55,7 @@ export default function TextScreen({ settings }) {
         <LargeTitle title="Texte" subtitle={env.deeplKey ? 'Traduit par DeepL' : 'Traduit par un modèle de langage'} />
 
         <Segmented
-          options={[{ id: 'text', label: 'Texte' }, { id: 'word', label: 'Mot' }, { id: 'photo', label: 'Photo' }]}
+          options={[{ id: 'text', label: 'Texte' }, { id: 'word', label: 'Mot' }, { id: 'photo', label: 'Photo' }, { id: 'live', label: 'Direct' }]}
           value={mode}
           onChange={setMode}
         />
@@ -89,6 +90,8 @@ export default function TextScreen({ settings }) {
           <WordPanel settings={settings} fromKey={fromKey} toKey={toKey} seed={seed} />
         ) : mode === 'photo' ? (
           <PhotoPanel from={from} to={to} onWord={(text) => { setSeed({ text, n: seed.n + 1 }); setMode('word'); }} />
+        ) : mode === 'live' ? (
+          <LiveCameraPanel from={from} to={to} fromKey={fromKey} toKey={toKey} onWord={(text) => { setSeed({ text, n: seed.n + 1 }); setMode('word'); }} />
         ) : (
           <>
         <Card>

@@ -418,3 +418,7 @@ Un mot ou une courte phrase en langue A donne une fiche : sa traduction en langu
 ## Traduction d'une photo (onglet Texte → « Photo »)
 
 Photo prise avec la caméra ou image de la galerie (recadrable) : un modèle de langage qui lit les images (via la clé OpenRouter) en extrait chaque morceau de texte et le traduit dans la langue B. Chaque ligne peut être envoyée vers l'onglet « Mot » pour obtenir sa fiche (prononciation, audio), et le tout se partage en texte. Nouvelle dépendance native : `expo-image-picker` (permissions caméra et photos déclarées dans `app.json`). Fonctionne aussi dans la version web.
+
+## Caméra en direct (onglet Texte → « Direct »)
+
+La caméra prend une image environ chaque seconde ; le téléphone lit le texte (ML Kit, hors ligne : alphabet latin, chinois, japonais, coréen, devanagari), les textes nouveaux sont traduits en une seule requête (DeepL, ou un modèle de langage sans clé DeepL) et la traduction est dessinée sur le texte d'origine. Les traductions déjà obtenues sont gardées en mémoire (un texte n'est traduit qu'une fois), le résultat est lissé d'une image à l'autre, « Figer » arrête la prise d'images en gardant l'affichage, et toucher une traduction l'ouvre en fiche de mot. Nouvelles dépendances natives : `expo-camera` et `@react-native-ml-kit/text-recognition` (APK plus lourd). Non disponible dans la version web (onglet Photo à la place).
