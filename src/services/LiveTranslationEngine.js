@@ -367,6 +367,7 @@ export default class LiveTranslationEngine {
       d.stream = stream;
       turn.streams.add(stream);
       this.playingCount++;
+      const startedAt = Date.now(); // the burst begins here: a wait before its voice can start means the voice is behind
       const toSpeaker = this.audio.routeOf?.(PAN[d.to]) === 'speaker';
       if (toSpeaker) this.speakerCount++;
       // In order PER DIRECTION (the next burst of this ear waits for this one); the two ears play independently.
@@ -381,16 +382,18 @@ export default class LiveTranslationEngine {
               await this.audio.ctx.resume?.();
             } catch {}
           }
-          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} démarrée sur ${toSpeaker ? 'le haut-parleur' : 'le casque'}${toSpeaker ? '' : ` (moteur audio : ${this.audio.ctx?.state ?? '?'})`}` });
+          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} démarrée sur ${toSpeaker ? 'le haut-parleur' : 'le casque'}${toSpeaker ? '' : ` (moteur audio : ${this.audio.ctx?.state ?? '?'})`}${Date.now() - startedAt > 1500 ? ` · en attente depuis ${((Date.now() - startedAt) / 1000).toFixed(1)} s` : ''}` });
           if (toSpeaker && this.profile.muteOnSpeaker && !turn.speakerMuteNoted) {
             turn.speakerMuteNoted = true;
             this.emit({ type: 'note', text: 'haut-parleur : le micro est coupé pendant sa lecture (évite que le téléphone se réécoute)' });
           }
-          return this.audio.playStream(stream, PAN[d.to]); // no catch-up here: a live voice arrives at the pace of the speech, speeding it up would cut it
+          // lagMs: how long this burst waited for the previous one. The audio piled up meanwhile is what the catch-up can speed through
+          // (it only speeds up while audio is waiting, so it never runs the voice dry)
+          return this.audio.playStream(stream, PAN[d.to], { lagMs: Math.max(0, Date.now() - startedAt - 300) });
         })
         .catch((error) => this.emit({ type: 'note', text: `lecture du flux live impossible : ${error?.message ?? error}` }))
         .then(() => {
-          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} terminée : ${(stream.pushed / stream.sampleRate).toFixed(1)} s de voix reçues` });
+          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} terminée : ${(stream.pushed / stream.sampleRate).toFixed(1)} s de voix reçues${stream.maxSpeed > 1.02 ? ` · accélérée jusqu'à ×${stream.maxSpeed.toFixed(2)}` : ''}` });
           turn.streams.delete(stream);
           this.playingCount = Math.max(0, this.playingCount - 1);
           turn.quietUntil = Date.now() + 600;

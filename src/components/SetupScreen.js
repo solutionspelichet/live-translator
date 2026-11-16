@@ -502,16 +502,14 @@ export default function SetupScreen({ settings, onDone, onPreviewTheme, onPrevie
         <Hint>
           Accélère la parole traduite sans la rendre aiguë (le ton de la voix reste le même). Utile quand la traduction prend du retard sur celui qui parle : une voix plus rapide rattrape plus vite. Au-delà de ×1.5 elle devient moins naturelle. Cela s'applique à tous les services.
         </Hint>
-        {!live && (<>
         <Chip
           label={voiceCatchUp ? '✓ Rattrapage automatique du retard' : 'Rattrapage automatique du retard (désactivé)'}
           on={voiceCatchUp}
           onPress={() => setVoiceCatchUp(!voiceCatchUp)}
         />
         <Hint>
-          Quand une phrase traduite doit attendre que la précédente ait fini d'être dite, elle est lue un peu plus vite (jusqu'à +0,5, sans dépasser ×1,6) pour que la voix rattrape celui qui parle. La vitesse que vous avez choisie n'est jamais baissée, et rien ne change quand la voix est à l'heure. Réservé au mode Classique : les services en direct (OpenAI, Gemini, Doubao, Mistral) envoient leur voix au rythme de la parole, l'accélérer la ferait hacher.
+          Quand une phrase traduite doit attendre que la précédente ait fini d'être dite, elle est lue un peu plus vite (jusqu'à +0,5, sans dépasser ×1,6) pour que la voix rattrape celui qui parle. La vitesse que vous avez choisie n'est jamais baissée, et rien ne change quand la voix est à l'heure. Avec les services en direct (OpenAI, Gemini, Doubao, Mistral), l'accélération ne joue que lorsque de la voix s'est accumulée en attente (phrase longue, tour de parole qui déborde) : elle ne démarre jamais sans réserve de voix, donc ne la hache pas.
         </Hint>
-        </>)}
         {!live && (<>
         <Text style={styles.label}>Réactivité de la traduction</Text>
         <View style={styles.chips}>

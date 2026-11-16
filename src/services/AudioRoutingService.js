@@ -4,7 +4,7 @@ import { AudioContext, AudioManager } from 'react-native-audio-api';
 import Power from '../../modules/dualcast-power';
 import { routeFor } from '../utils/outputRoute';
 import TimeStretcher, { stretchAll } from '../utils/timeStretch';
-import { catchUpSpeed } from '../utils/voiceSpeed';
+import { adaptiveSpeed, catchUpSpeed } from '../utils/voiceSpeed';
 import { applyLoudness, boostLoudness, clampPan, loudnessGain, pcm16ToFloat, resampleLinear } from '../utils/pcm';
 import SpeakerPlayer from './SpeakerPlayer';
 
@@ -251,7 +251,9 @@ class AudioRoutingService {
    */
   async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15, lagMs = 0 } = {}) {
     await this.init();
-    const speed = this.speedFor(lagMs);
+    // A voice that had to wait (lagMs) follows a reserve-aware catch-up (see adaptiveSpeed); otherwise the chosen speed, as before.
+    const adaptive = this.catchUp && lagMs > 1000;
+    let speed = this.voiceSpeed;
     const target = routeFor(pan, this.outputMode, this.speaker.available);
     if (target.route === 'speaker') {
       this.streams.add(stream);
@@ -307,7 +309,19 @@ class AudioRoutingService {
         pending = [];
         pendingLen = 0;
         if (voiceGain == null && joined.length) voiceGain = loudnessGain(joined, this.voiceVolume) ?? 1;
+        let held = new Float32Array(0);
+        if (adaptive) {
+          // audio waiting = what is scheduled but not played yet + what arrived and was not scheduled yet
+          const waiting = Math.max(0, nextTime - ctx.currentTime) + joined.length / inRate;
+          const next = adaptiveSpeed(speed, waiting, this.voiceSpeed);
+          if (next !== speed) {
+            speed = next;
+            stream.maxSpeed = Math.max(stream.maxSpeed ?? 0, speed); // for the journal
+            held = stretcher.setFactor(speed); // back to 1×: what the stretcher held back is played first
+          }
+        }
         let voice = joined.length ? stretcher.push(applyLoudness(joined, voiceGain ?? 1)) : new Float32Array(0);
+        if (held.length) voice = concat(held, voice);
         if (force) voice = concat(voice, stretcher.flush()); // the end of the sentence: what the stretcher kept back
         if (!voice.length) return; // the stretcher keeps a few milliseconds back until it has enough audio
         const samples = resampleLinear(voice, inRate, rate);

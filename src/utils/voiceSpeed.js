@@ -27,3 +27,21 @@ export function catchUpSpeed(base, lagMs, { freeMs = 1000, perSecond = 0.12, max
   const boost = Math.min(maxBoost, ((lag - freeMs) / 1000) * perSecond);
   return Math.round(Math.min(cap, b + boost) * 20) / 20;
 }
+
+/**
+ * Adaptive catch-up for a voice that is STREAMED while it plays: the speed follows the amount of audio waiting to be played.
+ * Speeding up a voice that arrives at the pace of speech (nothing waiting) would run it dry and cut it; with a reserve of audio waiting
+ * it is safe. So: nothing below `upAt` seconds waiting, from there faster and faster (at most +`maxBoost`, never above `cap`), back to
+ * the chosen speed below `downAt` (between the two: unchanged), and never by more than `step` per call (no jump that can be heard).
+ * @param {number} prev speed in use  @param {number} backlogSec seconds of audio received and not played yet  @param {number} base chosen speed
+ */
+export function adaptiveSpeed(prev, backlogSec, base, { upAt = 2.5, downAt = 1, perSecond = 0.15, maxBoost = 0.5, cap = 1.6, step = 0.05 } = {}) {
+  const b = sanitizeVoiceSpeed(base);
+  const cur = Number.isFinite(prev) && prev > 0 ? prev : b;
+  if (b >= cap) return b;
+  let target = cur;
+  if (backlogSec >= upAt) target = Math.min(cap, b + Math.min(maxBoost, 0.1 + (backlogSec - upAt) * perSecond));
+  else if (backlogSec <= downAt) target = b;
+  const next = target > cur ? Math.min(target, cur + step) : Math.max(target, cur - step);
+  return Math.max(b, Math.round(next * 100) / 100);
+}
