@@ -105,7 +105,7 @@ export function isFragment(text) {
 export function interpreterMessages({ a, b, text, context = [], glossary = '' }) {
   const system = [
     `You are the interpreter of a live face-to-face conversation: person A speaks ${a}, person B speaks ${b}.`,
-    'You receive ONE sentence transcribed from speech (it may contain recognition errors: fix the obvious ones silently).',
+    'You receive ONE sentence transcribed from speech (it may contain recognition errors: fix the obvious ones silently). It may be cut in the middle at a pause: translate only what is there, never invent the end of it.',
     `Decide which language the sentence is in and translate it into the other one, in natural spoken style.`,
     'Reply ONLY with a JSON object: {"from":"A"|"B"|"other","text":"<translation>"}.',
     `"from" is "A" if the sentence is in ${a} (translate it into ${b}), "B" if it is in ${b} (translate it into ${a}). "text" MUST be written in the language it is translated INTO, never in the language of the sentence.`,
@@ -279,7 +279,8 @@ export const isVoiceRefusal = (error) => error instanceof ApiError && (error.sta
 export function cutLongClause(buffer, maxWords = 16, minHead = 5) {
   const words = buffer.trim().split(/\s+/).filter(Boolean);
   const cjk = /[぀-ヿ㐀-鿿가-힯]/u.test(buffer);
-  if (cjk ? buffer.trim().length <= maxWords * 2 : words.length <= maxWords) return null;
+  const cjkMax = maxWords * 3; // ~10 s of Chinese speech (a cut in the middle of a thought made incomplete sentences)
+  if (cjk ? buffer.trim().length <= cjkMax : words.length <= maxWords) return null;
   const text = buffer.trimStart();
   const marks = [...text.matchAll(cjk ? /[，、；：]/g : /[,;:](\s|$)/g)];
   for (let i = marks.length - 1; i >= 0; i--) {
@@ -288,7 +289,7 @@ export function cutLongClause(buffer, maxWords = 16, minHead = 5) {
     const count = cjk ? head.length : head.trim().split(/\s+/).length;
     if (count >= (cjk ? 6 : minHead)) return { head: head.trim(), rest: text.slice(end) };
   }
-  if (cjk) return { head: text.slice(0, maxWords * 2), rest: text.slice(maxWords * 2) };
+  if (cjk) return { head: text.slice(0, cjkMax), rest: text.slice(cjkMax) };
   const head = words.slice(0, maxWords).join(' ');
   return { head, rest: words.slice(maxWords).join(' ') };
 }
@@ -390,3 +391,29 @@ export function chunkLevel(base64Pcm16) {
   }
   return Math.min(1, Math.sqrt(sum / Math.ceil(n / 2)) * 6);
 }
+
+/** The memory of refused models (model → time until which it is left alone) as plain entries to keep on the phone, only what is still valid. */
+export function serializeBlocks(map, now = Date.now()) {
+  const out = {};
+  for (const [model, until] of map ?? []) if (typeof model === 'string' && Number.isFinite(until) && until > now) out[model] = until;
+  return out;
+}
+
+/** What was kept on the phone → entries still valid (a model id is a short word list, a time is a number in the future, at most 12 days). */
+export function restoreBlocks(raw, now = Date.now()) {
+  const out = new Map();
+  let data = raw;
+  try {
+    if (typeof raw === 'string') data = JSON.parse(raw);
+  } catch {
+    return out;
+  }
+  if (!data || typeof data !== 'object') return out;
+  for (const [model, until] of Object.entries(data)) {
+    if (/^[\w.:-]{3,60}$/.test(model) && Number.isFinite(until) && until > now && until - now <= 12 * 24 * 3600 * 1000) out.set(model, until);
+  }
+  return out;
+}
+
+/** « This model is not available in your subscription tier »: the account cannot use it, today or tomorrow (a rate limit passes, this does not). */
+export const isTierRefusal = (error) => (error?.status === 403 || error?.status === 404) && /tier_not_allowed|subscription tier|not available in your/i.test(String(error?.detail ?? ''));

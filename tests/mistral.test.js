@@ -97,8 +97,13 @@ test('cutLongClause cuts a run of words at the last comma, or at the word limit,
   const cut2 = cutLongClause(noComma);
   assert.equal(cut2.head.split(' ').length, 16);
   assert.equal(cut2.rest.split(' ').length, 4);
-  const zh = cutLongClause('我觉得我们明天早上应该出发，因为路很长而且天气今晚会变化所以我们最好早一点走吧');
-  assert.equal(zh.head, '我觉得我们明天早上应该出发，');
+  const zhShort = '我觉得我们明天早上应该出发，因为路很长而且天气今晚会变化所以我们最好早一点走吧';
+  assert.equal(cutLongClause(zhShort), null, 'about 40 characters (8 s of speech): not cut, the sentence stays whole');
+  const zh = cutLongClause(zhShort + '，而且我们还要带上所有的行李和一些吃的东西');
+  assert.equal(zh.head, '我觉得我们明天早上应该出发，因为路很长而且天气今晚会变化所以我们最好早一点走吧，而且我们还要带上所有的行李和一些吃的东西'.slice(0, zh.head.length));
+  assert.ok(zh.head.endsWith('，'), 'cut at the last comma');
+  const zhNoMark = cutLongClause('我'.repeat(60));
+  assert.equal(zhNoMark.head.length, 48, 'without any mark, a cut every 48 characters');
 });
 
 test('languageFits: a Latin target must not come back in Chinese, a Chinese target must be Chinese', async () => {

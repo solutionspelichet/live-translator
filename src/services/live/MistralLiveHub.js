@@ -1,5 +1,5 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { dropRepeats, guardrailCategories, isGuardrail, chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { isTierRefusal, restoreBlocks, serializeBlocks, dropRepeats, guardrailCategories, isGuardrail, chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 import { openSocket } from '../../utils/webProxy.js';
 
@@ -7,6 +7,7 @@ const MAX_PENDING = 600; // 60 s of audio: a slow start (token + socket took up 
 const MAX_ATTEMPTS = 8;
 const PAUSE_AFTER_SENTENCE_MS = 200; // the text already ends like a sentence: a short pause is enough
 const PAUSE_MID_SENTENCE_MS = 650; // no punctuation yet: wait for a real pause before cutting
+const PAUSE_MID_SENTENCE_CJK_MS = 950; // Chinese / Japanese come with no punctuation and people hesitate: a longer pause before cutting keeps the sentence whole
 const PAUSE_FRAGMENT_MS = 1400; // one or two words alone: wait a little for the rest of the sentence, then translate them anyway (3 s felt like a loss)
 const QUIET_MS = 1500;
 const NOTES_EVERY = 4; // sentences between two updates of the notes
@@ -54,6 +55,13 @@ function maxTokensFor(messages) {
 export default class MistralLiveHub {
   /** model → time until which it is known to be refused or limited (shared by the hubs of every turn). */
   static blockedUntil = new Map();
+  /** Called with the entries to keep (see serializeBlocks) each time the memory of refused models changes: the phone keeps it between launches. */
+  static onBlocksChange = null;
+
+  /** Load what the phone kept: models refused by this account stay left alone after a restart (the tier refusal came back at EVERY start). */
+  static restoreBlocks(raw, now = Date.now()) {
+    for (const [model, until] of restoreBlocks(raw, now)) if (!(MistralLiveHub.blockedUntil.get(model) > until)) MistralLiveHub.blockedUntil.set(model, until);
+  }
   /** The last notes found about the conversation: { text, at }. */
   static sharedNotes = null;
 
@@ -287,7 +295,7 @@ export default class MistralLiveHub {
     }
     this.timers.clearTimeout(this.pauseTimer);
     if (this.buffer.trim()) {
-      this.pauseTimer = this.timers.setTimeout(() => this.flushBuffer(), endsSentence(this.buffer) ? PAUSE_AFTER_SENTENCE_MS : isFragment(this.buffer) ? PAUSE_FRAGMENT_MS : PAUSE_MID_SENTENCE_MS);
+      this.pauseTimer = this.timers.setTimeout(() => this.flushBuffer(), endsSentence(this.buffer) ? PAUSE_AFTER_SENTENCE_MS : isFragment(this.buffer) ? PAUSE_FRAGMENT_MS : /[぀-ヿ㐀-鿿가-힯]/u.test(this.buffer) ? PAUSE_MID_SENTENCE_CJK_MS : PAUSE_MID_SENTENCE_MS);
     }
   }
 
@@ -721,13 +729,19 @@ export default class MistralLiveHub {
             // account cannot use it, much longer. The next model is asked at once; the reason is written once so the journal says why.
             // With DeepL as the way out, a limited model is left alone longer (5 min): asking again every minute wasted three requests
             // and slowed everything down (spacing of 1.1 s) for nothing, the sentences being translated by DeepL meanwhile.
-            const pause = error.status === 429 ? (this.deepl ? 5 * 60000 : 60000) : 30 * 60000;
+            const pause = error.status === 429 ? (this.deepl ? 5 * 60000 : 60000) : isTierRefusal(error) ? 6 * 3600000 : 30 * 60000;
             const until = this.now() + pause;
             if (!(MistralLiveHub.blockedUntil.get(model) > this.now())) this.note(`Mistral live : modèle « ${model} » refusé (${error.status} : ${String(error.detail ?? '').replace(/\s+/g, ' ').slice(0, 110)}) → ${Math.round(pause / 60000)} min de pause pour ce modèle`);
             MistralLiveHub.blockedUntil.set(model, until);
+            try {
+              MistralLiveHub.onBlocksChange?.(serializeBlocks(MistralLiveHub.blockedUntil, this.now()));
+            } catch {}
             if (!this.deepl) this.slowDown(); // DeepL translates the next sentences: no need to space the Mistral requests (voice, transcription)
             refusal = error;
             this.lastRefusal = error;
+            // DeepL is the way out and the limit is the ACCOUNT's (about one request a second, whatever the model): asking the next models
+            // at once only drew a 429 from each (4 refusals within 3 s at every start). The sentence goes to DeepL, the next one asks again.
+            if (error.status === 429 && this.deepl) throw error;
             if (++tried >= MAX_MODELS_PER_ROUND) break; // a few models are enough: each ask counts against the limits
           }
         }
