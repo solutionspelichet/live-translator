@@ -35,7 +35,7 @@ export function catchUpSpeed(base, lagMs, { freeMs = 1000, perSecond = 0.12, max
  * the chosen speed below `downAt` (between the two: unchanged), and never by more than `step` up (`stepDown` down: when the reserve melts the voice must slow down at once) per call.
  * @param {number} prev speed in use  @param {number} backlogSec seconds of audio received and not played yet  @param {number} base chosen speed
  */
-export function adaptiveSpeed(prev, backlogSec, base, { upAt = 2, downAt = 0.8, perSecond = 0.15, maxBoost = 0.5, cap = 1.6, step = 0.1, stepDown = 0.2 } = {}) {
+export function adaptiveSpeed(prev, backlogSec, base, { upAt = 1.5, downAt = 0.6, perSecond = 0.15, maxBoost = 0.5, cap = 1.6, step = 0.1, stepDown = 0.2 } = {}) {
   const b = sanitizeVoiceSpeed(base);
   const cur = Number.isFinite(prev) && prev > 0 ? prev : b;
   if (b >= cap) return b;

@@ -278,6 +278,7 @@ class AudioRoutingService {
     return new Promise((resolve, reject) => {
       let pending = [];
       let pendingLen = 0;
+      let consumedIn = 0; // input samples already taken from the stream (to know how much voice is still waiting in it)
       let nextTime = 0;
       let running = 0;
       let finished = false;
@@ -310,9 +311,13 @@ class AudioRoutingService {
         pendingLen = 0;
         if (voiceGain == null && joined.length) voiceGain = loudnessGain(joined, this.voiceVolume) ?? 1;
         let held = new Float32Array(0);
+        const takenBefore = consumedIn;
+        consumedIn += joined.length;
         if (adaptive) {
           // audio waiting = what is scheduled but not played yet + what arrived and was not scheduled yet
-          const waiting = Math.max(0, nextTime - ctx.currentTime) + joined.length / inRate;
+          // The stream holds everything that arrived while this burst waited its turn: that is the reserve (not only the piece in hand).
+          const inStream = Math.max(joined.length, (stream.pushed ?? 0) - takenBefore);
+          const waiting = Math.max(0, nextTime - ctx.currentTime) + inStream / inRate;
           const next = adaptiveSpeed(speed, waiting, this.voiceSpeed);
           if (next !== speed) {
             speed = next;
