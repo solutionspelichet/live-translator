@@ -406,3 +406,34 @@ test('gate: the detector\'s hint never overrides real text (a missed French sent
   g.text('out', '我想订一张两个人的桌子。', 1200);
   assert.equal(g.repeats(g.reference(1300), g.output, 1300), false, 'French text → Chinese output is a translation');
 });
+
+test('gate: Chinese speech with English words — the detector says « English » but the English session wrote Chinese: translate to English, never echo the Chinese (journal of 17 Nov)', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const zh = '现在我想知道更多的是技术，细节，';
+  // Chinese → English direction (its own session is the Chinese one; its peer is the English session)
+  const toEnglish = new LiveGate({ scriptRule: true, sourceBase: 'zh', targetBase: 'en', faithful: true });
+  toEnglish.text('in', zh, 1000);
+  toEnglish.hear(zh, 1000); // the English session handed the Chinese back as it is
+  toEnglish.spoken('en', 1000, 'en'); // wrong: English words in Chinese speech
+  assert.equal(toEnglish.repeats(toEnglish.reference(1500), 'Now I want to know more about the technology, the details,', 1500), false, 'the English translation is played');
+  // English → Chinese direction: its text is the Chinese handed back as it is → a repetition, muted
+  const toChinese = new LiveGate({ scriptRule: true, sourceBase: 'en', targetBase: 'zh', faithful: false });
+  toChinese.text('in', zh, 1000);
+  toChinese.hear(zh, 1000);
+  toChinese.spoken('en', 1000, 'en');
+  assert.equal(toChinese.repeats(toChinese.reference(1500), zh, 1500), true, 'the Chinese echo is not played');
+});
+
+test('gate: real English speech is still recognised through the detector (the English session wrote English)', async () => {
+  const { default: LiveGate } = await import('../src/utils/live.js');
+  const toEnglish = new LiveGate({ scriptRule: true, sourceBase: 'zh', targetBase: 'en', faithful: true });
+  toEnglish.text('in', '你觉得有可能有一些 AI，', 1000); // the Chinese session's rendering of English speech
+  toEnglish.hear('Would it be possible, you think, to have some AI', 1000);
+  toEnglish.spoken('en', 1000, 'en');
+  assert.equal(toEnglish.repeats(toEnglish.reference(1500), "Do you think it's possible to have some AI", 1500), true, 'English was spoken: its English output only repeats it');
+  const toChinese = new LiveGate({ scriptRule: true, sourceBase: 'en', targetBase: 'zh', faithful: false });
+  toChinese.text('in', 'Would it be possible, you think, to have some AI', 1000);
+  toChinese.hear('你觉得有可能有一些 AI，', 1000);
+  toChinese.spoken('en', 1000, 'en');
+  assert.equal(toChinese.repeats(toChinese.reference(1500), '你认为是否有可能让一些 AI', 1500), false, 'English speech: the Chinese output is the translation');
+});

@@ -34,16 +34,16 @@ test('catch-up: nothing while the voice is on time, faster and faster as it fall
 
 test('adaptive catch-up: only while audio is waiting, gradually, back to the chosen speed when the reserve is gone', () => {
   assert.equal(adaptiveSpeed(1, 0, 1), 1, 'nothing waiting: the chosen speed');
-  assert.equal(adaptiveSpeed(1, 2, 1), 1, 'a small reserve: no change');
-  assert.equal(adaptiveSpeed(1, 4, 1), 1.05, 'a reserve: faster, one small step at a time');
+  assert.equal(adaptiveSpeed(1, 1.5, 1), 1, 'a small reserve: no change');
+  assert.equal(adaptiveSpeed(1, 4, 1), 1.1, 'a reserve: faster, one step at a time');
   let v = 1;
   for (let i = 0; i < 30; i++) v = adaptiveSpeed(v, 6, 1);
-  assert.equal(v, 1.5, 'a 6 s reserve settles at +0.1 + 3.5 × 0.15, capped at +0.5');
+  assert.equal(v, 1.5, 'a 6 s reserve settles at +0.1 + 4 × 0.15, capped at +0.5');
   v = 1;
   for (let i = 0; i < 30; i++) v = adaptiveSpeed(v, 60, 1.2);
   assert.equal(v, 1.6, 'never above the cap');
-  assert.equal(adaptiveSpeed(1.3, 1.8, 1), 1.3, 'between the two thresholds: unchanged (no flapping)');
-  assert.equal(adaptiveSpeed(1.3, 0.5, 1), 1.25, 'reserve gone: back to the chosen speed, a step at a time');
+  assert.equal(adaptiveSpeed(1.3, 1.5, 1), 1.3, 'between the two thresholds: unchanged (no flapping)');
+  assert.equal(adaptiveSpeed(1.3, 0.5, 1), 1.1, 'reserve melting: slows down quickly towards the chosen speed');
   let back = 1.3;
   for (let i = 0; i < 20; i++) back = adaptiveSpeed(back, 0, 1);
   assert.equal(back, 1);

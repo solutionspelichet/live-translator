@@ -215,6 +215,7 @@ export default class LiveGate {
     // « not the spotted language » (French): the direction that starts from it has nothing to translate until its own text proves otherwise.
     const sp = String(spotted ?? '').toLowerCase().split(/[-_]/)[0];
     this.notSpoken = !base && sp ? { base: sp, at: now } : null;
+    this.fromDetector = Boolean(sp); // a detector hint (Deepgram) can be wrong; the language a service announces itself (Gemini) is trusted
   }
 
   /** The detector heard speech that is NOT this direction's source language (lately): this direction must stay silent. */
@@ -242,7 +243,12 @@ export default class LiveGate {
   repeats(ref, output, now = Date.now()) {
     // The service itself says which language is spoken: a direction whose output is that language only repeats it, a direction that
     // starts from it translates. A third language (neither of the pair) goes on to the other rules.
-    if (this.spokenLang && now - this.spokenLang.at <= this.spokenTtlMs && this.targetBase) {
+    // ... unless the session whose own language is Latin (English) just wrote CHINESE: it only does that when Chinese is spoken (for English
+    // speech its text is English). The detector says « English » on Chinese speech full of English words (« OK », « 2WC », « Didi »), which
+    // muted the English translation and played the Chinese echo instead.
+    const latinSessionText = scriptOf(this.sourceBase) === 'latin' ? this.reference(now, this.shortWindowMs) : scriptOf(this.sourceBase) === 'cjk' ? this.peerText(now) : '';
+    const chineseHeard = this.scriptRule && this.fromDetector && scriptOf(this.spokenLang?.base) === 'latin' && (cjkShare(latinSessionText) ?? 0) >= 0.6;
+    if (this.spokenLang && now - this.spokenLang.at <= this.spokenTtlMs && this.targetBase && !chineseHeard) {
       const said = this.spokenLang.base;
       if (said === this.targetBase) {
         this.why = `langue parlée « ${said} » (indiquée par le service) = langue de sortie`;
