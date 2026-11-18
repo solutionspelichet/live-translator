@@ -5,7 +5,7 @@ import Power from '../../modules/dualcast-power';
 import { routeFor } from '../utils/outputRoute';
 import TimeStretcher, { stretchAll } from '../utils/timeStretch';
 import { adaptiveSpeed, catchUpSpeed } from '../utils/voiceSpeed';
-import { applyLoudness, boostLoudness, clampPan, loudnessGain, pcm16ToFloat, resampleLinear } from '../utils/pcm';
+import { boostLoudness, clampPan, pcm16ToFloat, resampleLinear, StreamLoudness } from '../utils/pcm';
 import SpeakerPlayer from './SpeakerPlayer';
 
 export const CHANNEL = Object.freeze({ LEFT: -1.0, RIGHT: 1.0 });
@@ -311,7 +311,7 @@ class AudioRoutingService {
       let running = 0;
       let finished = false;
       let failure = null;
-      let voiceGain = null; // one gain for the whole sentence, so loudness doesn't jump between pieces
+      const loudness = new StreamLoudness(this.voiceVolume); // follows the voice, with a peak ceiling (no saturation)
       let first = true;
       const stretcher = new TimeStretcher(inRate, speed); // faster voice, same pitch (pass-through at 1×)
 
@@ -337,7 +337,6 @@ class AudioRoutingService {
         }
         pending = [];
         pendingLen = 0;
-        if (voiceGain == null && joined.length) voiceGain = loudnessGain(joined, this.voiceVolume) ?? 1;
         let held = new Float32Array(0);
         const takenBefore = consumedIn;
         consumedIn += joined.length;
@@ -354,7 +353,7 @@ class AudioRoutingService {
             held = stretcher.setFactor(speed); // back to 1×: what the stretcher held back is played first
           }
         }
-        let voice = joined.length ? stretcher.push(applyLoudness(joined, voiceGain ?? 1)) : new Float32Array(0);
+        let voice = joined.length ? stretcher.push(loudness.process(joined)) : new Float32Array(0);
         if (held.length) voice = concat(held, voice);
         if (force) voice = concat(voice, stretcher.flush()); // the end of the sentence: what the stretcher kept back
         if (!voice.length) return; // the stretcher keeps a few milliseconds back until it has enough audio

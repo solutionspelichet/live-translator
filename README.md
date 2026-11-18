@@ -452,3 +452,7 @@ Dans une réunion, la session zh→en est restée muette pendant 40 secondes alo
 ## Retour en arrière prudent (journal du 18 novembre, build 149)
 
 Après un retour « audio déformé, démarrage très long » : (1) les services en direct jouent de nouveau leur voix à la vitesse choisie, sans rattrapage (le rattrapage reste pour le mode Classique) ; (2) avant de jouer une voix, le moteur audio du téléphone est réveillé ET attendu jusqu'à l'état « running » (le journal montrait « démarrée … moteur audio : suspended »), et un contexte audio bloqué est recréé ; (3) Doubao dit dans le journal si le démarrage est lent : durée d'ouverture du socket et réponse du service. Rappel : 10 reconnexions « Timeout waiting next packet » et une erreur « Audio sending too slow » dans la même réunion viennent de l'envoi du micro vers BytePlus (réseau).
+
+## Voix distordue : gain qui suit la voix (journal du 18 novembre, build 150)
+
+Le gain de la voix en flux était calculé une seule fois sur le premier morceau de la phrase (jusqu'à ×8 si ce début est faible) puis appliqué à tout le reste : une suite forte dépassait la pleine échelle et le limiteur la repliait, d'où un son saturé. Chaque morceau est maintenant amené au niveau voulu ET sous un plafond de crête : le gain baisse tout de suite quand il le faut (jamais d'écrêtage), remonte lentement quand il le peut, et le silence le garde. Le journal indique aussi le volume de voix réglé (« volume ×… »).

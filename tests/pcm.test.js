@@ -84,3 +84,48 @@ test('pcm16Base64ToFloat decodes little-endian 16-bit PCM from base64', () => {
 test('pcm16Base64ToFloat ignores a stray trailing byte', () => {
   assert.equal(pcm16Base64ToFloat(Buffer.from([0, 0, 0, 0, 9]).toString('base64')).length, 2);
 });
+
+import { StreamLoudness } from '../src/utils/pcm.js';
+
+const tone = (amp, n = 2400, f = 200, rate = 24000) => Float32Array.from({ length: n }, (_, i) => amp * Math.sin((2 * Math.PI * f * i) / rate));
+const peakOf = (a) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+const hardClipped = (a) => a.filter((v) => Math.abs(v) >= 0.999).length;
+
+test('StreamLoudness: a quiet first piece no longer saturates the loud sentence that follows', () => {
+  // the old way: one gain from the quiet first piece (×8), applied to everything
+  const quiet = tone(0.01);
+  const loud = tone(0.5);
+  const fixed = boostLoudness(quiet, 2); // gain from the quiet piece
+  assert.ok(fixed.length === quiet.length);
+  const loudness = new StreamLoudness(2);
+  loudness.process(quiet);
+  const out = loudness.process(loud);
+  assert.ok(peakOf(out) <= 1, 'never above full scale');
+  assert.equal(hardClipped(out), 0, 'no clipped sample: the gain went down at once');
+  assert.ok(rmsOf(out) > 0.05, 'and the voice is still clearly audible');
+  // the same loud piece through a gain of ×8 would be folded hard
+  const old = Float32Array.from(loud, (v) => v * 8);
+  assert.ok(old.filter((v) => Math.abs(v) > 1).length > 1000, 'the old gain was far beyond full scale');
+});
+
+test('StreamLoudness: brings a quiet voice up gradually, no jump between pieces, silence keeps the gain', () => {
+  const l = new StreamLoudness(1);
+  const gains = [];
+  for (let i = 0; i < 10; i++) {
+    l.process(tone(0.02));
+    gains.push(l.gain);
+  }
+  assert.ok(gains[0] <= gains[9] + 1e-9, 'rises, never falls on a steady voice');
+  for (let i = 1; i < gains.length; i++) assert.ok(gains[i] - gains[i - 1] < 1.2, 'no big jump');
+  const before = l.gain;
+  l.process(new Float32Array(2400)); // silence
+  assert.equal(l.gain, before, 'silence keeps the gain');
+  assert.equal(l.process(new Float32Array(0)).length, 0);
+});
+
+test('StreamLoudness: a very high volume setting still gives a clean (limited, not clipped) voice', () => {
+  const l = new StreamLoudness(4);
+  let clipped = 0;
+  for (let i = 0; i < 20; i++) clipped += hardClipped(l.process(tone(0.3 + 0.05 * (i % 3))));
+  assert.equal(clipped, 0);
+});

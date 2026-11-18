@@ -1,5 +1,5 @@
 import { bufferToBase64 } from '../utils/live.js';
-import { applyLoudness, floatToPcm16, loudnessGain } from '../utils/pcm.js';
+import { applyLoudness, floatToPcm16, loudnessGain, StreamLoudness } from '../utils/pcm.js';
 import TimeStretcher, { stretchAll } from '../utils/timeStretch.js';
 
 const DRAIN_TIMEOUT_MS = 60000;
@@ -31,7 +31,7 @@ export default class SpeakerPlayer {
       let pending = [];
       let pendingLen = 0;
       let first = true;
-      let gain = null; // one gain for the whole sentence, so loudness doesn't jump between pieces
+      const loudness = new StreamLoudness(voiceVolume); // follows the voice, with a peak ceiling (no saturation)
       let wrote = false;
       let failure = null;
 
@@ -46,8 +46,7 @@ export default class SpeakerPlayer {
         }
         pending = [];
         pendingLen = 0;
-        if (gain == null && joined.length) gain = loudnessGain(joined, voiceVolume) ?? 1;
-        let voice = joined.length ? stretcher.push(applyLoudness(joined, gain ?? 1)) : new Float32Array(0);
+        let voice = joined.length ? stretcher.push(loudness.process(joined)) : new Float32Array(0);
         if (force) {
           const rest = stretcher.flush(); // the end of the sentence: what the stretcher kept back
           const all = new Float32Array(voice.length + rest.length);

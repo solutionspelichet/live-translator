@@ -89,3 +89,47 @@ export function pcm16Base64ToFloat(base64) {
   for (let i = 0; i < int16.length; i++) out[i] = int16[i] / 32768;
   return out;
 }
+
+/**
+ * Loudness for a voice that is STREAMED (pieces of ~0.1–0.3 s): the gain follows the voice instead of being fixed by the first piece.
+ * A gain computed once from a quiet first piece (a breath, the start of a word) amplified the rest of the sentence up to ×8 and the peaks
+ * were folded by the limiter: a saturated, distorted voice. Here every piece is brought to the target loudness AND to a peak ceiling;
+ * a gain that must go down does so at once (no clipping), a gain that can go up rises slowly (no pumping), silence keeps the gain.
+ */
+export class StreamLoudness {
+  constructor(volume = 1, { baseRms = 0.12, maxGain = 8, ceiling = 1.2, release = 0.2, knee = 0.8 } = {}) {
+    Object.assign(this, { volume, baseRms, maxGain, ceiling, release, knee });
+    this.gain = null;
+  }
+
+  /** @param {Float32Array} samples @returns {Float32Array} */
+  process(samples) {
+    const n = samples.length;
+    if (!n) return samples;
+    let sum = 0;
+    let peak = 0;
+    for (let i = 0; i < n; i++) {
+      const v = samples[i];
+      sum += v * v;
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+    }
+    const rms = Math.sqrt(sum / n);
+    const prev = this.gain;
+    let wanted = rms < 1e-5 ? prev ?? 1 : Math.min((this.baseRms * this.volume) / rms, this.maxGain);
+    if (peak > 1e-6) wanted = Math.min(wanted, this.ceiling / peak);
+    let gain;
+    if (prev == null || wanted < prev) gain = wanted;
+    else gain = prev + (wanted - prev) * this.release;
+    this.gain = gain;
+    const from = prev == null || gain <= prev ? gain : prev; // a rising gain is ramped over the piece
+    const out = new Float32Array(n);
+    const { knee } = this;
+    for (let i = 0; i < n; i++) {
+      const v = samples[i] * (from + ((gain - from) * (i + 1)) / n);
+      const a = Math.abs(v);
+      out[i] = a <= knee ? v : Math.sign(v) * (knee + (1 - knee) * Math.tanh((a - knee) / (1 - knee)));
+    }
+    return out;
+  }
+}
