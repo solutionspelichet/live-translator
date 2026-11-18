@@ -437,3 +437,18 @@ test('gate: real English speech is still recognised through the detector (the En
   toChinese.spoken('en', 1000, 'en');
   assert.equal(toChinese.repeats(toChinese.reference(1500), '你认为是否有可能让一些 AI', 1500), false, 'English speech: the Chinese output is the translation');
 });
+
+test('LiveGate: French heard 5 s ago, then « not French » : an English session\'s invented text does not make the French output play', () => {
+  const g = new LiveGate({ sourceBase: 'en', targetBase: 'fr', faithful: true, minChars: 8 });
+  g.spoken('fr', 1000, 'fr');
+  g.spoken(null, 4000, 'fr'); // the detector flips at the start of the next sentence
+  assert.equal(g.repeats('Do you remember Mosul?', "Tu te souviens de Mossoul, c'est une bonne idée pour nous", 6000), true);
+  assert.match(g.why, /entendu/);
+});
+
+test('LiveGate: French heard long ago does not mute a French output (English spoken since)', () => {
+  const g = new LiveGate({ sourceBase: 'en', targetBase: 'fr', faithful: true, minChars: 8 });
+  g.spoken('fr', 1000, 'fr');
+  g.spoken(null, 4000, 'fr');
+  assert.equal(g.repeats('Do you remember Mosul?', "Tu te souviens de Mossoul, c'est une bonne idée pour nous", 30000), false);
+});

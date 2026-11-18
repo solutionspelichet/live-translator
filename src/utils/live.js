@@ -160,8 +160,8 @@ export default class LiveGate {
    *   user's language: Latin speech in another language is then translated for the user only
    *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null, sourceBase = '', targetBase = '', spokenTtlMs = 7000, peerNeedsOutput = false } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback, faithful, sourceBase, targetBase, spokenTtlMs, peerNeedsOutput });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null, sourceBase = '', targetBase = '', spokenTtlMs = 7000, heardTtlMs = 12000, peerNeedsOutput = false } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback, faithful, sourceBase, targetBase, spokenTtlMs, heardTtlMs, peerNeedsOutput });
     this.spokenLang = null; // { base, at }: the language the service says is spoken (Gemini)
     this.trace = []; // decisions taken (for the journal): { at, mode, basis, why }
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
@@ -211,6 +211,7 @@ export default class LiveGate {
   /** The language the speaker uses, as announced by the service ('zh-CN', 'en'…). */
   spoken(code, now = Date.now(), spotted = '') {
     const base = String(code ?? '').toLowerCase().split(/[-_]/)[0];
+    if (base) this.lastHeard = { base, at: now }; // survives the next « not the spotted language » verdict
     this.spokenLang = base ? { base, at: now } : null; // null: the detector heard speech that is not the spotted language
     // « not the spotted language » (French): the direction that starts from it has nothing to translate until its own text proves otherwise.
     const sp = String(spotted ?? '').toLowerCase().split(/[-_]/)[0];
@@ -258,6 +259,14 @@ export default class LiveGate {
         this.why = `langue parlée « ${said} » (indiquée par le service) : traduction`;
         return false;
       }
+    }
+    // Two Latin languages: the detector says « not French » at the start of many French sentences (it erases the verdict above), while the
+    // English session invents an English text from French speech — so its own transcript cannot prove English was spoken. French heard a
+    // moment ago + an output in French: the output only hands the speech back.
+    if (!this.scriptRule && this.fromDetector && this.lastHeard && this.targetBase && this.lastHeard.base === this.targetBase
+      && now - this.lastHeard.at <= this.heardTtlMs && latinLanguageOf(output) === this.targetBase) {
+      this.why = `« ${this.targetBase} » entendu il y a ${Math.round((now - this.lastHeard.at) / 1000)} s (détecteur) = langue de sortie`;
+      return true;
     }
     // A session that is not the faithful one writes a text of its own: comparing its output with that text proves nothing (a real
     // translation can match the text it invented). When the faithful session already wrote something, the language rules decide.
