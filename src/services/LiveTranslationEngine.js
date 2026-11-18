@@ -142,7 +142,7 @@ export default class LiveTranslationEngine {
     this.speakerCount = 0;
     this.setState(STATE.STARTING);
     // Where the voices go is not obvious from the rest of the journal: say it at every start.
-    this.emit({ type: 'note', text: `sortie audio : ${this.audio.outputMode === 'split' ? 'casque + haut-parleur (moi dans le casque, l\'autre sur le haut-parleur)' : 'casque stéréo (A à gauche, B à droite)'} · voix ×${Number(this.audio.voiceSpeed ?? 1).toFixed(2)}, rattrapage ${this.audio.catchUp === false ? 'désactivé' : Number(this.audio.voiceSpeed ?? 1) >= 1.6 ? 'inactif (vitesse déjà ≥ ×1,6)' : 'actif'}${this.audio.speaker && !this.audio.speaker.available ? ' · haut-parleur natif indisponible' : ''}` });
+    this.emit({ type: 'note', text: `sortie audio : ${this.audio.outputMode === 'split' ? 'casque + haut-parleur (moi dans le casque, l\'autre sur le haut-parleur)' : 'casque stéréo (A à gauche, B à droite)'} · voix ×${Number(this.audio.voiceSpeed ?? 1).toFixed(2)}, pas de rattrapage avec ce service${this.audio.speaker && !this.audio.speaker.available ? ' · haut-parleur natif indisponible' : ''}` });
 
     for (const [index, [from, to]] of pairs.entries()) {
       const d = { from, to, transcriber: index === 0, gate: null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 }, delays: [] };
@@ -380,11 +380,15 @@ export default class LiveTranslationEngine {
           if (this.turnId !== turn.id) return null;
           const state = this.audio.ctx?.state;
           if (state && state !== 'running') {
-            // The audio engine of the phone can be suspended (another app took the sound): wake it up, and say so.
+            // The audio engine of the phone can be suspended (another app took the sound): wake it up, WAIT until it really runs
+            // (a voice started on a suspended engine is silent or garbled), and say what came out of it.
             this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} : moteur audio « ${state} » → réveil` });
             try {
-              await this.audio.ctx.resume?.();
-            } catch {}
+              const after = this.audio.ensureRunning ? await this.audio.ensureRunning() : (await this.audio.ctx.resume?.(), this.audio.ctx?.state);
+              if (after !== 'running') this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} : moteur audio après le réveil : ${after}` });
+            } catch (error) {
+              this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} : réveil du moteur audio impossible (${error?.message ?? error})` });
+            }
           }
           this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} démarrée sur ${toSpeaker ? 'le haut-parleur' : 'le casque'}${toSpeaker ? '' : ` (moteur audio : ${this.audio.ctx?.state ?? '?'})`}${Date.now() - startedAt > 1500 ? ` · en attente depuis ${((Date.now() - startedAt) / 1000).toFixed(1)} s` : ''}` });
           if (toSpeaker && this.profile.muteOnSpeaker && !turn.speakerMuteNoted) {
@@ -393,7 +397,7 @@ export default class LiveTranslationEngine {
           }
           // lagMs: how long this burst waited for the previous one. The audio piled up meanwhile is what the catch-up can speed through
           // (it only speeds up while audio is waiting, so it never runs the voice dry)
-          return this.audio.playStream(stream, PAN[d.to], { lagMs: Math.max(0, Date.now() - startedAt - 300) });
+          return this.audio.playStream(stream, PAN[d.to], { lagMs: Math.max(0, Date.now() - startedAt - 300), catchUp: false }); // live voices play at the chosen speed (the catch-up is for the Classic mode)
         })
         .catch((error) => this.emit({ type: 'note', text: `lecture du flux live impossible : ${error?.message ?? error}` }))
         .then(() => {

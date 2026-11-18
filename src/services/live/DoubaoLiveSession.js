@@ -77,12 +77,17 @@ export default class DoubaoLiveSession {
     }
     this.ws = ws;
     this.sessionId = uuid();
+    const connectedAt = Date.now();
+    let socketMs = null;
     if (!this.announced) {
       this.announced = true;
       this.onNote?.(`Doubao live : session ${this.source}→${this.target}, voix ${this.voiceLabel || '?'} (ressource ${this.ttsResourceId})`);
     }
     ws.onopen = () => {
       if (this.ws !== ws) return;
+      socketMs = Date.now() - connectedAt;
+      this.connectMs = socketMs;
+      this.openedAt = Date.now();
       this.send(startSession({ sessionId: this.sessionId, source: this.source, target: this.target, speakerId: this.speakerId, ttsResourceId: this.ttsResourceId, custom: this.custom }));
     };
     ws.onmessage = (e) => {
@@ -117,6 +122,9 @@ export default class DoubaoLiveSession {
     if (!msg) return;
     switch (msg.type) {
       case 'started': {
+        // The journal says where a slow start comes from: the network (socket) or the service (session start).
+        const total = this.openedAt ? Date.now() - this.openedAt : null;
+        if (total !== null && (total > 2500 || (this.connectMs ?? 0) > 3000)) this.onNote?.(`Doubao live ${this.source}→${this.target} : démarrage lent (socket ouvert en ${this.connectMs ?? '?'} ms, puis ${(total / 1000).toFixed(1)} s de réponse du service)`);
         this.ready = true;
         this.attempts = 0;
         this.refusals = 0;

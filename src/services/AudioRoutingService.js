@@ -100,6 +100,34 @@ class AudioRoutingService {
   }
 
   /**
+   * Make sure the audio engine really RUNS before a voice is played: `resume()` returns before the state changes, and a voice started on
+   * a context that is still « suspended » is silent or garbled. Waits up to 1.5 s for « running »; a context that stays stuck is rebuilt.
+   * @returns {Promise<string>} the final state ('running' when all is well)
+   */
+  async ensureRunning() {
+    await this.init();
+    if (this.ctx.state === 'running') return 'running';
+    try {
+      await this.ctx.resume();
+    } catch {}
+    for (let i = 0; i < 15 && this.ctx.state !== 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    if (this.ctx.state === 'running') return 'running';
+    // stuck: a new context on the (re)activated audio session
+    try {
+      this.stopAll();
+      await this.ctx.close?.();
+    } catch {}
+    this.sessionReady = false;
+    this.ctx = null;
+    await this.init();
+    try {
+      await this.ctx.resume();
+    } catch {}
+    for (let i = 0; i < 10 && this.ctx.state !== 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    return `${this.ctx.state} (contexte recréé)`;
+  }
+
+  /**
    * Web only: a browser starts audio « suspended » until the user touched the page. Called from a tap (a microphone button): resumes the
    * context and plays one silent sample (the iOS Safari trick) so the translated voice can be heard afterwards.
    */
@@ -249,10 +277,10 @@ class AudioRoutingService {
    * back to back on the Web Audio clock as they arrive, so speech starts after ~0.3 s instead of
    * after the whole sentence is ready. Rejects only when nothing at all could be played.
    */
-  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15, lagMs = 0 } = {}) {
+  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15, lagMs = 0, catchUp = true } = {}) {
     await this.init();
     // A voice that had to wait (lagMs) follows a reserve-aware catch-up (see adaptiveSpeed); otherwise the chosen speed, as before.
-    const adaptive = this.catchUp && lagMs > 1000;
+    const adaptive = catchUp && this.catchUp && lagMs > 1000;
     let speed = this.voiceSpeed;
     const target = routeFor(pan, this.outputMode, this.speaker.available);
     if (target.route === 'speaker') {

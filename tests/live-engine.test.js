@@ -544,3 +544,31 @@ test('a Doubao session that goes mute while its sibling still hears speech is re
   assert.equal(sessions[1].restarts.length, 1, 'not again within 30 s');
   await engine.toggle(AUTO);
 });
+
+test('a voice never starts on an audio engine that is still suspended: the engine waits until it runs (and says what came out of it)', async () => {
+  const waited = [];
+  const ctx = { state: 'suspended' };
+  const audio = {
+    ctx,
+    async ensureRunning() {
+      waited.push('ensureRunning');
+      ctx.state = 'running';
+      return 'running';
+    },
+    async playStream(stream) {
+      waited.push(`play:${ctx.state}`);
+      await stream.done;
+    },
+    stopAll() {},
+  };
+  const { engine, sessions, events, chunk, audioPiece } = setup({ audio });
+  await engine.toggle('A');
+  chunk();
+  sessions[0].opts.onInputText('Bonjour tout le monde, comment allez-vous aujourd’hui ?');
+  sessions[0].opts.onOutputText('Hello everyone, how are you doing today?');
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  await pause(200);
+  assert.deepEqual(waited.slice(0, 2), ['ensureRunning', 'play:running'], 'woken and awaited before playing');
+  assert.ok(events.some((e) => e.type === 'note' && /moteur audio « suspended » → réveil/.test(e.text)));
+  await engine.toggle('A');
+});
