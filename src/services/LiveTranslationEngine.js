@@ -127,6 +127,7 @@ export default class LiveTranslationEngine {
 
     const turn = {
       id,
+      startedAt: Date.now(),
       side,
       auto,
       live: false,
@@ -141,7 +142,7 @@ export default class LiveTranslationEngine {
     this.speakerCount = 0;
     this.setState(STATE.STARTING);
     // Where the voices go is not obvious from the rest of the journal: say it at every start.
-    this.emit({ type: 'note', text: `sortie audio : ${this.audio.outputMode === 'split' ? 'casque + haut-parleur (moi dans le casque, l\'autre sur le haut-parleur)' : 'casque stéréo (A à gauche, B à droite)'}${this.audio.speaker && !this.audio.speaker.available ? ' · haut-parleur natif indisponible' : ''}` });
+    this.emit({ type: 'note', text: `sortie audio : ${this.audio.outputMode === 'split' ? 'casque + haut-parleur (moi dans le casque, l\'autre sur le haut-parleur)' : 'casque stéréo (A à gauche, B à droite)'} · voix ×${Number(this.audio.voiceSpeed ?? 1).toFixed(2)}, rattrapage ${this.audio.catchUp === false ? 'désactivé' : Number(this.audio.voiceSpeed ?? 1) >= 1.6 ? 'inactif (vitesse déjà ≥ ×1,6)' : 'actif'}${this.audio.speaker && !this.audio.speaker.available ? ' · haut-parleur natif indisponible' : ''}` });
 
     for (const [index, [from, to]] of pairs.entries()) {
       const d = { from, to, transcriber: index === 0, gate: null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 }, delays: [] };
@@ -156,7 +157,7 @@ export default class LiveTranslationEngine {
         onInputText: (text) => this.onText(turn, d, 'in', text),
         onOutputText: (text) => this.onText(turn, d, 'out', text),
         onInputLanguage: (code) => this.onSpokenLanguage(turn, code),
-        onStatus: (status) => status !== 'connecting' && this.emit({ type: 'note', text: `${this.profile.label} ${label} : ${status}` }),
+        onStatus: (status) => status !== 'connecting' && (status === 'open' && (d.openedAt = Date.now()), this.emit({ type: 'note', text: `${this.profile.label} ${label} : ${status}` })),
         onNote: (text) => this.emit({ type: 'note', text }),
         onWarning: (text) => this.emit({ type: 'warning', text }), // something to tell the user, without stopping the turn
         onTiming: (ms) => d.delays.push(ms), // pipelines that know how long a sentence took (Mistral): shown in the history
@@ -214,6 +215,7 @@ export default class LiveTranslationEngine {
         turn.live = true;
         this.setState(STATE.LISTENING);
         this.armIdleStop(turn);
+        this.watchSessions(turn);
         this.armStallMonitor(turn, onChunk);
       }
       // Optional echo guard: silence instead of the microphone while our own voice plays.
@@ -293,6 +295,8 @@ export default class LiveTranslationEngine {
 
   onText(turn, d, kind, delta) {
     if (this.turnId !== turn.id) return;
+    (d.events ??= []).push(Date.now()); // when this direction last heard / said something (see watchSessions)
+    if (d.events.length > 40) d.events.shift();
     // ONE session transcribes the speech and shares it; a service that sends its transcript anyway (Gemini does, from every
     // session) must not be counted twice: the history and the gate would get every piece doubled.
     if (kind === 'in' && this.profile.ownTranscript) {
@@ -393,7 +397,7 @@ export default class LiveTranslationEngine {
         })
         .catch((error) => this.emit({ type: 'note', text: `lecture du flux live impossible : ${error?.message ?? error}` }))
         .then(() => {
-          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} terminée : ${(stream.pushed / stream.sampleRate).toFixed(1)} s de voix reçues${stream.maxSpeed > 1.02 ? ` · accélérée jusqu'à ×${stream.maxSpeed.toFixed(2)}` : ''}` });
+          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} terminée : ${(stream.pushed / stream.sampleRate).toFixed(1)} s de voix reçues${stream.maxWaiting != null ? ` · réserve de voix max ${stream.maxWaiting.toFixed(1)} s` : ''}${stream.maxSpeed > 1.02 ? ` · accélérée jusqu'à ×${stream.maxSpeed.toFixed(2)}` : ''}` });
           turn.streams.delete(stream);
           this.playingCount = Math.max(0, this.playingCount - 1);
           turn.quietUntil = Date.now() + 600;
@@ -469,6 +473,32 @@ export default class LiveTranslationEngine {
     if (!turn.ended || this.turnId !== turn.id) return;
     const next = this.playingCount > 0 ? STATE.SPEAKING : STATE.PROCESSING;
     if (this.state !== next) this.setState(next);
+  }
+
+  /**
+   * A Doubao session can go mute (the service keeps the socket open but answers nothing) while the other direction still hears the
+   * speech: the English translation was missing for 40 s in a meeting. When one direction got no text for 15 s while its sibling got
+   * at least 4, the mute session is replaced (at most once every 30 s).
+   */
+  watchSessions(turn) {
+    if (!this.profile.ownTranscript || turn.sessionWatch) return;
+    const WINDOW = 15000;
+    turn.sessionWatch = this.timers.setInterval(() => {
+      if (this.turnId !== turn.id) return;
+      const now = Date.now();
+      const count = (x) => (x.events ?? []).filter((t) => now - t <= WINDOW).length;
+      for (const d of turn.dirs) {
+        const sibling = turn.dirs.find((x) => x !== d);
+        if (!sibling || typeof d.session?.restart !== 'function') continue;
+        if (now - (d.openedAt ?? turn.startedAt ?? now) < 20000 || now - (d.lastRestartAt ?? 0) < 30000) continue;
+        if (count(sibling) >= 4 && count(d) === 0) {
+          d.lastRestartAt = now;
+          this.emit({ type: 'note', text: `${this.profile.label} ${d.from}→${d.to} : aucun texte depuis ${WINDOW / 1000} s alors que l'autre sens en reçoit (${count(sibling)}) → session remplacée` });
+          d.session.restart('session muette');
+        }
+      }
+    }, 3000);
+    turn.sessionWatch.unref?.();
   }
 
   armIdleStop(turn) {
@@ -603,6 +633,7 @@ export default class LiveTranslationEngine {
     this.timers.clearTimeout(turn.idleStopTimer);
     this.timers.clearTimeout(turn.watchdog);
     this.timers.clearInterval(turn.stallTimer);
+    this.timers.clearInterval(turn.sessionWatch);
     turn.dirs.forEach((d) => this.timers.clearTimeout(d.timer));
   }
 

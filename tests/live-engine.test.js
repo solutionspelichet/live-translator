@@ -518,3 +518,29 @@ test('low bandwidth: the microphone is not sent while nobody speaks (a pre-roll,
   assert.ok(sessions[0].sent.length - before <= 1, 'quiet again: nothing more is sent');
   engine.cancel();
 });
+
+test('a Doubao session that goes mute while its sibling still hears speech is replaced (once, then left alone for 30 s)', async () => {
+  const { DOUBAO_LIVE } = await import('../src/services/liveProfiles.js');
+  const timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout, setInterval: (fn, ms) => setInterval(fn, Math.min(ms, 20)), clearInterval };
+  const { engine, sessions, chunk, events } = setup({ profile: DOUBAO_LIVE, timers, languages: { A: 'fr', B: 'zh' } });
+  await engine.toggle(AUTO);
+  assert.equal(sessions.length >= 2, true, 'two sessions (one per direction)');
+  for (const s of sessions) {
+    s.restarts = [];
+    s.restart = function restart(reason) {
+      this.restarts.push(reason);
+      return true;
+    };
+  }
+  chunk();
+  const turn = engine.turn;
+  turn.dirs.forEach((d) => { d.openedAt = Date.now() - 60000; });
+  for (let i = 0; i < 5; i++) sessions[0].opts.onInputText(`phrase ${i}`);
+  await pause(150);
+  assert.equal(sessions[1].restarts.length, 1, 'the mute direction is replaced');
+  assert.equal(sessions[0].restarts.length, 0, 'the one that hears is left alone');
+  assert.ok(events.some((e) => e.type === 'note' && /session remplacée/.test(e.text)));
+  await pause(150);
+  assert.equal(sessions[1].restarts.length, 1, 'not again within 30 s');
+  await engine.toggle(AUTO);
+});

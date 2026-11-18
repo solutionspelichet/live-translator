@@ -318,6 +318,7 @@ class AudioRoutingService {
           // The stream holds everything that arrived while this burst waited its turn: that is the reserve (not only the piece in hand).
           const inStream = Math.max(joined.length, (stream.pushed ?? 0) - takenBefore);
           const waiting = Math.max(0, nextTime - ctx.currentTime) + inStream / inRate;
+          stream.maxWaiting = Math.max(stream.maxWaiting ?? 0, waiting); // for the journal: the reserve the catch-up could use
           const next = adaptiveSpeed(speed, waiting, this.voiceSpeed);
           if (next !== speed) {
             speed = next;

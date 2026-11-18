@@ -185,6 +185,20 @@ export default class DoubaoLiveSession {
     this.send(packet);
   }
 
+  /** Drop the socket and open a new session (the engine found this one mute while its sibling still hears speech). */
+  restart(reason = 'session muette') {
+    if (this.dead || this.closing) return false;
+    this.onNote?.(`Doubao live : ${reason} → nouvelle session`);
+    const old = this.ws;
+    this.ws = null; // the old socket's close is not a second loss
+    this.ready = false;
+    try {
+      old?.close();
+    } catch {}
+    this.lost(reason);
+    return true;
+  }
+
   lost(reason) {
     if (this.dead || this.closing) return;
     // The service answers the handshake with 401/403: not a network problem (retrying the same key does not help).
