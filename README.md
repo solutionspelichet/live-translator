@@ -456,3 +456,9 @@ Après un retour « audio déformé, démarrage très long » : (1) les services
 ## Voix distordue : gain qui suit la voix (journal du 18 novembre, build 150)
 
 Le gain de la voix en flux était calculé une seule fois sur le premier morceau de la phrase (jusqu'à ×8 si ce début est faible) puis appliqué à tout le reste : une suite forte dépassait la pleine échelle et le limiteur la repliait, d'où un son saturé. Chaque morceau est maintenant amené au niveau voulu ET sous un plafond de crête : le gain baisse tout de suite quand il le faut (jamais d'écrêtage), remonte lentement quand il le peut, et le silence le garde. Le journal indique aussi le volume de voix réglé (« volume ×… »).
+
+## Mistral : phrases coupées et voix chinoise muette (journal du 18 novembre, build 151)
+
+- **Phrases coupées** : « So is it » / « translating good now and can I » / « hear clearly what's going on » étaient traduites séparément (coupure à 650 ms de pause). Un texte qui s'arrête sur un mot qui ne peut pas finir une phrase (article, conjonction, pronom sujet, auxiliaire, « to », « of », virgule) attend maintenant 1,5 s avant d'être coupé ; la pause par défaut passe de 650 à 800 ms.
+- **Voix muette vers le chinois** : Mistral n'a pas de voix chinoise, c'est ElevenLabs qui parle ; dans ce journal les traductions chinoises s'affichaient sans voix et sans la moindre ligne d'explication (une demande de voix qui ne répond jamais et que rien ne surveillait). Une demande de voix sans réponse en 10 s est maintenant abandonnée et le journal dit « voix ElevenLabs indisponible pour cette phrase (pas de réponse…) » : la traduction continue, au moins en texte.
+- Les refus de débit de Mistral (« Rate limit exceeded » sur les modèles medium, small puis ministral) viennent de la formule gratuite du compte : DeepL a traduit à la place, comme prévu.

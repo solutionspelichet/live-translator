@@ -167,3 +167,9 @@ test('dropRepeats: une transcription qui boucle est réduite à deux occurrences
   assert.equal(dropRepeats('Oui.', [], 0).text, 'Oui.');
   assert.equal(dropRepeats('Bonjour. Comment ça va ?', [], 0).text, 'Bonjour. Comment ça va ?');
 });
+
+test('looksIncomplete: a transcript that stops on a word that cannot end a sentence waits for the rest', async () => {
+  const { looksIncomplete } = await import('../src/utils/mistral.js');
+  for (const t of ['So is it', 'translating good now and can I', 'Je voudrais savoir si le', 'We need to', 'because', 'Then, ', 'I think that it is better,', "C'est l'"]) assert.equal(looksIncomplete(t), true, t);
+  for (const t of ['hear clearly what is going on', 'Est-ce que ça marche maintenant', 'This is nice.', 'Bonjour à tous ?', '我们明天出发', '', null, 'Thank you very much']) assert.equal(looksIncomplete(t), false, String(t));
+});

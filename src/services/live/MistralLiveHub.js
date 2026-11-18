@@ -1,12 +1,13 @@
 import { ApiError, fetchWithRetry } from '../../utils/http.js';
-import { isTierRefusal, restoreBlocks, serializeBlocks, dropRepeats, guardrailCategories, isGuardrail, chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
+import { looksIncomplete, isTierRefusal, restoreBlocks, serializeBlocks, dropRepeats, guardrailCategories, isGuardrail, chunkLevel, cutLongClause, forcedMessages, hasNoLetters, isModelRefusal, isVoiceRefusal, listVoiceCandidates, MISTRAL_INPUT_RATE, modelsForQuality, MISTRAL_STT_MODEL, MISTRAL_TTS_MODEL, base64ToBytes, decodeSpeech, endsSentence, handshakeRefusal, guessDeeplTarget, isFragment, languageFits, notesMessages, parseNotes, looksLikeSpeech, interpreterMessages, isEchoOfOutput, mintRealtimeToken, mistralVoiceLanguage, parseInterpretation, splitSentences } from '../../utils/mistral.js';
 import { defaultTimers } from '../../utils/timers.js';
 import { openSocket } from '../../utils/webProxy.js';
 
 const MAX_PENDING = 600; // 60 s of audio: a slow start (token + socket took up to 10 s on a weak network) must not cost the first words
 const MAX_ATTEMPTS = 8;
 const PAUSE_AFTER_SENTENCE_MS = 200; // the text already ends like a sentence: a short pause is enough
-const PAUSE_MID_SENTENCE_MS = 650; // no punctuation yet: wait for a real pause before cutting
+const PAUSE_INCOMPLETE_MS = 1500; // the text stops on a word that cannot end a sentence (« and can I »): the rest is coming
+const PAUSE_MID_SENTENCE_MS = 800; // no punctuation yet: wait for a real pause before cutting
 const PAUSE_MID_SENTENCE_CJK_MS = 950; // Chinese / Japanese come with no punctuation and people hesitate: a longer pause before cutting keeps the sentence whole
 const PAUSE_FRAGMENT_MS = 1400; // one or two words alone: wait a little for the rest of the sentence, then translate them anyway (3 s felt like a loss)
 const QUIET_MS = 1500;
@@ -65,8 +66,8 @@ export default class MistralLiveHub {
   /** The last notes found about the conversation: { text, at }. */
   static sharedNotes = null;
 
-  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '', autoContext = true, lowBandwidth = false, deepl = null, translator = 'auto', deeplCode = (c) => c, voiceChoice = {} }) {
-    Object.assign(this, { voiceChoice, apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak, preferFallback, userGlossary: glossary, autoContext });
+  constructor({ apiKey, baseUrl, wsUrl, languageName = (c) => c, timers = defaultTimers, WebSocketImpl, fetchImpl, quietMs = QUIET_MS, now = Date.now, fallbackSpeak = null, preferFallback = false, quality = 'best', glossary = '', autoContext = true, lowBandwidth = false, deepl = null, translator = 'auto', deeplCode = (c) => c, voiceChoice = {}, voiceTimeoutMs = 10000 }) {
+    Object.assign(this, { voiceTimeoutMs, voiceChoice, apiKey, baseUrl, wsUrl, languageName, timers, quietMs, now, fallbackSpeak, preferFallback, userGlossary: glossary, autoContext });
     this.models = modelsForQuality(quality); // the translation models, best first or fastest first // preferFallback: the other voice speaks EVERY language (e.g. one's own cloned voice) // fallbackSpeak(text, target) → { samples, rate } | null: another voice for the languages Mistral cannot speak
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.fetchImpl = fetchImpl ?? ((...args) => fetch(...args));
@@ -295,7 +296,7 @@ export default class MistralLiveHub {
     }
     this.timers.clearTimeout(this.pauseTimer);
     if (this.buffer.trim()) {
-      this.pauseTimer = this.timers.setTimeout(() => this.flushBuffer(), endsSentence(this.buffer) ? PAUSE_AFTER_SENTENCE_MS : isFragment(this.buffer) ? PAUSE_FRAGMENT_MS : /[぀-ヿ㐀-鿿가-힯]/u.test(this.buffer) ? PAUSE_MID_SENTENCE_CJK_MS : PAUSE_MID_SENTENCE_MS);
+      this.pauseTimer = this.timers.setTimeout(() => this.flushBuffer(), endsSentence(this.buffer) ? PAUSE_AFTER_SENTENCE_MS : isFragment(this.buffer) || looksIncomplete(this.buffer) ? PAUSE_INCOMPLETE_MS : /[぀-ヿ㐀-鿿가-힯]/u.test(this.buffer) ? PAUSE_MID_SENTENCE_CJK_MS : PAUSE_MID_SENTENCE_MS);
     }
   }
 
@@ -653,7 +654,19 @@ export default class MistralLiveHub {
     if (this.fallbackSpeak && (!language || this.preferFallback)) {
       const t2 = this.now();
       try {
-        const spoken = await this.fallbackSpeak(verdict.text, session.target);
+        // No answer is worse than a refusal: a voice request that hangs left every sentence of the turn without sound and without a word in the journal.
+        let timer;
+        const limit = new Promise((_, reject) => {
+          timer = this.timers.setTimeout(() => reject(Object.assign(new Error(`pas de réponse en ${Math.round(this.voiceTimeoutMs / 1000)} s (réseau ou service)`), { voiceTimeout: true })), this.voiceTimeoutMs);
+        });
+        const asking = this.fallbackSpeak(verdict.text, session.target);
+        asking.catch(() => {}); // abandoned on time-out: nobody listens any more
+        let spoken;
+        try {
+          spoken = await Promise.race([asking, limit]);
+        } finally {
+          this.timers.clearTimeout(timer);
+        }
         if (spoken?.samples?.length) {
           if (!this.noVoiceNoted.has(session.target)) {
             this.noVoiceNoted.add(session.target);

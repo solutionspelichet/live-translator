@@ -417,3 +417,29 @@ export function restoreBlocks(raw, now = Date.now()) {
 
 /** « This model is not available in your subscription tier »: the account cannot use it, today or tomorrow (a rate limit passes, this does not). */
 export const isTierRefusal = (error) => (error?.status === 403 || error?.status === 404) && /tier_not_allowed|subscription tier|not available in your/i.test(String(error?.detail ?? ''));
+
+const INCOMPLETE_END = {
+  // only words that (almost) never end a sentence: articles, conjunctions, subject pronouns, auxiliaries, « to », « of »
+  // (« on », « at », « with »… are left out: « what is going on », « who are you with » are complete)
+  en: 'a an the and or but so to of if because when while that which who can could will would should is are was were am be been do does did have has had i we you he she it they my your our their his her'.split(' '),
+  fr: 'le la les l un une des de du d et ou mais donc que qu qui quand si comme ce cet cette ces mon ma mes ton ta tes son sa ses notre votre leur je tu il elle nous vous ils elles est sont était étaient a ai as avons avez ont suis es'.split(' '),
+  es: 'el la los las un una de del y o pero que si como mi tu su es son está'.split(' '),
+  de: 'der die das ein eine und oder aber dass wenn wie ist sind war ich du er sie es wir ihr'.split(' '),
+};
+
+/**
+ * Does this transcript stop in the MIDDLE of a thought (« So is it », « and can I », « Je voudrais savoir si le »)? It ends on a word that
+ * cannot end a sentence (article, preposition, conjunction, subject pronoun, auxiliary) or on a comma: the rest comes after the pause, so the
+ * pause before cutting is longer (half a sentence was translated alone, and badly). Latin scripts only.
+ */
+export function looksIncomplete(text) {
+  const t = String(text ?? '').trim();
+  if (!t || /[.!?。！？…]$/.test(t)) return false;
+  if (/[,;:，、；：]$/.test(t)) return true;
+  if (/[぀-ヿ㐀-鿿가-힯]/u.test(t)) return false;
+  let last = t.toLowerCase().replace(/[^\p{L}'’\s-]/gu, '').split(/\s+/).filter(Boolean).pop();
+  if (!last) return false;
+  last = /['’]$/.test(last) ? last.slice(0, -1).replace(/^.*['’]/, '') : last.replace(/^.*['’]/, ''); // « l' » → l, « aujourd'hui » → hui
+  if (!last) return false;
+  return Object.values(INCOMPLETE_END).some((words) => words.includes(last));
+}

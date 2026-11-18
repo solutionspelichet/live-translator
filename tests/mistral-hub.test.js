@@ -877,3 +877,14 @@ test('rate-limited with DeepL as the way out: ONE Mistral request, the sentence 
     MistralLiveHub.onBlocksChange = null;
   }
 });
+
+test('a voice request that never answers does not freeze the turn: the text goes on after the time-out and the journal says why', async () => {
+  const { sockets, got, hub } = await setup({ pair: ['en', 'zh'] });
+  hub.voiceTimeoutMs = 60;
+  hub.fallbackSpeak = () => new Promise(() => {}); // ElevenLabs never answers
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Hello everyone. ' });
+  await pause(400);
+  assert.ok(got.notes.some((n) => /voix ElevenLabs indisponible pour cette phrase \(pas de réponse en 0 s/.test(n) || /voix ElevenLabs indisponible pour cette phrase \(pas de réponse/.test(n)), got.notes.join('\n'));
+  assert.ok(got.outText.length >= 1, 'the translation text is delivered anyway');
+});
