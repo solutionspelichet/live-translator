@@ -618,3 +618,25 @@ test('silence is not a dead connection: no voice heard, nothing is replaced', as
   assert.deepEqual(sessions.map((s) => s.restarts.length), [0, 0]);
   await engine.toggle(AUTO);
 });
+
+test('the network keeps dropping (3 dead connections in a turn): only the speech is sent from then on (low-bandwidth mode)', async () => {
+  const { DOUBAO_LIVE } = await import('../src/services/liveProfiles.js');
+  const timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout, setInterval: (fn, ms) => setInterval(fn, Math.min(ms, 20)), clearInterval };
+  const { engine, sessions, chunk, events } = setup({ profile: DOUBAO_LIVE, timers, languages: { A: 'fr', B: 'zh' } });
+  engine.watchWindowMs = 100;
+  engine.watchMinVoiced = 5;
+  await engine.toggle(AUTO);
+  for (const s of sessions) s.restart = function restart() { return true; };
+  const turn = engine.turn;
+  for (let round = 0; round < 3; round++) {
+    turn.dirs.forEach((d) => { d.openedAt = Date.now() - 60000; d.lastRestartAt = 0; });
+    turn.voiced = [];
+    for (let i = 0; i < 8; i++) chunk(0.5);
+    await pause(60);
+    for (let i = 0; i < 4; i++) chunk(0.5);
+    await pause(140);
+  }
+  assert.ok(events.some((e) => e.type === 'note' && /mode faible débit/.test(e.text)), events.filter((e) => e.type === 'note').map((e) => e.text).join('\n'));
+  assert.ok(turn.sendGate, 'the gate is on');
+  await engine.toggle(AUTO);
+});

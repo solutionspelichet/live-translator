@@ -5,6 +5,7 @@ import { openSocket } from '../../utils/webProxy.js';
 
 const MAX_PENDING = 100; // packets kept while the service is (re)starting a session
 const MAX_ATTEMPTS = 8;
+const CONNECT_TIMEOUT_MS = 7000; // a session that is not started after this long is dropped and asked again (a good connection takes 3-4 s; a stuck one never finishes)
 const QUIET_MS = 1500;
 
 function uuid() {
@@ -44,8 +45,8 @@ function pcmToFloat(bytes) {
  * @param {string} opts.url  wss://voice.ap-southeast-1.bytepluses.com/api/v4/ast/v2/translate
  */
 export default class DoubaoLiveSession {
-  constructor({ target, source, apiKey, resourceId, speakerId, ttsResourceId = DOUBAO_TTS_RESOURCE, custom = true, voiceLabel = '', url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS }) {
-    Object.assign(this, { target, source, apiKey, resourceId, speakerId, ttsResourceId, custom, voiceLabel, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers, quietMs });
+  constructor({ target, source, apiKey, resourceId, speakerId, ttsResourceId = DOUBAO_TTS_RESOURCE, custom = true, voiceLabel = '', url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS, connectTimeoutMs = CONNECT_TIMEOUT_MS }) {
+    Object.assign(this, { connectTimeoutMs, target, source, apiKey, resourceId, speakerId, ttsResourceId, custom, voiceLabel, url, onAudio, onInputText, onOutputText, onStatus, onNote, onError, timers, quietMs });
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.ws = null;
     this.ready = false; // SessionStarted received
@@ -78,6 +79,12 @@ export default class DoubaoLiveSession {
     this.ws = ws;
     this.sessionId = uuid();
     const connectedAt = Date.now();
+    // Never wait for a connection that hangs: ask again after a few seconds (the OS would give up after a minute or more).
+    this.timers.clearTimeout(this.connectTimer);
+    this.connectTimer = !Number.isFinite(this.connectTimeoutMs) ? null : this.timers.setTimeout(() => {
+      if (this.ws === ws && !this.ready && !this.dead && !this.closing) this.restart(`ouverture trop lente (${Math.round(this.connectTimeoutMs / 1000)} s)`);
+    }, this.connectTimeoutMs);
+    this.connectTimer?.unref?.();
     let socketMs = null;
     if (!this.announced) {
       this.announced = true;
@@ -122,6 +129,7 @@ export default class DoubaoLiveSession {
     if (!msg) return;
     switch (msg.type) {
       case 'started': {
+        this.timers.clearTimeout(this.connectTimer);
         // The journal says where a slow start comes from: the network (socket) or the service (session start).
         const total = this.openedAt ? Date.now() - this.openedAt : null;
         if (total !== null && (total > 2500 || (this.connectMs ?? 0) > 3000)) this.onNote?.(`Doubao live ${this.source}→${this.target} : démarrage lent (socket ouvert en ${this.connectMs ?? '?'} ms, puis ${(total / 1000).toFixed(1)} s de réponse du service)`);
@@ -267,6 +275,7 @@ export default class DoubaoLiveSession {
     this.closing = true;
     this.pending = [];
     this.timers.clearTimeout(this.closeTimer);
+    this.timers.clearTimeout(this.connectTimer);
     const ws = this.ws;
     this.ws = null;
     try {

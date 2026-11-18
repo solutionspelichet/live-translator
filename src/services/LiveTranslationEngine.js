@@ -511,6 +511,12 @@ export default class LiveTranslationEngine {
           d.lastRestartAt = now;
           d.session.restart('connexion morte');
         }
+        // The network keeps dropping: send only the speech from now on (silence is the biggest part of a conversation), the low-bandwidth mode.
+        turn.deadCount = (turn.deadCount ?? 0) + 1;
+        if (turn.deadCount >= 3 && !turn.sendGate) {
+          turn.sendGate = new SendGate(this.sendGateOptions);
+          this.emit({ type: 'note', text: `${this.profile.label} : réseau instable (${turn.deadCount} connexions mortes) → mode faible débit : seule la parole est envoyée` });
+        }
         return;
       }
       // 2. one direction is mute while its sibling still hears the speech: replace the mute one.
