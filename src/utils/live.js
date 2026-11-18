@@ -428,3 +428,17 @@ export default class LiveGate {
     return released;
   }
 }
+
+/**
+ * Does what the language detector wrote (it only knows ONE language, the spotted one) match the transcript of the session whose source
+ * is that language? Real speech in that language gives nearly the same words; speech in another language gives a made-up text.
+ * Share of the shorter text's words (≥ 2 letters) found in the other; null when either text is too short to tell.
+ */
+export function transcriptMatch(detected, own, minWords = 3) {
+  const words = (text) => tokens(String(text ?? '').replace(/[’]/g, "'")).filter((w) => w.length >= 2);
+  const a = words(detected);
+  const b = words(own);
+  if (a.length < minWords || b.length < minWords) return null;
+  const [short, long] = a.length <= b.length ? [a, new Set(b)] : [b, new Set(a)];
+  return short.filter((w) => long.has(w)).length / short.length;
+}

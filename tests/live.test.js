@@ -471,3 +471,10 @@ test('LiveGate: a strong « not French » verdict drops the memory of French (En
   g.spoken(null, 5000, 'fr', true);
   assert.equal(g.repeats('So now I will try', 'Alors maintenant je vais essayer de parler en anglais', 6000), false);
 });
+
+test('transcriptMatch: the detector and the session of the spotted language wrote the same words, or not', async () => {
+  const { transcriptMatch } = await import('../src/utils/live.js');
+  assert.ok(transcriptMatch('nous devons confirmer l identité', "Nous devons confirmer l'identité.") >= 0.5);
+  assert.ok(transcriptMatch('nous devons confirmer', 'We must confirm the identity so we go') <= 0.2);
+  assert.equal(transcriptMatch('oui', 'Oui, bien sûr'), null, 'too short to tell');
+});

@@ -1,5 +1,5 @@
 import { getLanguage, PAN, SIDE } from '../config/languages.js';
-import LiveGate, { scriptOf, toLiveAudio } from '../utils/live.js';
+import LiveGate, { scriptOf, toLiveAudio, transcriptMatch } from '../utils/live.js';
 import SendGate from '../utils/sendGate.js';
 import { micProblem } from '../utils/micHealth.js';
 import { OPENAI_LIVE } from './liveProfiles.js';
@@ -205,7 +205,7 @@ export default class LiveTranslationEngine {
     }
     // Language of the sound, spotted apart (Doubao): every gate gets it like the language a service announces.
     if (this.createSpotter && this.profile.ownTranscript) {
-      turn.spotter = this.createSpotter({ languages: this.languages, onLanguage: (code, strong) => this.onSpokenLanguage(turn, code, strong), onNote: (text) => this.emit({ type: 'note', text }) }) ?? null;
+      turn.spotter = this.createSpotter({ languages: this.languages, onLanguage: (code, strong) => this.onSpokenLanguage(turn, code, strong), onTranscript: (text, final) => this.onSpotterText(turn, text, final), onNote: (text) => this.emit({ type: 'note', text }) }) ?? null;
       turn.spotter?.connect();
     }
 
@@ -297,6 +297,41 @@ export default class LiveTranslationEngine {
     for (const x of turn.dirs) x.gate?.spoken(code, Date.now(), turn.spotter?.code, strong);
   }
 
+  /**
+   * The detector wrote words (it knows only the spotted language). When the session that starts from that language wrote nearly the same
+   * words, that language IS spoken; when it wrote something else (a made-up text from foreign speech), it is NOT. Decides where the
+   * confidence of the detector alone could not (« not French » flickers on quiet French, nothing is said on a short sentence).
+   */
+  onSpotterText(turn, text, final) {
+    if (this.turnId !== turn.id) return;
+    const code = turn.spotter?.code;
+    if (!code) return;
+    const now = Date.now();
+    const log = (turn.spotLog ??= []);
+    if (final) log.push({ at: now, text });
+    else turn.spotInterim = { at: now, text };
+    while (log.length && log[0].at < now - 12000) log.shift();
+    turn.spotCheckAt = now;
+    this.checkSpotted(turn, now);
+  }
+
+  checkSpotted(turn, now = Date.now()) {
+    const code = turn.spotter?.code;
+    const own = turn.dirs.find((x) => String(this.profile.outputCode(this.languages[x.from]) ?? '').split('-')[0] === code);
+    if (!own?.gate || !turn.spotLog) return;
+    const detected = [...turn.spotLog.filter((e) => e.at >= now - 8000).map((e) => e.text), turn.spotInterim && turn.spotInterim.at >= now - 3000 ? turn.spotInterim.text : ''].join(' ');
+    const written = own.gate.reference(now, 8000);
+    const ratio = transcriptMatch(detected, written);
+    if (ratio === null) return;
+    const verdict = ratio >= 0.5 ? code : ratio <= 0.2 ? null : undefined;
+    if (verdict === undefined) return;
+    if (turn.textVerdict !== verdict) {
+      turn.textVerdict = verdict;
+      this.emit({ type: 'note', text: `langue du son d'après le texte : ${verdict ?? 'autre que ' + code} (le détecteur et la session « ${code} » ${verdict ? 'ont écrit les mêmes mots' : 'ont écrit des mots différents'}, ${Math.round(ratio * 100)} %)` });
+    }
+    this.onSpokenLanguage(turn, verdict, verdict === null);
+  }
+
   onText(turn, d, kind, delta) {
     if (this.turnId !== turn.id) return;
     (d.events ??= []).push(Date.now()); // when this direction last heard / said something (see watchSessions)
@@ -308,6 +343,7 @@ export default class LiveTranslationEngine {
       d.stats.inChars += delta.length;
       this.armIdleStop(turn);
       d.inText += delta;
+      if (turn.spotter) this.checkSpotted(turn);
       if (d.gate?.faithful !== false) for (const x of turn.dirs) if (x !== d) x.gate?.hear(delta); // only a faithful transcript tells the language spoken
       const released = d.gate ? d.gate.text('in', delta) : [];
       released.forEach((samples) => this.play(turn, d, samples));

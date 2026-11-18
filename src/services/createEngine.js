@@ -129,14 +129,14 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       timers: BackgroundTimers,
       profile: DOUBAO_LIVE,
       // Language of the sound (optional help, needs the Deepgram key): the non-Chinese language of the pair is spotted.
-      createSpotter: ({ languages: pair, onLanguage, onNote }) => {
+      createSpotter: ({ languages: pair, onLanguage, onNote, onTranscript }) => {
         if (!env.deepgramKey) return null;
         const key = [pair.A, pair.B].find((k) => !String(DOUBAO_LIVE.outputCode(k) ?? '').startsWith('zh'));
         const lang = key ? getLanguage(key) : null;
         const code = key ? String(DOUBAO_LIVE.outputCode(key) ?? '').split('-')[0] : '';
         if (!lang?.deepgram || !code) return null;
         const params = new URLSearchParams({ model: lang.deepgramModel ?? 'nova-3', language: lang.deepgram, encoding: 'linear16', sample_rate: '16000', channels: '1', interim_results: 'true', vad_events: 'true', endpointing: '300', utterance_end_ms: '1000' });
-        return new LanguageSpotter({ url: `${env.deepgramWsUrl}?${params}`, key: env.deepgramKey, code, onLanguage, onNote, timers: BackgroundTimers });
+        return new LanguageSpotter({ url: `${env.deepgramWsUrl}?${params}`, key: env.deepgramKey, code, onLanguage, onNote, onTranscript, timers: BackgroundTimers });
       },
       muteWhilePlaying: options.muteWhilePlaying,
       lowBandwidth: options.lowBandwidth,

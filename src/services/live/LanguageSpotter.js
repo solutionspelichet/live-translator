@@ -25,8 +25,8 @@ export default class LanguageSpotter {
    *          silenceMs?: number, timers?: object, createSocket?: (url, protocols) => object}} opts
    *   `code` is what onLanguage reports (the base language code the gate compares with, 'en').
    */
-  constructor({ url, key, code, onLanguage, onNote, silenceMs = 1600, timers = defaultTimers, createSocket = (u, p) => new WebSocket(u, p) }) {
-    Object.assign(this, { url, key, code, onLanguage, onNote, silenceMs, timers, createSocket });
+  constructor({ url, key, code, onLanguage, onNote, onTranscript, silenceMs = 1600, timers = defaultTimers, createSocket = (u, p) => new WebSocket(u, p) }) {
+    Object.assign(this, { url, key, code, onLanguage, onNote, onTranscript, silenceMs, timers, createSocket });
     this.ws = null;
     this.open = false;
     this.dead = false;
@@ -108,6 +108,12 @@ export default class LanguageSpotter {
     }
     if (msg.type !== 'Results') return;
     const words = msg?.channel?.alternatives?.[0]?.words ?? [];
+    const transcript = msg?.channel?.alternatives?.[0]?.transcript;
+    if (transcript) {
+      try {
+        this.onTranscript?.(transcript, Boolean(msg.is_final));
+      } catch {}
+    }
     if (!confidentSpeech(msg) && words.length >= 3 && words.filter((w) => (w.confidence ?? 0) >= CONFIDENT).length <= words.length * 0.3) {
       // Words came out but none is sure: the sound is not the spotted language (English heard through the French model). Said again at every
       // message, as « strong »: the gate must not forget it after a few seconds while the speech goes on.
