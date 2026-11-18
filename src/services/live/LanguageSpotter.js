@@ -107,6 +107,17 @@ export default class LanguageSpotter {
       return;
     }
     if (msg.type !== 'Results') return;
+    const words = msg?.channel?.alternatives?.[0]?.words ?? [];
+    if (!confidentSpeech(msg) && words.length >= 3 && words.filter((w) => (w.confidence ?? 0) >= CONFIDENT).length <= words.length * 0.3) {
+      // Words came out but none is sure: the sound is not the spotted language (English heard through the French model). Said again at every
+      // message, as « strong »: the gate must not forget it after a few seconds while the speech goes on.
+      this.confidentSince = false;
+      this.say(null);
+      try {
+        this.onLanguage(null, true);
+      } catch {}
+      return;
+    }
     if (confidentSpeech(msg)) {
       this.confidentSince = true;
       this.timers.clearTimeout(this.silenceTimer);

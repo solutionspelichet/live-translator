@@ -205,7 +205,7 @@ export default class LiveTranslationEngine {
     }
     // Language of the sound, spotted apart (Doubao): every gate gets it like the language a service announces.
     if (this.createSpotter && this.profile.ownTranscript) {
-      turn.spotter = this.createSpotter({ languages: this.languages, onLanguage: (code) => this.onSpokenLanguage(turn, code), onNote: (text) => this.emit({ type: 'note', text }) }) ?? null;
+      turn.spotter = this.createSpotter({ languages: this.languages, onLanguage: (code, strong) => this.onSpokenLanguage(turn, code, strong), onNote: (text) => this.emit({ type: 'note', text }) }) ?? null;
       turn.spotter?.connect();
     }
 
@@ -292,9 +292,9 @@ export default class LiveTranslationEngine {
   }
 
   /** The service tells which language the speaker uses: every direction's gate knows it (a direction that outputs it only repeats). */
-  onSpokenLanguage(turn, code) {
+  onSpokenLanguage(turn, code, strong = false) {
     if (this.turnId !== turn.id) return;
-    for (const x of turn.dirs) x.gate?.spoken(code, Date.now(), turn.spotter?.code);
+    for (const x of turn.dirs) x.gate?.spoken(code, Date.now(), turn.spotter?.code, strong);
   }
 
   onText(turn, d, kind, delta) {

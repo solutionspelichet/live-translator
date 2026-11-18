@@ -160,7 +160,7 @@ export default class LiveGate {
    *   user's language: Latin speech in another language is then translated for the user only
    *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null, sourceBase = '', targetBase = '', spokenTtlMs = 7000, heardTtlMs = 12000, peerNeedsOutput = false } = {}) {
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null, sourceBase = '', targetBase = '', spokenTtlMs = 7000, heardTtlMs = 15000, peerNeedsOutput = false } = {}) {
     Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback, faithful, sourceBase, targetBase, spokenTtlMs, heardTtlMs, peerNeedsOutput });
     this.spokenLang = null; // { base, at }: the language the service says is spoken (Gemini)
     this.trace = []; // decisions taken (for the journal): { at, mode, basis, why }
@@ -209,13 +209,14 @@ export default class LiveGate {
   }
 
   /** The language the speaker uses, as announced by the service ('zh-CN', 'en'…). */
-  spoken(code, now = Date.now(), spotted = '') {
+  spoken(code, now = Date.now(), spotted = '', strong = false) {
     const base = String(code ?? '').toLowerCase().split(/[-_]/)[0];
     if (base) this.lastHeard = { base, at: now }; // survives the next « not the spotted language » verdict
+    if (!base && strong) this.lastHeard = null; // sure it is not that language any more: the memory of it is dropped
     this.spokenLang = base ? { base, at: now } : null; // null: the detector heard speech that is not the spotted language
     // « not the spotted language » (French): the direction that starts from it has nothing to translate until its own text proves otherwise.
     const sp = String(spotted ?? '').toLowerCase().split(/[-_]/)[0];
-    this.notSpoken = !base && sp ? { base: sp, at: now } : null;
+    this.notSpoken = !base && sp ? { base: sp, at: now, strong: Boolean(strong) } : null;
     this.fromDetector = Boolean(sp); // a detector hint (Deepgram) can be wrong; the language a service announces itself (Gemini) is trusted
   }
 
@@ -259,6 +260,14 @@ export default class LiveGate {
         this.why = `langue parlée « ${said} » (indiquée par le service) : traduction`;
         return false;
       }
+    }
+    // Two Latin languages: words that the detector's language model is NOT sure of (English through the French model) prove the speech is
+    // not in this direction's source language: it has nothing to translate (its text and its output are made up, the output only hands
+    // the English back).
+    if (!this.scriptRule && this.fromDetector && this.notSpoken?.strong && this.sourceBase && this.notSpoken.base === this.sourceBase
+      && now - this.notSpoken.at <= this.spokenTtlMs) {
+      this.why = `le son n'est pas en « ${this.sourceBase} » (détecteur sûr) : rien à traduire dans ce sens`;
+      return true;
     }
     // Two Latin languages: the detector says « not French » at the start of many French sentences (it erases the verdict above), while the
     // English session invents an English text from French speech — so its own transcript cannot prove English was spoken. French heard a

@@ -452,3 +452,22 @@ test('LiveGate: French heard long ago does not mute a French output (English spo
   g.spoken(null, 4000, 'fr');
   assert.equal(g.repeats('Do you remember Mosul?', "Tu te souviens de Mossoul, c'est une bonne idée pour nous", 30000), false);
 });
+
+test('LiveGate: English spoken in a French↔English pair — a strong « not French » verdict mutes the French-source direction, not the other', () => {
+  const fr = new LiveGate({ sourceBase: 'fr', targetBase: 'en', faithful: false, minChars: 8 });
+  const en = new LiveGate({ sourceBase: 'en', targetBase: 'fr', faithful: true, minChars: 8 });
+  for (const g of [fr, en]) g.spoken(null, 1000, 'fr', true);
+  assert.equal(fr.repeats('Maintenant, je vais essayer de parler en anglais', 'Now, I am going to try to speak', 2000), true);
+  assert.equal(en.repeats('So now I will try to speak', 'Alors maintenant je vais essayer de parler', 2000), false);
+  // a weak verdict (silence only) does not decide: the text rules do
+  const weak = new LiveGate({ sourceBase: 'fr', targetBase: 'en', faithful: false, minChars: 8 });
+  weak.spoken(null, 1000, 'fr');
+  assert.equal(weak.repeats('Maintenant, je vais essayer de parler en anglais', 'Now, I am going to try to speak', 2000), false);
+});
+
+test('LiveGate: a strong « not French » verdict drops the memory of French (English answer right after French)', () => {
+  const g = new LiveGate({ sourceBase: 'en', targetBase: 'fr', faithful: true, minChars: 8 });
+  g.spoken('fr', 1000, 'fr');
+  g.spoken(null, 5000, 'fr', true);
+  assert.equal(g.repeats('So now I will try', 'Alors maintenant je vais essayer de parler en anglais', 6000), false);
+});
