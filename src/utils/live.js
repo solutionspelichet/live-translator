@@ -216,7 +216,10 @@ export default class LiveGate {
     this.spokenLang = base ? { base, at: now } : null; // null: the detector heard speech that is not the spotted language
     // « not the spotted language » (French): the direction that starts from it has nothing to translate until its own text proves otherwise.
     const sp = String(spotted ?? '').toLowerCase().split(/[-_]/)[0];
-    this.notSpoken = !base && sp ? { base: sp, at: now, strong: Boolean(strong) } : null;
+    // since: when this « not the spotted language » streak began (it is broken by any verdict that says the language IS spoken)
+    const before = this.notSpoken;
+    const since = before && before.base === sp && now - before.at <= 8000 ? before.since : now;
+    this.notSpoken = !base && sp ? { base: sp, at: now, strong: Boolean(strong), since } : null;
     this.fromDetector = Boolean(sp); // a detector hint (Deepgram) can be wrong; the language a service announces itself (Gemini) is trusted
   }
 
@@ -264,9 +267,11 @@ export default class LiveGate {
     // Two Latin languages: words that the detector's language model is NOT sure of (English through the French model) prove the speech is
     // not in this direction's source language: it has nothing to translate (its text and its output are made up, the output only hands
     // the English back).
-    if (!this.scriptRule && this.fromDetector && this.notSpoken?.strong && this.sourceBase && this.notSpoken.base === this.sourceBase
+    // A weak verdict (the detector heard no sure word) counts once it has lasted: on French it flips back to « French » within a second or two
+    // (the first words of a sentence), on English it stays.
+    if (!this.scriptRule && this.fromDetector && this.notSpoken && (this.notSpoken.strong || now - this.notSpoken.since >= 2500) && this.sourceBase && this.notSpoken.base === this.sourceBase
       && now - this.notSpoken.at <= this.spokenTtlMs) {
-      this.why = `le son n'est pas en « ${this.sourceBase} » (détecteur sûr) : rien à traduire dans ce sens`;
+      this.why = `le son n'est pas en « ${this.sourceBase} » (détecteur) : rien à traduire dans ce sens`;
       return true;
     }
     // Two Latin languages: the detector says « not French » at the start of many French sentences (it erases the verdict above), while the

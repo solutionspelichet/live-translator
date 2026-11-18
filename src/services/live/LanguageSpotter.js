@@ -85,7 +85,15 @@ export default class LanguageSpotter {
   }
 
   say(verdict) {
-    if (verdict === this.verdict) return;
+    if (verdict === this.verdict) {
+      // « not the spotted language » said again at the next utterance: the gate needs the repetition (the streak lasts while it goes on)
+      if (verdict === null) {
+        try {
+          this.onLanguage(null);
+        } catch {}
+      }
+      return;
+    }
     this.verdict = verdict;
     this.onNote?.(`langue du son : ${verdict ?? 'autre que ' + this.code} (détection Deepgram)`);
     try {

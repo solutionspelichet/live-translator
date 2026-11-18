@@ -478,3 +478,14 @@ test('transcriptMatch: the detector and the session of the spotted language wrot
   assert.ok(transcriptMatch('nous devons confirmer', 'We must confirm the identity so we go') <= 0.2);
   assert.equal(transcriptMatch('oui', 'Oui, bien sûr'), null, 'too short to tell');
 });
+
+test('LiveGate: a weak « not French » verdict decides only once it has lasted (English), not at the first words of a French sentence', () => {
+  const g = new LiveGate({ sourceBase: 'fr', targetBase: 'en', faithful: false, minChars: 8 });
+  g.spoken(null, 1000, 'fr');
+  assert.equal(g.repeats('Je pense que oui vraiment', 'I think so really', 1500), false, 'just started: the text rules decide');
+  g.spoken(null, 4000, 'fr');
+  g.spoken(null, 7000, 'fr');
+  assert.equal(g.repeats('Je pense que oui vraiment', 'I think so really', 7100), true, 'lasted 6 s: English is spoken');
+  g.spoken('fr', 7500, 'fr');
+  assert.equal(g.repeats('Je pense que oui vraiment', 'I think so really', 7600), false, 'French heard: translated again');
+});
