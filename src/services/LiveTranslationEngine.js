@@ -232,6 +232,10 @@ export default class LiveTranslationEngine {
           this.emit({ type: 'note', text: 'option « couper le micro pendant la voix traduite » active : pendant la lecture, ce qui est dit n\'est PAS envoyé au service' });
         }
       }
+      if (level > 0.1 && !silent) {
+        (turn.voiced ??= []).push(Date.now()); // the microphone really heard a voice (see watchSessions)
+        if (turn.voiced.length > 400) turn.voiced.shift();
+      }
       const audio = toLiveAudio(pcm16, sampleRate, { silence: silent, rate: this.profile.inputRate });
       // Low bandwidth: nothing is sent while nobody speaks (a short hangover, a pre-roll and a keep-alive excepted).
       if (this.lowBandwidth && !turn.sendGate) turn.sendGate = new SendGate(this.sendGateOptions);
@@ -486,18 +490,36 @@ export default class LiveTranslationEngine {
    */
   watchSessions(turn) {
     if (!this.profile.ownTranscript || turn.sessionWatch) return;
-    const WINDOW = 15000;
+    const WINDOW = this.watchWindowMs ?? 15000;
+    const MIN_VOICED = this.watchMinVoiced ?? 40; // microphone chunks (100 ms each) with a voice: 4 s
     turn.sessionWatch = this.timers.setInterval(() => {
       if (this.turnId !== turn.id) return;
       const now = Date.now();
       const count = (x) => (x.events ?? []).filter((t) => now - t <= WINDOW).length;
+      const opened = (d) => now - (d.openedAt ?? turn.startedAt ?? now) >= WINDOW + 5000;
+      const restartable = (d) => typeof d.session?.restart === 'function' && opened(d) && now - (d.lastRestartAt ?? 0) >= 30000;
+      // 1. everybody is mute although the microphone hears a voice: the connections are dead (the service only says so ~2 minutes later,
+      // « Timeout waiting next packet »), replace them all now.
+      const voicedAt = (turn.voiced ?? []).filter((t) => now - t <= WINDOW);
+      const voiced = voicedAt.length;
+      const heard = turn.dirs.reduce((n, d) => n + count(d), 0);
+      // the voice has to be there since (almost) the start of the window, not just have begun: a service takes a moment to answer a first sentence
+      const sinceStart = voiced > 0 ? now - voicedAt[0] >= WINDOW * 0.8 : false;
+      if (voiced >= MIN_VOICED && sinceStart && heard === 0 && turn.dirs.every(restartable)) {
+        this.emit({ type: 'note', text: `${this.profile.label} : aucun texte depuis ${Math.round(WINDOW / 1000)} s alors que le micro entend une voix (${(voiced / 10).toFixed(0)} s) → connexions remplacées` });
+        for (const d of turn.dirs) {
+          d.lastRestartAt = now;
+          d.session.restart('connexion morte');
+        }
+        return;
+      }
+      // 2. one direction is mute while its sibling still hears the speech: replace the mute one.
       for (const d of turn.dirs) {
         const sibling = turn.dirs.find((x) => x !== d);
-        if (!sibling || typeof d.session?.restart !== 'function') continue;
-        if (now - (d.openedAt ?? turn.startedAt ?? now) < 20000 || now - (d.lastRestartAt ?? 0) < 30000) continue;
+        if (!sibling || !restartable(d)) continue;
         if (count(sibling) >= 4 && count(d) === 0) {
           d.lastRestartAt = now;
-          this.emit({ type: 'note', text: `${this.profile.label} ${d.from}→${d.to} : aucun texte depuis ${WINDOW / 1000} s alors que l'autre sens en reçoit (${count(sibling)}) → session remplacée` });
+          this.emit({ type: 'note', text: `${this.profile.label} ${d.from}→${d.to} : aucun texte depuis ${Math.round(WINDOW / 1000)} s alors que l'autre sens en reçoit (${count(sibling)}) → session remplacée` });
           d.session.restart('session muette');
         }
       }

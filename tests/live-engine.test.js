@@ -572,3 +572,49 @@ test('a voice never starts on an audio engine that is still suspended: the engin
   assert.ok(events.some((e) => e.type === 'note' && /moteur audio « suspended » → réveil/.test(e.text)));
   await engine.toggle('A');
 });
+
+test('both Doubao sessions mute while the microphone hears a voice: the dead connections are replaced at once, not two minutes later (journal of 18 Nov)', async () => {
+  const { DOUBAO_LIVE } = await import('../src/services/liveProfiles.js');
+  const timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout, setInterval: (fn, ms) => setInterval(fn, Math.min(ms, 20)), clearInterval };
+  const { engine, sessions, chunk, events } = setup({ profile: DOUBAO_LIVE, timers, languages: { A: 'fr', B: 'zh' } });
+  engine.watchWindowMs = 100;
+  engine.watchMinVoiced = 5;
+  await engine.toggle(AUTO);
+  for (const s of sessions) {
+    s.restarts = [];
+    s.restart = function restart(reason) {
+      this.restarts.push(reason);
+      return true;
+    };
+  }
+  const turn = engine.turn;
+  turn.dirs.forEach((d) => { d.openedAt = Date.now() - 60000; });
+  for (let i = 0; i < 8; i++) chunk(0.5); // a voice is heard...
+  await pause(40);
+  assert.deepEqual(sessions.map((s) => s.restarts.length), [0, 0], 'not before the voice has been there for the window');
+  await pause(150); // ...and nobody says a word
+  assert.deepEqual(sessions.map((s) => s.restarts.length), [1, 1], 'both connections are replaced');
+  assert.ok(events.some((e) => e.type === 'note' && /connexions remplacées/.test(e.text)));
+  await engine.toggle(AUTO);
+});
+
+test('silence is not a dead connection: no voice heard, nothing is replaced', async () => {
+  const { DOUBAO_LIVE } = await import('../src/services/liveProfiles.js');
+  const timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout, setInterval: (fn, ms) => setInterval(fn, Math.min(ms, 20)), clearInterval };
+  const { engine, sessions, chunk } = setup({ profile: DOUBAO_LIVE, timers, languages: { A: 'fr', B: 'zh' } });
+  engine.watchWindowMs = 100;
+  engine.watchMinVoiced = 5;
+  await engine.toggle(AUTO);
+  for (const s of sessions) {
+    s.restarts = [];
+    s.restart = function restart(reason) {
+      this.restarts.push(reason);
+      return true;
+    };
+  }
+  engine.turn.dirs.forEach((d) => { d.openedAt = Date.now() - 60000; });
+  for (let i = 0; i < 8; i++) chunk(0.02); // background noise only
+  await pause(250);
+  assert.deepEqual(sessions.map((s) => s.restarts.length), [0, 0]);
+  await engine.toggle(AUTO);
+});
