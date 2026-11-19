@@ -489,3 +489,21 @@ test('LiveGate: a weak « not French » verdict decides only once it has lasted 
   g.spoken('fr', 7500, 'fr');
   assert.equal(g.repeats('Je pense que oui vraiment', 'I think so really', 7600), false, 'French heard: translated again');
 });
+
+test('LiveGate: the detector\'s words differ from the session\'s text → the direction starting from the spotted language is silent at once (Chinese heard while a stale « English » verdict is still fresh)', () => {
+  const g = new LiveGate({ sourceBase: 'en', targetBase: 'zh', scriptRule: true, faithful: false, minChars: 8 });
+  g.spoken('en', 1000, 'en'); // stale « English » verdict
+  g.detected('uh', false, 2000);
+  g.detected('sir tim ah', true, 2500);
+  g.text('in', 'Our team is mainly responsible for', 2600);
+  assert.equal(g.repeats(g.reference(3000), '我们团队主要负责', 3000), true);
+  assert.match(g.why, /autre langue/);
+});
+
+test('LiveGate: the detector wrote the same words as the session → the translation is not silenced by the text rule', () => {
+  const g = new LiveGate({ sourceBase: 'en', targetBase: 'zh', scriptRule: true, faithful: false, minChars: 8 });
+  g.spoken('en', 1000, 'en');
+  g.detected('our team is mainly responsible for', true, 2500);
+  g.text('in', 'Our team is mainly responsible for', 2600);
+  assert.equal(g.repeats(g.reference(3000), '我们团队主要负责', 3000), false);
+});

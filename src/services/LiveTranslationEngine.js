@@ -312,6 +312,7 @@ export default class LiveTranslationEngine {
     else turn.spotInterim = { at: now, text };
     while (log.length && log[0].at < now - 12000) log.shift();
     turn.spotCheckAt = now;
+    for (const x of turn.dirs) x.gate?.detected(text, final, now);
     this.checkSpotted(turn, now);
   }
 

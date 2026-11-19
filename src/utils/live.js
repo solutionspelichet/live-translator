@@ -163,6 +163,8 @@ export default class LiveGate {
   constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null, sourceBase = '', targetBase = '', spokenTtlMs = 7000, heardTtlMs = 15000, peerNeedsOutput = false } = {}) {
     Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback, faithful, sourceBase, targetBase, spokenTtlMs, heardTtlMs, peerNeedsOutput });
     this.spokenLang = null; // { base, at }: the language the service says is spoken (Gemini)
+    this.spottedBase = ''; // the language the detector spots (only known once it has said something)
+    this.dgLog = []; // what the detector wrote lately ({ at, text }, finals) and its last interim text
     this.trace = []; // decisions taken (for the journal): { at, mode, basis, why }
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
     this.peerLog = []; // what the OTHER direction's session transcribed (it hears the same speech, with its own language settings)
@@ -220,7 +222,26 @@ export default class LiveGate {
     const before = this.notSpoken;
     const since = before && before.base === sp && now - before.at <= 8000 ? before.since : now;
     this.notSpoken = !base && sp ? { base: sp, at: now, strong: Boolean(strong), since } : null;
+    if (sp) this.spottedBase = sp;
     this.fromDetector = Boolean(sp); // a detector hint (Deepgram) can be wrong; the language a service announces itself (Gemini) is trusted
+  }
+
+  /** The words the detector wrote (it knows only the spotted language). */
+  detected(text, final, now = Date.now()) {
+    if (final) this.dgLog.push({ at: now, text });
+    else this.dgInterim = { at: now, text };
+    this.dgLog = this.dgLog.filter((e) => e.at >= now - 12000);
+  }
+
+  /**
+   * Only the session that STARTS from the spotted language is a witness: real speech in that language gives the same words as the detector,
+   * speech in another language gives a made-up text. 'spoken' | 'not' | null (cannot tell).
+   */
+  textVerdict(now = Date.now()) {
+    if (!this.spottedBase || this.sourceBase !== this.spottedBase) return null;
+    const detected = [...this.dgLog.filter((e) => e.at >= now - 8000).map((e) => e.text), this.dgInterim && this.dgInterim.at >= now - 3000 ? this.dgInterim.text : ''].join(' ');
+    const ratio = transcriptMatch(detected, this.reference(now, 8000));
+    return ratio === null ? null : ratio >= 0.5 ? 'spoken' : ratio <= 0.2 ? 'not' : null;
   }
 
   /** The detector heard speech that is NOT this direction's source language (lately): this direction must stay silent. */
@@ -246,6 +267,12 @@ export default class LiveGate {
    * `this.why` keeps the reason for the journal.
    */
   repeats(ref, output, now = Date.now()) {
+    // The detector's own words against this session's transcript: another language is spoken, this direction (which starts from the spotted
+    // language) has nothing to translate whatever it wrote — right now, not after the next verdict.
+    if (this.fromDetector && this.textVerdict(now) === 'not') {
+      this.why = 'le détecteur et la session de cette langue ont écrit des mots différents : autre langue, rien à traduire';
+      return true;
+    }
     // The service itself says which language is spoken: a direction whose output is that language only repeats it, a direction that
     // starts from it translates. A third language (neither of the pair) goes on to the other rules.
     // ... unless the session whose own language is Latin (English) just wrote CHINESE: it only does that when Chinese is spoken (for English
