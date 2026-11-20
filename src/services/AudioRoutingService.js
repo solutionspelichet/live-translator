@@ -277,10 +277,10 @@ class AudioRoutingService {
    * back to back on the Web Audio clock as they arrive, so speech starts after ~0.3 s instead of
    * after the whole sentence is ready. Rejects only when nothing at all could be played.
    */
-  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15, lagMs = 0, catchUp = true } = {}) {
+  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15, lagMs = 0, catchUp = true, minLagMs = 1000, adaptiveOptions = undefined } = {}) {
     await this.init();
     // A voice that had to wait (lagMs) follows a reserve-aware catch-up (see adaptiveSpeed); otherwise the chosen speed, as before.
-    const adaptive = catchUp && this.catchUp && lagMs > 1000;
+    const adaptive = catchUp && this.catchUp && lagMs > minLagMs;
     let speed = this.voiceSpeed;
     const target = routeFor(pan, this.outputMode, this.speaker.available);
     if (target.route === 'speaker') {
@@ -346,7 +346,7 @@ class AudioRoutingService {
           const inStream = Math.max(joined.length, (stream.pushed ?? 0) - takenBefore);
           const waiting = Math.max(0, nextTime - ctx.currentTime) + inStream / inRate;
           stream.maxWaiting = Math.max(stream.maxWaiting ?? 0, waiting); // for the journal: the reserve the catch-up could use
-          const next = adaptiveSpeed(speed, waiting, this.voiceSpeed);
+          const next = adaptiveSpeed(speed, waiting, this.voiceSpeed, adaptiveOptions);
           if (next !== speed) {
             speed = next;
             stream.maxSpeed = Math.max(stream.maxSpeed ?? 0, speed); // for the journal

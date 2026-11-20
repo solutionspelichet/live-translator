@@ -438,7 +438,9 @@ export default class LiveTranslationEngine {
           }
           // lagMs: how long this burst waited for the previous one. The audio piled up meanwhile is what the catch-up can speed through
           // (it only speeds up while audio is waiting, so it never runs the voice dry)
-          return this.audio.playStream(stream, PAN[d.to], { lagMs: Math.max(0, Date.now() - startedAt - 300), catchUp: false }); // live voices play at the chosen speed (the catch-up is for the Classic mode)
+          // A burst that waited more than 3 s behind the previous one (a long speech: the translated voice lasts longer than the speech and
+          // the queue only grows — 22 s behind after a minute and a half) is read up to ×1.3 faster until the voice is back on time.
+          return this.audio.playStream(stream, PAN[d.to], { lagMs: Math.max(0, Date.now() - startedAt - 300), catchUp: true, minLagMs: 3000, adaptiveOptions: { upAt: 3, maxBoost: 0.3, cap: 1.5 } });
         })
         .catch((error) => this.emit({ type: 'note', text: `lecture du flux live impossible : ${error?.message ?? error}` }))
         .then(() => {
@@ -527,8 +529,8 @@ export default class LiveTranslationEngine {
    */
   watchSessions(turn) {
     if (!this.profile.ownTranscript || turn.sessionWatch) return;
-    const WINDOW = this.watchWindowMs ?? 15000;
-    const MIN_VOICED = this.watchMinVoiced ?? 40; // microphone chunks (100 ms each) with a voice: 4 s
+    const WINDOW = this.watchWindowMs ?? 9000;
+    const MIN_VOICED = this.watchMinVoiced ?? 30; // microphone chunks (100 ms each) with a voice: 3 s
     turn.sessionWatch = this.timers.setInterval(() => {
       if (this.turnId !== turn.id) return;
       const now = Date.now();
