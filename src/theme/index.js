@@ -23,6 +23,8 @@ export const PALETTES = Object.freeze({
     accent: '#4C5DF5',
     accentAlt: '#8B5CF6', // second stop of the accent gradient
     accentSoft: '#1B2040', // tinted background (icon chips, selected rows)
+    cyan: '#22D3EE', // second accent: what the app PRODUCES for you (pronunciations, live translations) — indigo stays for actions
+    cyanSoft: '#0E2B33', // tinted background for it
     onAccent: '#FFFFFF',
     chipOn: '#4C5DF5', // a selected chip
     link: '#8E9BFF',
@@ -67,6 +69,8 @@ export const PALETTES = Object.freeze({
     accent: '#4C5DF5',
     accentAlt: '#8B5CF6',
     accentSoft: '#E8EBFF',
+    cyan: '#0E7490',
+    cyanSoft: '#DDF6FB',
     onAccent: '#FFFFFF',
     chipOn: '#DDE2FF',
     link: '#3547E0',

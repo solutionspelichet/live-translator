@@ -418,3 +418,56 @@ Un mot ou une courte phrase en langue A donne une fiche : sa traduction en langu
 ## Traduction d'une photo (onglet Texte → « Photo »)
 
 Photo prise avec la caméra ou image de la galerie (recadrable) : un modèle de langage qui lit les images (via la clé OpenRouter) en extrait chaque morceau de texte et le traduit dans la langue B. Chaque ligne peut être envoyée vers l'onglet « Mot » pour obtenir sa fiche (prononciation, audio), et le tout se partage en texte. Nouvelle dépendance native : `expo-image-picker` (permissions caméra et photos déclarées dans `app.json`). Fonctionne aussi dans la version web.
+
+## Caméra en direct (onglet Texte → « Direct »)
+
+La caméra prend une image environ chaque seconde ; le téléphone lit le texte (ML Kit, hors ligne : alphabet latin, chinois, japonais, coréen, devanagari), les textes nouveaux sont traduits en une seule requête (DeepL, ou un modèle de langage sans clé DeepL) et la traduction est dessinée sur le texte d'origine. Les traductions déjà obtenues sont gardées en mémoire (un texte n'est traduit qu'une fois), le résultat est lissé d'une image à l'autre, « Figer » arrête la prise d'images en gardant l'affichage, et toucher une traduction l'ouvre en fiche de mot. Nouvelles dépendances natives : `expo-camera` et `@react-native-ml-kit/text-recognition` (APK plus lourd). Non disponible dans la version web (onglet Photo à la place).
+
+## Petits réglages de la voix et du design
+
+- **Voix de Gemini** (Réglages → Traduction, stratégie Gemini live) : liste des 30 voix prédéfinies de Google. Le modèle de traduction est en préversion et rien ne prouve qu'il accepte une voix choisie : si le service la refuse au démarrage, la session réessaie seule sans voix et le journal le dit. OpenAI ne propose aucun choix de voix pour sa traduction en direct (rien dans sa documentation).
+- **Rattrapage automatique du retard** (Réglages → Voix, activé par défaut) : une phrase qui a dû attendre la précédente est lue plus vite (+0,12 par seconde de retard au-delà de 1 s, au plus +0,5, jamais au-delà de ×1,6 ; la vitesse choisie n'est jamais baissée). Avec les services en direct, l'accélération est « à réserve » : elle ne joue que lorsque de la voix s'est accumulée en attente (un tour de parole qui déborde), monte progressivement (+0,05 par 100 ms, +0,5 au plus, ×1,6 au plus) et redescend à la vitesse choisie quand la réserve fond ; sans réserve, elle ne démarre jamais (c'était la cause des coupures : une vitesse fixe vidait la voix plus vite qu'elle n'arrivait).
+- **Second accent cyan** : les résultats produits pour vous (prononciations, traductions de photo, étiquettes de la caméra) sont en cyan ; l'indigo reste celui des actions.
+
+## Corrections après le journal du 15 novembre
+
+- **Doubao, anglais entendu avec le français/chinois** : quand on parle chinois (ou japonais, coréen), la session fr→zh répondait parfois en anglais ; le filtre ne coupait que les sorties chinoises, l'anglais passait comme une « traduction ». Désormais une direction qui doit écrire du chinois reste muette si la parole n'est pas dans sa langue de départ, et un texte qui n'est pas dans la langue cible n'est jamais lu. Quand Deepgram dit « le son n'est pas du français » et qu'il n'y a aucun texte à comparer, la direction fr→zh se tait aussi (fini les fragments de 0,3 s de chinois répété).
+- **Coupures avec le rattrapage** : une voix « live » arrive au rythme de la parole ; l'accélérer la vide plus vite qu'elle n'arrive et la hache. Le rattrapage ne s'applique donc plus qu'au mode Classique (phrases générées plus vite que lues).
+- **Mistral, transcription muette** : le journal distingue maintenant un micro trop faible (0 s de voix) d'une transcription qui ne répond pas malgré 5 s de voix (crête du micro indiquée) ; dans ce second cas l'application ouvre une nouvelle connexion, une seule fois.
+
+## Mistral : phrases complètes, moins de refus (journal du 16 novembre)
+
+- **Phrases coupées** : en chinois/japonais la transcription n'a pas de ponctuation ; la phrase était coupée après 650 ms de pause (maintenant 950 ms pour le CJK) ou, sans virgule, tous les 32 caractères (maintenant 48, soit une dizaine de secondes de parole). Le prompt du traducteur précise qu'une phrase peut être coupée au milieu d'une pause et qu'il ne doit pas en inventer la fin.
+- **Refus de modèles à chaque démarrage** : sur ce compte Mistral, le plus gros modèle est refusé (formule) et les trois autres dépassent la limite de débit dès qu'on les interroge à la suite (la limite est celle du COMPTE, environ une requête par seconde, pas par modèle) : 4 refus en 3 s, puis 5 à 8 s avant la première phrase. Désormais : (1) la mémoire des modèles refusés est gardée sur le téléphone entre deux lancements (un refus de formule dure 6 h, une limite de débit 5 min) ; (2) avec une clé DeepL, une limite de débit renvoie la phrase à DeepL tout de suite au lieu d'interroger les autres modèles à la file.
+- Conseil : si votre formule Mistral reste limitée, choisissez « DeepL » comme traducteur Mistral dans les réglages : Mistral ne sert alors qu'à transcrire et à parler.
+
+## Doubao, anglais manquant (journal du 17 novembre)
+
+Quand on parlait chinois avec des mots anglais (« OK », « 2WC », « Didi », « Formlabs »), Deepgram annonçait « anglais » : la traduction anglaise était coupée comme une répétition et l'écho chinois était joué à la place (une dizaine de phrases par réunion). Désormais, l'annonce de Deepgram ne l'emporte plus quand la session dont la langue est latine (anglais) vient d'écrire du chinois : elle ne le fait que si du chinois est parlé. Le rattrapage de la voix monte par paliers de 0,1 (dès 2 s de voix en attente) et redescend de 0,2 quand la réserve fond. Les erreurs Doubao 55000000 (« Server-side generic error » du service de voix, 13 reconnexions en 90 minutes) viennent du service : l'application rouvre la session toute seule.
+
+## Doubao : session muette remplacée (journal du 18 novembre)
+
+Dans une réunion, la session zh→en est restée muette pendant 40 secondes alors que la session en→zh entendait toujours la parole : pas de voix anglaise. Le moteur compte maintenant les textes reçus par chaque sens ; quand un sens n'en a reçu aucun pendant 15 s alors que l'autre en a reçu au moins 4, la session muette est remplacée (au plus une fois par 30 s). Le journal dit « session remplacée ». Le journal indique aussi, à l'ouverture, la vitesse de la voix et si le rattrapage est actif, et pour chaque lecture la réserve de voix maximale vue (« réserve de voix max ») : si le rattrapage ne s'enclenche jamais, ces lignes diront pourquoi (vitesse déjà ≥ ×1,6, rattrapage désactivé, ou pas de réserve).
+
+## Retour en arrière prudent (journal du 18 novembre, build 149)
+
+Après un retour « audio déformé, démarrage très long » : (1) les services en direct jouent de nouveau leur voix à la vitesse choisie, sans rattrapage (le rattrapage reste pour le mode Classique) ; (2) avant de jouer une voix, le moteur audio du téléphone est réveillé ET attendu jusqu'à l'état « running » (le journal montrait « démarrée … moteur audio : suspended »), et un contexte audio bloqué est recréé ; (3) Doubao dit dans le journal si le démarrage est lent : durée d'ouverture du socket et réponse du service. Rappel : 10 reconnexions « Timeout waiting next packet » et une erreur « Audio sending too slow » dans la même réunion viennent de l'envoi du micro vers BytePlus (réseau).
+
+## Voix distordue : gain qui suit la voix (journal du 18 novembre, build 150)
+
+Le gain de la voix en flux était calculé une seule fois sur le premier morceau de la phrase (jusqu'à ×8 si ce début est faible) puis appliqué à tout le reste : une suite forte dépassait la pleine échelle et le limiteur la repliait, d'où un son saturé. Chaque morceau est maintenant amené au niveau voulu ET sous un plafond de crête : le gain baisse tout de suite quand il le faut (jamais d'écrêtage), remonte lentement quand il le peut, et le silence le garde. Le journal indique aussi le volume de voix réglé (« volume ×… »).
+
+## Mistral : phrases coupées et voix chinoise muette (journal du 18 novembre, build 151)
+
+- **Phrases coupées** : « So is it » / « translating good now and can I » / « hear clearly what's going on » étaient traduites séparément (coupure à 650 ms de pause). Un texte qui s'arrête sur un mot qui ne peut pas finir une phrase (article, conjonction, pronom sujet, auxiliaire, « to », « of », virgule) attend maintenant 1,5 s avant d'être coupé ; la pause par défaut passe de 650 à 800 ms.
+- **Voix muette vers le chinois** : Mistral n'a pas de voix chinoise, c'est ElevenLabs qui parle ; dans ce journal les traductions chinoises s'affichaient sans voix et sans la moindre ligne d'explication (une demande de voix qui ne répond jamais et que rien ne surveillait). Une demande de voix sans réponse en 10 s est maintenant abandonnée et le journal dit « voix ElevenLabs indisponible pour cette phrase (pas de réponse…) » : la traduction continue, au moins en texte.
+- Les refus de débit de Mistral (« Rate limit exceeded » sur les modèles medium, small puis ministral) viennent de la formule gratuite du compte : DeepL a traduit à la place, comme prévu.
+
+## Doubao : connexions mortes détectées en ~15 s (journal du 18 novembre, build 152)
+
+Dans une réunion de 22 minutes, les deux sessions Doubao sont restées mortes 130 secondes (14:33 → 14:35) pendant que le micro entendait une voix, jusqu'à l'erreur « Timeout waiting next packet » envoyée par le service ; au total 13 reconnexions, chacune avec un socket qui met 4 à 9 s à s'ouvrir (réseau). Le moteur remplace maintenant TOUTES les sessions quand le micro a entendu une voix pendant 12 s ou plus (au moins 4 s de voix) sans qu'aucun sens n'ait reçu un seul texte (journal : « connexions remplacées »), en plus de la règle « un sens muet pendant que l'autre entend ». Un simple silence ne déclenche rien.
+Conseil réseau : chaque session reçoit tout le micro (2 × 256 kbit/s). Si le réseau est faible, essayer « Connexion faible débit » dans les réglages (n'envoie que la parole).
+
+## Doubao : réseau qui décroche (journal du 18 novembre, build 153)
+
+Sur 49 minutes de réunion, le détecteur a remplacé les connexions une vingtaine de fois (le micro entendait une voix, aucun texte n'arrivait) : le réseau vers BytePlus décroche à répétition, et chaque ouverture de socket prend 3 à 10 s, parfois plus de 20 s. Deux mesures : (1) une session qui n'est pas démarrée au bout de 7 s est abandonnée et redemandée tout de suite (au lieu d'attendre la minute du système) ; (2) après 3 connexions mortes dans la même écoute, le mode « faible débit » s'active tout seul : seule la parole est envoyée (le silence est la plus grande part d'une conversation), ce qui allège l'envoi (« AudioSendSlow »). Le journal dit « ouverture trop lente » et « réseau instable … mode faible débit ».

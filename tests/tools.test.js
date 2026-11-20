@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildToolMessages, pickFastModel, TOOL_IDS, TOOLS, translationMessages } from '../src/utils/tools.js';
+import { buildToolMessages, firstWorking, isModelProblem, pickFastModel, pickFastModels, TOOL_IDS, TOOLS, translationMessages } from '../src/utils/tools.js';
 
 const ctx = { lang: 'Chinese', other: 'French', ui: 'French' };
 
@@ -43,4 +43,31 @@ test('translationMessages and pickFastModel', () => {
   assert.equal(pickFastModel(models), 'anthropic/claude-haiku-4');
   assert.equal(pickFastModel([{ id: 'google/gemini-2-flash', created: 3 }]), 'google/gemini-2-flash');
   assert.equal(pickFastModel([]), null);
+});
+
+test('pickFastModels: Haiku, Flash and a small GPT of the catalogue, then well-known ids, never more than asked', () => {
+  const models = [
+    { id: 'anthropic/claude-haiku-3', created: 1 },
+    { id: 'anthropic/claude-haiku-4', created: 9 },
+    { id: 'google/gemini-2-flash', created: 3 },
+    { id: 'openai/gpt-5-mini', created: 7 },
+    { id: 'openai/gpt-5', created: 8 },
+  ];
+  assert.deepEqual(pickFastModels(models), ['anthropic/claude-haiku-4', 'google/gemini-2-flash', 'openai/gpt-5-mini']);
+  assert.deepEqual(pickFastModels(models, 1), ['anthropic/claude-haiku-4']);
+  assert.deepEqual(pickFastModels([]), ['anthropic/claude-haiku-4.5', 'google/gemini-2.5-flash', 'openai/gpt-4o-mini'], 'no catalogue: known ids');
+  assert.deepEqual(pickFastModels(null, 2), ['anthropic/claude-haiku-4.5', 'google/gemini-2.5-flash']);
+});
+
+test('firstWorking: a model that is down hands over to the next, any other error stops at once', async () => {
+  const down = Object.assign(new Error('x'), { status: 502 });
+  const key = Object.assign(new Error('x'), { status: 401 });
+  const tried = [];
+  assert.equal(await firstWorking(['a', 'b', 'c'], async (m) => { tried.push(m); if (m !== 'b') throw down; return 'ok-' + m; }), 'ok-b');
+  assert.deepEqual(tried, ['a', 'b']);
+  await assert.rejects(firstWorking(['a', 'b'], async () => { throw key; }), (e) => e.status === 401);
+  await assert.rejects(firstWorking(['a', 'b'], async () => { throw down; }), (e) => e.status === 502, 'every model down: the last error');
+  assert.equal(isModelProblem({ status: 429 }), true);
+  assert.equal(isModelProblem({ status: 0 }), true);
+  assert.equal(isModelProblem({ status: 400 }), false);
 });

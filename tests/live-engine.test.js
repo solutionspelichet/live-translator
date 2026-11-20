@@ -518,3 +518,125 @@ test('low bandwidth: the microphone is not sent while nobody speaks (a pre-roll,
   assert.ok(sessions[0].sent.length - before <= 1, 'quiet again: nothing more is sent');
   engine.cancel();
 });
+
+test('a Doubao session that goes mute while its sibling still hears speech is replaced (once, then left alone for 30 s)', async () => {
+  const { DOUBAO_LIVE } = await import('../src/services/liveProfiles.js');
+  const timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout, setInterval: (fn, ms) => setInterval(fn, Math.min(ms, 20)), clearInterval };
+  const { engine, sessions, chunk, events } = setup({ profile: DOUBAO_LIVE, timers, languages: { A: 'fr', B: 'zh' } });
+  await engine.toggle(AUTO);
+  assert.equal(sessions.length >= 2, true, 'two sessions (one per direction)');
+  for (const s of sessions) {
+    s.restarts = [];
+    s.restart = function restart(reason) {
+      this.restarts.push(reason);
+      return true;
+    };
+  }
+  chunk();
+  const turn = engine.turn;
+  turn.dirs.forEach((d) => { d.openedAt = Date.now() - 60000; });
+  for (let i = 0; i < 5; i++) sessions[0].opts.onInputText(`phrase ${i}`);
+  await pause(150);
+  assert.equal(sessions[1].restarts.length, 1, 'the mute direction is replaced');
+  assert.equal(sessions[0].restarts.length, 0, 'the one that hears is left alone');
+  assert.ok(events.some((e) => e.type === 'note' && /session remplacée/.test(e.text)));
+  await pause(150);
+  assert.equal(sessions[1].restarts.length, 1, 'not again within 30 s');
+  await engine.toggle(AUTO);
+});
+
+test('a voice never starts on an audio engine that is still suspended: the engine waits until it runs (and says what came out of it)', async () => {
+  const waited = [];
+  const ctx = { state: 'suspended' };
+  const audio = {
+    ctx,
+    async ensureRunning() {
+      waited.push('ensureRunning');
+      ctx.state = 'running';
+      return 'running';
+    },
+    async playStream(stream) {
+      waited.push(`play:${ctx.state}`);
+      await stream.done;
+    },
+    stopAll() {},
+  };
+  const { engine, sessions, events, chunk, audioPiece } = setup({ audio });
+  await engine.toggle('A');
+  chunk();
+  sessions[0].opts.onInputText('Bonjour tout le monde, comment allez-vous aujourd’hui ?');
+  sessions[0].opts.onOutputText('Hello everyone, how are you doing today?');
+  sessions[0].opts.onAudio(audioPiece(), 24000);
+  await pause(200);
+  assert.deepEqual(waited.slice(0, 2), ['ensureRunning', 'play:running'], 'woken and awaited before playing');
+  assert.ok(events.some((e) => e.type === 'note' && /moteur audio « suspended » → réveil/.test(e.text)));
+  await engine.toggle('A');
+});
+
+test('both Doubao sessions mute while the microphone hears a voice: the dead connections are replaced at once, not two minutes later (journal of 18 Nov)', async () => {
+  const { DOUBAO_LIVE } = await import('../src/services/liveProfiles.js');
+  const timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout, setInterval: (fn, ms) => setInterval(fn, Math.min(ms, 20)), clearInterval };
+  const { engine, sessions, chunk, events } = setup({ profile: DOUBAO_LIVE, timers, languages: { A: 'fr', B: 'zh' } });
+  engine.watchWindowMs = 100;
+  engine.watchMinVoiced = 5;
+  await engine.toggle(AUTO);
+  for (const s of sessions) {
+    s.restarts = [];
+    s.restart = function restart(reason) {
+      this.restarts.push(reason);
+      return true;
+    };
+  }
+  const turn = engine.turn;
+  turn.dirs.forEach((d) => { d.openedAt = Date.now() - 60000; });
+  for (let i = 0; i < 8; i++) chunk(0.5); // a voice is heard...
+  await pause(40);
+  assert.deepEqual(sessions.map((s) => s.restarts.length), [0, 0], 'not before the voice has been there for the window');
+  await pause(150); // ...and nobody says a word
+  assert.deepEqual(sessions.map((s) => s.restarts.length), [1, 1], 'both connections are replaced');
+  assert.ok(events.some((e) => e.type === 'note' && /connexions remplacées/.test(e.text)));
+  await engine.toggle(AUTO);
+});
+
+test('silence is not a dead connection: no voice heard, nothing is replaced', async () => {
+  const { DOUBAO_LIVE } = await import('../src/services/liveProfiles.js');
+  const timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout, setInterval: (fn, ms) => setInterval(fn, Math.min(ms, 20)), clearInterval };
+  const { engine, sessions, chunk } = setup({ profile: DOUBAO_LIVE, timers, languages: { A: 'fr', B: 'zh' } });
+  engine.watchWindowMs = 100;
+  engine.watchMinVoiced = 5;
+  await engine.toggle(AUTO);
+  for (const s of sessions) {
+    s.restarts = [];
+    s.restart = function restart(reason) {
+      this.restarts.push(reason);
+      return true;
+    };
+  }
+  engine.turn.dirs.forEach((d) => { d.openedAt = Date.now() - 60000; });
+  for (let i = 0; i < 8; i++) chunk(0.02); // background noise only
+  await pause(250);
+  assert.deepEqual(sessions.map((s) => s.restarts.length), [0, 0]);
+  await engine.toggle(AUTO);
+});
+
+test('the network keeps dropping (3 dead connections in a turn): only the speech is sent from then on (low-bandwidth mode)', async () => {
+  const { DOUBAO_LIVE } = await import('../src/services/liveProfiles.js');
+  const timers = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout, setInterval: (fn, ms) => setInterval(fn, Math.min(ms, 20)), clearInterval };
+  const { engine, sessions, chunk, events } = setup({ profile: DOUBAO_LIVE, timers, languages: { A: 'fr', B: 'zh' } });
+  engine.watchWindowMs = 100;
+  engine.watchMinVoiced = 5;
+  await engine.toggle(AUTO);
+  for (const s of sessions) s.restart = function restart() { return true; };
+  const turn = engine.turn;
+  for (let round = 0; round < 3; round++) {
+    turn.dirs.forEach((d) => { d.openedAt = Date.now() - 60000; d.lastRestartAt = 0; });
+    turn.voiced = [];
+    for (let i = 0; i < 8; i++) chunk(0.5);
+    await pause(60);
+    for (let i = 0; i < 4; i++) chunk(0.5);
+    await pause(140);
+  }
+  assert.ok(events.some((e) => e.type === 'note' && /mode faible débit/.test(e.text)), events.filter((e) => e.type === 'note').map((e) => e.text).join('\n'));
+  assert.ok(turn.sendGate, 'the gate is on');
+  await engine.toggle(AUTO);
+});

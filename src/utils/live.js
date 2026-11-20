@@ -160,9 +160,11 @@ export default class LiveGate {
    *   user's language: Latin speech in another language is then translated for the user only
    *   `fallback`: when nothing can be compared (no source transcript), may this direction play? (default: yes)
    */
-  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null, sourceBase = '', targetBase = '', spokenTtlMs = 7000, peerNeedsOutput = false } = {}) {
-    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback, faithful, sourceBase, targetBase, spokenTtlMs, peerNeedsOutput });
+  constructor({ minChars = 8, holdMs = 2000, threshold = 0.6, windowMs = 12000, recheckChars = 16, tailChars = 40, recheckStep = 12, scriptRule = false, foreignRule = null, shortWindowMs = 6000, fallback = null, faithful = null, sourceBase = '', targetBase = '', spokenTtlMs = 7000, heardTtlMs = 15000, peerNeedsOutput = false } = {}) {
+    Object.assign(this, { minChars, holdMs, threshold, windowMs, recheckChars, tailChars, recheckStep, scriptRule, foreignRule, shortWindowMs, fallback, faithful, sourceBase, targetBase, spokenTtlMs, heardTtlMs, peerNeedsOutput });
     this.spokenLang = null; // { base, at }: the language the service says is spoken (Gemini)
+    this.spottedBase = ''; // the language the detector spots (only known once it has said something)
+    this.dgLog = []; // what the detector wrote lately ({ at, text }, finals) and its last interim text
     this.trace = []; // decisions taken (for the journal): { at, mode, basis, why }
     this.log = []; // source transcript pieces: { at, text } — survives resets (it describes the speech, not a burst)
     this.peerLog = []; // what the OTHER direction's session transcribed (it hears the same speech, with its own language settings)
@@ -209,9 +211,42 @@ export default class LiveGate {
   }
 
   /** The language the speaker uses, as announced by the service ('zh-CN', 'en'…). */
-  spoken(code, now = Date.now()) {
+  spoken(code, now = Date.now(), spotted = '', strong = false) {
     const base = String(code ?? '').toLowerCase().split(/[-_]/)[0];
+    if (base) this.lastHeard = { base, at: now }; // survives the next « not the spotted language » verdict
+    if (!base && strong) this.lastHeard = null; // sure it is not that language any more: the memory of it is dropped
     this.spokenLang = base ? { base, at: now } : null; // null: the detector heard speech that is not the spotted language
+    // « not the spotted language » (French): the direction that starts from it has nothing to translate until its own text proves otherwise.
+    const sp = String(spotted ?? '').toLowerCase().split(/[-_]/)[0];
+    // since: when this « not the spotted language » streak began (it is broken by any verdict that says the language IS spoken)
+    const before = this.notSpoken;
+    const since = before && before.base === sp && now - before.at <= 8000 ? before.since : now;
+    this.notSpoken = !base && sp ? { base: sp, at: now, strong: Boolean(strong), since } : null;
+    if (sp) this.spottedBase = sp;
+    this.fromDetector = Boolean(sp); // a detector hint (Deepgram) can be wrong; the language a service announces itself (Gemini) is trusted
+  }
+
+  /** The words the detector wrote (it knows only the spotted language). */
+  detected(text, final, now = Date.now()) {
+    if (final) this.dgLog.push({ at: now, text });
+    else this.dgInterim = { at: now, text };
+    this.dgLog = this.dgLog.filter((e) => e.at >= now - 12000);
+  }
+
+  /**
+   * Only the session that STARTS from the spotted language is a witness: real speech in that language gives the same words as the detector,
+   * speech in another language gives a made-up text. 'spoken' | 'not' | null (cannot tell).
+   */
+  textVerdict(now = Date.now()) {
+    if (!this.spottedBase || this.sourceBase !== this.spottedBase) return null;
+    const detected = [...this.dgLog.filter((e) => e.at >= now - 8000).map((e) => e.text), this.dgInterim && this.dgInterim.at >= now - 3000 ? this.dgInterim.text : ''].join(' ');
+    const ratio = transcriptMatch(detected, this.reference(now, 8000));
+    return ratio === null ? null : ratio >= 0.5 ? 'spoken' : ratio <= 0.2 ? 'not' : null;
+  }
+
+  /** The detector heard speech that is NOT this direction's source language (lately): this direction must stay silent. */
+  sourceNotSpoken(now = Date.now()) {
+    return !!(this.notSpoken && this.sourceBase && this.notSpoken.base === this.sourceBase && now - this.notSpoken.at <= this.spokenTtlMs);
   }
 
   /** What the other direction's session transcribed in the last seconds. */
@@ -232,9 +267,20 @@ export default class LiveGate {
    * `this.why` keeps the reason for the journal.
    */
   repeats(ref, output, now = Date.now()) {
+    // The detector's own words against this session's transcript: another language is spoken, this direction (which starts from the spotted
+    // language) has nothing to translate whatever it wrote — right now, not after the next verdict.
+    if (this.fromDetector && this.textVerdict(now) === 'not') {
+      this.why = 'le détecteur et la session de cette langue ont écrit des mots différents : autre langue, rien à traduire';
+      return true;
+    }
     // The service itself says which language is spoken: a direction whose output is that language only repeats it, a direction that
     // starts from it translates. A third language (neither of the pair) goes on to the other rules.
-    if (this.spokenLang && now - this.spokenLang.at <= this.spokenTtlMs && this.targetBase) {
+    // ... unless the session whose own language is Latin (English) just wrote CHINESE: it only does that when Chinese is spoken (for English
+    // speech its text is English). The detector says « English » on Chinese speech full of English words (« OK », « 2WC », « Didi »), which
+    // muted the English translation and played the Chinese echo instead.
+    const latinSessionText = scriptOf(this.sourceBase) === 'latin' ? this.reference(now, this.shortWindowMs) : scriptOf(this.sourceBase) === 'cjk' ? this.peerText(now) : '';
+    const chineseHeard = this.scriptRule && this.fromDetector && scriptOf(this.spokenLang?.base) === 'latin' && (cjkShare(latinSessionText) ?? 0) >= 0.6;
+    if (this.spokenLang && now - this.spokenLang.at <= this.spokenTtlMs && this.targetBase && !chineseHeard) {
       const said = this.spokenLang.base;
       if (said === this.targetBase) {
         this.why = `langue parlée « ${said} » (indiquée par le service) = langue de sortie`;
@@ -244,6 +290,24 @@ export default class LiveGate {
         this.why = `langue parlée « ${said} » (indiquée par le service) : traduction`;
         return false;
       }
+    }
+    // Two Latin languages: words that the detector's language model is NOT sure of (English through the French model) prove the speech is
+    // not in this direction's source language: it has nothing to translate (its text and its output are made up, the output only hands
+    // the English back).
+    // A weak verdict (the detector heard no sure word) counts once it has lasted: on French it flips back to « French » within a second or two
+    // (the first words of a sentence), on English it stays.
+    if (!this.scriptRule && this.fromDetector && this.notSpoken && (this.notSpoken.strong || now - this.notSpoken.since >= 2500) && this.sourceBase && this.notSpoken.base === this.sourceBase
+      && now - this.notSpoken.at <= this.spokenTtlMs) {
+      this.why = `le son n'est pas en « ${this.sourceBase} » (détecteur) : rien à traduire dans ce sens`;
+      return true;
+    }
+    // Two Latin languages: the detector says « not French » at the start of many French sentences (it erases the verdict above), while the
+    // English session invents an English text from French speech — so its own transcript cannot prove English was spoken. French heard a
+    // moment ago + an output in French: the output only hands the speech back.
+    if (!this.scriptRule && this.fromDetector && this.lastHeard && this.targetBase && this.lastHeard.base === this.targetBase
+      && now - this.lastHeard.at <= this.heardTtlMs && latinLanguageOf(output) === this.targetBase) {
+      this.why = `« ${this.targetBase} » entendu il y a ${Math.round((now - this.lastHeard.at) / 1000)} s (détecteur) = langue de sortie`;
+      return true;
     }
     // A session that is not the faithful one writes a text of its own: comparing its output with that text proves nothing (a real
     // translation can match the text it invented). When the faithful session already wrote something, the language rules decide.
@@ -267,6 +331,13 @@ export default class LiveGate {
       }
     }
     if (this.scriptRule) {
+      // A direction that must write Chinese (Japanese, Korean…) but wrote something else (Doubao's French→Chinese session answers in English to
+      // Chinese speech): that text is not a translation into the target language, it is never played.
+      const targetCjk = scriptOf(this.targetBase) === 'cjk';
+      if (targetCjk && !CJK.test(output) && !NONLATIN.test(output) && (output.match(/\p{L}/gu) ?? []).length >= 4) {
+        this.why = 'texte ni dans la langue cible ni dans celle de l\'autre côté';
+        return true;
+      }
       const short = this.reference(now, this.shortWindowMs);
       // A few characters are enough when they are all Chinese: waiting for more text let both directions speak (Chinese heard twice).
       const own = cjkShare(short) ?? cjkShare(ref) ?? shortCjkShare(short) ?? shortCjkShare(ref);
@@ -280,7 +351,9 @@ export default class LiveGate {
         const pct = Math.round(share * 100);
         if (share >= 0.45) {
           this.why = `texte dit à ${pct} % en CJK`;
-          return outCjk; // said in Chinese: a Chinese output repeats it
+          // said in Chinese: a Chinese output repeats it, and a direction that WRITES Chinese has nothing to translate (the speech is not
+          // in its source language), whatever it wrote
+          return targetCjk ? true : outCjk;
         }
         if (share <= 0.3) {
           // Said in a THIRD language (English in a French↔Chinese pair): neither session's own language. It is translated for
@@ -364,7 +437,8 @@ export default class LiveGate {
   flush(now = Date.now()) {
     if (this.mode !== 'undecided' || !this.held.length) return [];
     const compare = !!(this.reference(now).trim() && this.output.trim());
-    const mute = this.repeats(this.reference(now), this.output, now);
+    // with no text to compare, the detector's « not the source language » decides (it is only a hint: real text always has the last word)
+    const mute = compare ? this.repeats(this.reference(now), this.output, now) : this.sourceNotSpoken(now) || this.repeats(this.reference(now), this.output, now);
     this.setMode(mute ? 'mute' : 'play', compare ? 'compare' : 'fallback', compare ? this.why : 'rien à comparer', now);
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
@@ -380,9 +454,23 @@ export default class LiveGate {
     if (!expired && this.peerPending(now)) return [];
     // Out of time without a way to compare: ask the fallback (default: let it through, better a duplicate than a loss).
     if (enough) this.setMode(this.repeats(ref, this.output, now) ? 'mute' : 'play', 'compare', this.why, now);
-    else this.setMode(this.fallback && !this.fallback() ? 'mute' : 'play', 'fallback', 'rien à comparer (le frère décide)', now);
+    else this.setMode(this.sourceNotSpoken(now) || (this.fallback && !this.fallback()) ? 'mute' : 'play', 'fallback', this.sourceNotSpoken(now) ? "le son n'est pas dans la langue de départ de ce sens" : 'rien à comparer (le frère décide)', now);
     const released = this.mode === 'play' ? this.held : [];
     this.held = [];
     return released;
   }
+}
+
+/**
+ * Does what the language detector wrote (it only knows ONE language, the spotted one) match the transcript of the session whose source
+ * is that language? Real speech in that language gives nearly the same words; speech in another language gives a made-up text.
+ * Share of the shorter text's words (≥ 2 letters) found in the other; null when either text is too short to tell.
+ */
+export function transcriptMatch(detected, own, minWords = 3) {
+  const words = (text) => tokens(String(text ?? '').replace(/[’]/g, "'")).filter((w) => w.length >= 2);
+  const a = words(detected);
+  const b = words(own);
+  if (a.length < minWords || b.length < minWords) return null;
+  const [short, long] = a.length <= b.length ? [a, new Set(b)] : [b, new Set(a)];
+  return short.filter((w) => long.has(w)).length / short.length;
 }

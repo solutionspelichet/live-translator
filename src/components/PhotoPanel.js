@@ -135,6 +135,6 @@ const styles = themedStyles((c) => StyleSheet.create({
   results: { paddingVertical: 4 },
   line: { gap: 4, paddingVertical: 12 },
   lineBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
-  translation: { color: c.text, fontSize: 20, lineHeight: 28, fontWeight: '600' },
+  translation: { color: c.cyan, fontSize: 20, lineHeight: 28, fontWeight: '600' },
   source: { color: c.textMuted, fontSize: 14, lineHeight: 20 },
 }));

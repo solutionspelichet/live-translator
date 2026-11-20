@@ -42,7 +42,7 @@ export default {
       const stored = JSON.parse((await AsyncStorage.getItem(KEY)) ?? '[]');
       if (Array.isArray(stored) && !lines.length) lines.push(...stored.filter((l) => typeof l === 'string').slice(-SAVED));
     } catch {}
-    this.add('══ app (re)lancée ══');
+    this.add(`══ app (re)lancée ══ build ${process.env.EXPO_PUBLIC_BUILD_ID ?? 'dev'}`); // the build number tells which version a journal comes from
   },
 
   last(n = 6) {

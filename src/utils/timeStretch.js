@@ -20,7 +20,25 @@ export default class TimeStretcher {
     this.ha = this.hs * this.factor; // analysis hop (nominal)
     this.window = new Float32Array(this.n);
     for (let i = 0; i < this.n; i++) this.window[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / this.n);
+    this.expected = 0; // output samples the input is worth at the speeds used so far (to trim the padding at the end)
     this.reset();
+  }
+
+  /**
+   * Change the speed WHILE the voice is playing (the frames already laid are kept, the next ones use the new hop).
+   * Returns audio to play when the change ends the stretching (back to 1×, a pass-through): the frames still held back.
+   * @returns {Float32Array}
+   */
+  setFactor(factor) {
+    const next = Math.min(3, Math.max(0.5, Number(factor) || 1));
+    const bypass = Math.abs(next - 1) < 0.02;
+    let rest = new Float32Array(0);
+    if (bypass && !this.bypass) rest = this.flush(); // leaving the stretching: what it kept back is played first
+    if (!bypass && this.bypass) this.reset(); // entering: the audio so far went through untouched, start a clean frame sequence
+    this.factor = next;
+    this.bypass = bypass;
+    this.ha = this.hs * next;
+    return rest;
   }
 
   reset() {
@@ -31,6 +49,7 @@ export default class TimeStretcher {
     this.prevStart = null; // absolute start of the previous frame
     this.tail = new Float32Array(this.hs); // second half of the previous frame, windowed, waiting for its overlap
     this.emitted = 0;
+    this.expected = 0;
   }
 
   /** @param {Float32Array} samples @returns {Float32Array} audio ready to play (possibly empty) */
@@ -41,6 +60,7 @@ export default class TimeStretcher {
     joined.set(samples, this.buf.length);
     this.buf = joined;
     this.total += samples.length;
+    this.expected += samples.length / this.factor;
     return this.run(false);
   }
 
@@ -57,7 +77,7 @@ export default class TimeStretcher {
     this.buf = joined;
     const out = this.run(true);
     // Keep only what the input is worth at this speed (the zero padding is not speech).
-    const expected = Math.round(this.total / this.factor);
+    const expected = Math.round(this.expected);
     const excess = this.emitted - expected;
     const result = excess > 0 && excess < out.length ? out.subarray(0, out.length - excess) : out;
     this.reset();

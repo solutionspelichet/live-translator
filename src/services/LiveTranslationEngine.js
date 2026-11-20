@@ -1,5 +1,5 @@
 import { getLanguage, PAN, SIDE } from '../config/languages.js';
-import LiveGate, { scriptOf, toLiveAudio } from '../utils/live.js';
+import LiveGate, { scriptOf, toLiveAudio, transcriptMatch } from '../utils/live.js';
 import SendGate from '../utils/sendGate.js';
 import { micProblem } from '../utils/micHealth.js';
 import { OPENAI_LIVE } from './liveProfiles.js';
@@ -127,6 +127,7 @@ export default class LiveTranslationEngine {
 
     const turn = {
       id,
+      startedAt: Date.now(),
       side,
       auto,
       live: false,
@@ -141,7 +142,7 @@ export default class LiveTranslationEngine {
     this.speakerCount = 0;
     this.setState(STATE.STARTING);
     // Where the voices go is not obvious from the rest of the journal: say it at every start.
-    this.emit({ type: 'note', text: `sortie audio : ${this.audio.outputMode === 'split' ? 'casque + haut-parleur (moi dans le casque, l\'autre sur le haut-parleur)' : 'casque stéréo (A à gauche, B à droite)'}${this.audio.speaker && !this.audio.speaker.available ? ' · haut-parleur natif indisponible' : ''}` });
+    this.emit({ type: 'note', text: `sortie audio : ${this.audio.outputMode === 'split' ? 'casque + haut-parleur (moi dans le casque, l\'autre sur le haut-parleur)' : 'casque stéréo (A à gauche, B à droite)'} · voix ×${Number(this.audio.voiceSpeed ?? 1).toFixed(2)}, volume ×${this.audio.voiceVolume ?? '?'}, pas de rattrapage avec ce service${this.audio.speaker && !this.audio.speaker.available ? ' · haut-parleur natif indisponible' : ''}` });
 
     for (const [index, [from, to]] of pairs.entries()) {
       const d = { from, to, transcriber: index === 0, gate: null, inText: '', outText: '', stream: null, timer: null, rate: 24000, session: null, stats: { audio: 0, loud: 0, inChars: 0, outChars: 0 }, delays: [] };
@@ -156,7 +157,7 @@ export default class LiveTranslationEngine {
         onInputText: (text) => this.onText(turn, d, 'in', text),
         onOutputText: (text) => this.onText(turn, d, 'out', text),
         onInputLanguage: (code) => this.onSpokenLanguage(turn, code),
-        onStatus: (status) => status !== 'connecting' && this.emit({ type: 'note', text: `${this.profile.label} ${label} : ${status}` }),
+        onStatus: (status) => status !== 'connecting' && (status === 'open' && (d.openedAt = Date.now()), this.emit({ type: 'note', text: `${this.profile.label} ${label} : ${status}` })),
         onNote: (text) => this.emit({ type: 'note', text }),
         onWarning: (text) => this.emit({ type: 'warning', text }), // something to tell the user, without stopping the turn
         onTiming: (ms) => d.delays.push(ms), // pipelines that know how long a sentence took (Mistral): shown in the history
@@ -204,7 +205,7 @@ export default class LiveTranslationEngine {
     }
     // Language of the sound, spotted apart (Doubao): every gate gets it like the language a service announces.
     if (this.createSpotter && this.profile.ownTranscript) {
-      turn.spotter = this.createSpotter({ languages: this.languages, onLanguage: (code) => this.onSpokenLanguage(turn, code), onNote: (text) => this.emit({ type: 'note', text }) }) ?? null;
+      turn.spotter = this.createSpotter({ languages: this.languages, onLanguage: (code, strong) => this.onSpokenLanguage(turn, code, strong), onTranscript: (text, final) => this.onSpotterText(turn, text, final), onNote: (text) => this.emit({ type: 'note', text }) }) ?? null;
       turn.spotter?.connect();
     }
 
@@ -214,6 +215,7 @@ export default class LiveTranslationEngine {
         turn.live = true;
         this.setState(STATE.LISTENING);
         this.armIdleStop(turn);
+        this.watchSessions(turn);
         this.armStallMonitor(turn, onChunk);
       }
       // Optional echo guard: silence instead of the microphone while our own voice plays.
@@ -229,6 +231,10 @@ export default class LiveTranslationEngine {
           turn.mutedNoted = true;
           this.emit({ type: 'note', text: 'option « couper le micro pendant la voix traduite » active : pendant la lecture, ce qui est dit n\'est PAS envoyé au service' });
         }
+      }
+      if (level > 0.1 && !silent) {
+        (turn.voiced ??= []).push(Date.now()); // the microphone really heard a voice (see watchSessions)
+        if (turn.voiced.length > 400) turn.voiced.shift();
       }
       const audio = toLiveAudio(pcm16, sampleRate, { silence: silent, rate: this.profile.inputRate });
       // Low bandwidth: nothing is sent while nobody speaks (a short hangover, a pre-roll and a keep-alive excepted).
@@ -286,13 +292,51 @@ export default class LiveTranslationEngine {
   }
 
   /** The service tells which language the speaker uses: every direction's gate knows it (a direction that outputs it only repeats). */
-  onSpokenLanguage(turn, code) {
+  onSpokenLanguage(turn, code, strong = false) {
     if (this.turnId !== turn.id) return;
-    for (const x of turn.dirs) x.gate?.spoken(code);
+    for (const x of turn.dirs) x.gate?.spoken(code, Date.now(), turn.spotter?.code, strong);
+  }
+
+  /**
+   * The detector wrote words (it knows only the spotted language). When the session that starts from that language wrote nearly the same
+   * words, that language IS spoken; when it wrote something else (a made-up text from foreign speech), it is NOT. Decides where the
+   * confidence of the detector alone could not (« not French » flickers on quiet French, nothing is said on a short sentence).
+   */
+  onSpotterText(turn, text, final) {
+    if (this.turnId !== turn.id) return;
+    const code = turn.spotter?.code;
+    if (!code) return;
+    const now = Date.now();
+    const log = (turn.spotLog ??= []);
+    if (final) log.push({ at: now, text });
+    else turn.spotInterim = { at: now, text };
+    while (log.length && log[0].at < now - 12000) log.shift();
+    turn.spotCheckAt = now;
+    for (const x of turn.dirs) x.gate?.detected(text, final, now);
+    this.checkSpotted(turn, now);
+  }
+
+  checkSpotted(turn, now = Date.now()) {
+    const code = turn.spotter?.code;
+    const own = turn.dirs.find((x) => String(this.profile.outputCode(this.languages[x.from]) ?? '').split('-')[0] === code);
+    if (!own?.gate || !turn.spotLog) return;
+    const detected = [...turn.spotLog.filter((e) => e.at >= now - 8000).map((e) => e.text), turn.spotInterim && turn.spotInterim.at >= now - 3000 ? turn.spotInterim.text : ''].join(' ');
+    const written = own.gate.reference(now, 8000);
+    const ratio = transcriptMatch(detected, written);
+    if (ratio === null) return;
+    const verdict = ratio >= 0.5 ? code : ratio <= 0.2 ? null : undefined;
+    if (verdict === undefined) return;
+    if (turn.textVerdict !== verdict) {
+      turn.textVerdict = verdict;
+      this.emit({ type: 'note', text: `langue du son d'après le texte : ${verdict ?? 'autre que ' + code} (le détecteur et la session « ${code} » ${verdict ? 'ont écrit les mêmes mots' : 'ont écrit des mots différents'}, ${Math.round(ratio * 100)} %)` });
+    }
+    this.onSpokenLanguage(turn, verdict, verdict === null);
   }
 
   onText(turn, d, kind, delta) {
     if (this.turnId !== turn.id) return;
+    (d.events ??= []).push(Date.now()); // when this direction last heard / said something (see watchSessions)
+    if (d.events.length > 40) d.events.shift();
     // ONE session transcribes the speech and shares it; a service that sends its transcript anyway (Gemini does, from every
     // session) must not be counted twice: the history and the gate would get every piece doubled.
     if (kind === 'in' && this.profile.ownTranscript) {
@@ -300,6 +344,7 @@ export default class LiveTranslationEngine {
       d.stats.inChars += delta.length;
       this.armIdleStop(turn);
       d.inText += delta;
+      if (turn.spotter) this.checkSpotted(turn);
       if (d.gate?.faithful !== false) for (const x of turn.dirs) if (x !== d) x.gate?.hear(delta); // only a faithful transcript tells the language spoken
       const released = d.gate ? d.gate.text('in', delta) : [];
       released.forEach((samples) => this.play(turn, d, samples));
@@ -367,6 +412,7 @@ export default class LiveTranslationEngine {
       d.stream = stream;
       turn.streams.add(stream);
       this.playingCount++;
+      const startedAt = Date.now(); // the burst begins here: a wait before its voice can start means the voice is behind
       const toSpeaker = this.audio.routeOf?.(PAN[d.to]) === 'speaker';
       if (toSpeaker) this.speakerCount++;
       // In order PER DIRECTION (the next burst of this ear waits for this one); the two ears play independently.
@@ -375,22 +421,30 @@ export default class LiveTranslationEngine {
           if (this.turnId !== turn.id) return null;
           const state = this.audio.ctx?.state;
           if (state && state !== 'running') {
-            // The audio engine of the phone can be suspended (another app took the sound): wake it up, and say so.
+            // The audio engine of the phone can be suspended (another app took the sound): wake it up, WAIT until it really runs
+            // (a voice started on a suspended engine is silent or garbled), and say what came out of it.
             this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} : moteur audio « ${state} » → réveil` });
             try {
-              await this.audio.ctx.resume?.();
-            } catch {}
+              const after = this.audio.ensureRunning ? await this.audio.ensureRunning() : (await this.audio.ctx.resume?.(), this.audio.ctx?.state);
+              if (after !== 'running') this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} : moteur audio après le réveil : ${after}` });
+            } catch (error) {
+              this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} : réveil du moteur audio impossible (${error?.message ?? error})` });
+            }
           }
-          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} démarrée sur ${toSpeaker ? 'le haut-parleur' : 'le casque'}${toSpeaker ? '' : ` (moteur audio : ${this.audio.ctx?.state ?? '?'})`}` });
+          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} démarrée sur ${toSpeaker ? 'le haut-parleur' : 'le casque'}${toSpeaker ? '' : ` (moteur audio : ${this.audio.ctx?.state ?? '?'})`}${Date.now() - startedAt > 1500 ? ` · en attente depuis ${((Date.now() - startedAt) / 1000).toFixed(1)} s` : ''}` });
           if (toSpeaker && this.profile.muteOnSpeaker && !turn.speakerMuteNoted) {
             turn.speakerMuteNoted = true;
             this.emit({ type: 'note', text: 'haut-parleur : le micro est coupé pendant sa lecture (évite que le téléphone se réécoute)' });
           }
-          return this.audio.playStream(stream, PAN[d.to]);
+          // lagMs: how long this burst waited for the previous one. The audio piled up meanwhile is what the catch-up can speed through
+          // (it only speeds up while audio is waiting, so it never runs the voice dry)
+          // A burst that waited more than 3 s behind the previous one (a long speech: the translated voice lasts longer than the speech and
+          // the queue only grows — 22 s behind after a minute and a half) is read up to ×1.3 faster until the voice is back on time.
+          return this.audio.playStream(stream, PAN[d.to], { lagMs: Math.max(0, Date.now() - startedAt - 300), catchUp: true, minLagMs: 3000, adaptiveOptions: { upAt: 3, maxBoost: 0.3, cap: 1.5 } });
         })
         .catch((error) => this.emit({ type: 'note', text: `lecture du flux live impossible : ${error?.message ?? error}` }))
         .then(() => {
-          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} terminée : ${(stream.pushed / stream.sampleRate).toFixed(1)} s de voix reçues` });
+          this.emit({ type: 'note', text: `lecture ${d.from}→${d.to} terminée : ${(stream.pushed / stream.sampleRate).toFixed(1)} s de voix reçues${stream.maxWaiting != null ? ` · réserve de voix max ${stream.maxWaiting.toFixed(1)} s` : ''}${stream.maxSpeed > 1.02 ? ` · accélérée jusqu'à ×${stream.maxSpeed.toFixed(2)}` : ''}` });
           turn.streams.delete(stream);
           this.playingCount = Math.max(0, this.playingCount - 1);
           turn.quietUntil = Date.now() + 600;
@@ -466,6 +520,56 @@ export default class LiveTranslationEngine {
     if (!turn.ended || this.turnId !== turn.id) return;
     const next = this.playingCount > 0 ? STATE.SPEAKING : STATE.PROCESSING;
     if (this.state !== next) this.setState(next);
+  }
+
+  /**
+   * A Doubao session can go mute (the service keeps the socket open but answers nothing) while the other direction still hears the
+   * speech: the English translation was missing for 40 s in a meeting. When one direction got no text for 15 s while its sibling got
+   * at least 4, the mute session is replaced (at most once every 30 s).
+   */
+  watchSessions(turn) {
+    if (!this.profile.ownTranscript || turn.sessionWatch) return;
+    const WINDOW = this.watchWindowMs ?? 9000;
+    const MIN_VOICED = this.watchMinVoiced ?? 30; // microphone chunks (100 ms each) with a voice: 3 s
+    turn.sessionWatch = this.timers.setInterval(() => {
+      if (this.turnId !== turn.id) return;
+      const now = Date.now();
+      const count = (x) => (x.events ?? []).filter((t) => now - t <= WINDOW).length;
+      const opened = (d) => now - (d.openedAt ?? turn.startedAt ?? now) >= WINDOW + 5000;
+      const restartable = (d) => typeof d.session?.restart === 'function' && opened(d) && now - (d.lastRestartAt ?? 0) >= 30000;
+      // 1. everybody is mute although the microphone hears a voice: the connections are dead (the service only says so ~2 minutes later,
+      // « Timeout waiting next packet »), replace them all now.
+      const voicedAt = (turn.voiced ?? []).filter((t) => now - t <= WINDOW);
+      const voiced = voicedAt.length;
+      const heard = turn.dirs.reduce((n, d) => n + count(d), 0);
+      // the voice has to be there since (almost) the start of the window, not just have begun: a service takes a moment to answer a first sentence
+      const sinceStart = voiced > 0 ? now - voicedAt[0] >= WINDOW * 0.8 : false;
+      if (voiced >= MIN_VOICED && sinceStart && heard === 0 && turn.dirs.every(restartable)) {
+        this.emit({ type: 'note', text: `${this.profile.label} : aucun texte depuis ${Math.round(WINDOW / 1000)} s alors que le micro entend une voix (${(voiced / 10).toFixed(0)} s) → connexions remplacées` });
+        for (const d of turn.dirs) {
+          d.lastRestartAt = now;
+          d.session.restart('connexion morte');
+        }
+        // The network keeps dropping: send only the speech from now on (silence is the biggest part of a conversation), the low-bandwidth mode.
+        turn.deadCount = (turn.deadCount ?? 0) + 1;
+        if (turn.deadCount >= 3 && !turn.sendGate) {
+          turn.sendGate = new SendGate(this.sendGateOptions);
+          this.emit({ type: 'note', text: `${this.profile.label} : réseau instable (${turn.deadCount} connexions mortes) → mode faible débit : seule la parole est envoyée` });
+        }
+        return;
+      }
+      // 2. one direction is mute while its sibling still hears the speech: replace the mute one.
+      for (const d of turn.dirs) {
+        const sibling = turn.dirs.find((x) => x !== d);
+        if (!sibling || !restartable(d)) continue;
+        if (count(sibling) >= 4 && count(d) === 0) {
+          d.lastRestartAt = now;
+          this.emit({ type: 'note', text: `${this.profile.label} ${d.from}→${d.to} : aucun texte depuis ${Math.round(WINDOW / 1000)} s alors que l'autre sens en reçoit (${count(sibling)}) → session remplacée` });
+          d.session.restart('session muette');
+        }
+      }
+    }, 3000);
+    turn.sessionWatch.unref?.();
   }
 
   armIdleStop(turn) {
@@ -600,6 +704,7 @@ export default class LiveTranslationEngine {
     this.timers.clearTimeout(turn.idleStopTimer);
     this.timers.clearTimeout(turn.watchdog);
     this.timers.clearInterval(turn.stallTimer);
+    this.timers.clearInterval(turn.sessionWatch);
     turn.dirs.forEach((d) => this.timers.clearTimeout(d.timer));
   }
 

@@ -11,6 +11,9 @@ on:
 permissions:
   contents: write # nécessaire pour publier la version « latest-apk »
 
+env:
+  EXPO_PUBLIC_BUILD_ID: ${{ github.run_number }}
+
 jobs:
   apk:
     runs-on: ubuntu-latest

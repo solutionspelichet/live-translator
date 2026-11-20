@@ -1,3 +1,4 @@
+import { geminiSpeechConfig } from '../../utils/geminiVoices.js';
 import { ApiError } from '../../utils/http.js';
 import { pcm16Base64ToFloat } from '../../utils/pcm.js';
 import { defaultTimers } from '../../utils/timers.js';
@@ -52,8 +53,8 @@ function decodeText(data) {
  * @param {Function} [opts.WebSocketImpl]
  */
 export default class GeminiLiveSession {
-  constructor({ target, transcribeInput = false, echo = false, apiKey, url, onAudio, onInputText, onOutputText, onInputLanguage, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS, swapQuietMs = SWAP_QUIET_MS }) {
-    Object.assign(this, { target, transcribeInput, echo, apiKey, url, onAudio, onInputText, onOutputText, onInputLanguage, onStatus, onNote, onError, timers, quietMs, swapQuietMs });
+  constructor({ target, transcribeInput = false, echo = false, voice = '', apiKey, url, onAudio, onInputText, onOutputText, onInputLanguage, onStatus, onNote, onError, timers = defaultTimers, WebSocketImpl, quietMs = QUIET_MS, swapQuietMs = SWAP_QUIET_MS }) {
+    Object.assign(this, { target, transcribeInput, echo, voice, apiKey, url, onAudio, onInputText, onOutputText, onInputLanguage, onStatus, onNote, onError, timers, quietMs, swapQuietMs });
     this.WebSocketImpl = WebSocketImpl ?? globalThis.WebSocket;
     this.ws = null;
     this.ready = false; // setupComplete received
@@ -100,6 +101,12 @@ export default class GeminiLiveSession {
         outputAudioTranscription: {},
       };
       if (this.transcribeInput) setup.inputAudioTranscription = {};
+      // A chosen voice (optional). If the service refuses the setup because of it, the next attempt goes without (see onclose).
+      const speech = this.voiceRefused ? undefined : geminiSpeechConfig(this.voice);
+      if (speech) {
+        setup.generationConfig.speechConfig = speech;
+        this.voiceSent = true;
+      }
       // On ITS OWN socket: the standby connection's setup went into the live one (`this.send` writes to this.ws), the service refused a
       // second setup in a running session (« Request contains an invalid argument ») and the turn ended 3 s after every GoAway.
       try {
@@ -141,6 +148,11 @@ export default class GeminiLiveSession {
         this.rejections = (this.rejections ?? []).filter((t) => now - t < 60000);
         this.rejections.push(now);
         if (this.rejections.length <= 3) return this.lost(`refus du service en cours de session (${e.code})`);
+      }
+      if ((e?.code === 1007 || e?.code === 1008) && this.voiceSent && !this.voiceRefused && !this.everReady) {
+        this.voiceRefused = true; // the chosen voice may be the reason: try again without it
+        this.onNote?.(`Gemini live : la voix « ${this.voice} » est refusée par le service, nouvel essai avec la voix du modèle`);
+        return this.lost('voix refusée');
       }
       if (e?.code === 1007 || e?.code === 1008) return this.fail(new ApiError('Gemini', 400, reason || `refusé par le service (${e.code})`));
       this.lost(`${e?.code ?? ''} ${reason}`.trim());

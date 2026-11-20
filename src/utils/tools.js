@@ -120,3 +120,34 @@ export function pickFastModel(models) {
   const newest = (re) => list.filter((m) => re.test(m.id)).sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0]?.id ?? null;
   return newest(/^anthropic\/claude-.*haiku/i) ?? newest(/^google\/gemini-[\w.-]*flash[\w.-]*$/i) ?? null;
 }
+
+const DEFAULT_FAST_MODELS = Object.freeze(['anthropic/claude-haiku-4.5', 'google/gemini-2.5-flash', 'openai/gpt-4o-mini']);
+
+/**
+ * Quick, cheap models to try IN THIS ORDER: the newest Claude Haiku, the newest Gemini Flash, the newest small GPT of the catalogue
+ * ([{ id, created }]); with no catalogue (not loaded yet, or the request failed) well-known ids. Never more than `max`.
+ */
+export function pickFastModels(models, max = 3) {
+  const list = (Array.isArray(models) ? models : []).filter((m) => m && typeof m.id === 'string' && !m.id.includes(':'));
+  const newest = (re) => list.filter((m) => re.test(m.id)).sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0]?.id ?? null;
+  const picked = [newest(/^anthropic\/claude-.*haiku/i), newest(/^google\/gemini-[\w.-]*flash[\w.-]*$/i), newest(/^openai\/gpt-[\w.-]*(mini|nano)[\w.-]*$/i)].filter(Boolean);
+  for (const id of DEFAULT_FAST_MODELS) if (!picked.includes(id)) picked.push(id);
+  return picked.slice(0, max);
+}
+
+/** Does this error mean « try another model » (provider down, rate-limited, model gone)? */
+export const isModelProblem = (error) => [404, 408, 429].includes(error?.status) || error?.status >= 500 || error?.status === 0;
+
+/** Calls `call(model)` for each model in turn until one works; only a model-side problem moves on to the next, any other error is thrown at once. */
+export async function firstWorking(models, call) {
+  let last;
+  for (const model of models) {
+    try {
+      return await call(model);
+    } catch (error) {
+      last = error;
+      if (!isModelProblem(error)) throw error;
+    }
+  }
+  throw last;
+}

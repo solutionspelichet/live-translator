@@ -245,3 +245,33 @@ test('the language announced with the input transcription reaches the engine', (
   assert.deepEqual(langs, ['en', 'zh-CN']);
   assert.deepEqual(got.inText, ['Okay, so']);
 });
+
+test('a chosen voice goes in the setup (speechConfig); no voice, nothing is sent', () => {
+  const none = make();
+  none.session.connect();
+  none.sockets[0].open();
+  assert.equal(none.sockets[0].sent[0].setup.generationConfig.speechConfig, undefined);
+
+  const { session, sockets } = make({ voice: 'Kore' });
+  session.connect();
+  sockets[0].open();
+  assert.deepEqual(sockets[0].sent[0].setup.generationConfig.speechConfig, { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } });
+  assert.equal(make({ voice: 'NotAVoice' }).session.voice, 'NotAVoice');
+});
+
+test('a voice the service refuses at the start: one more try WITHOUT it, and the journal says why', async () => {
+  const { session, sockets, got } = make({ voice: 'Kore', timers: { setTimeout: (fn) => setTimeout(fn, 1), clearTimeout } });
+  session.connect();
+  sockets[0].open();
+  sockets[0].onclose({ code: 1007, reason: "Invalid JSON payload received. Unknown name \"speechConfig\" at 'setup.generation_config'" });
+  await pause(40);
+  assert.equal(sockets.length, 2, 'reconnected');
+  sockets[1].open();
+  assert.equal(sockets[1].sent[0].setup.generationConfig.speechConfig, undefined, 'without the voice');
+  assert.deepEqual(got.errors, []);
+  assert.ok(got.notes.some((n) => /voix « Kore » est refusée/.test(n)));
+  // a refusal that is not about the voice (it was already dropped) still ends the turn
+  sockets[1].onclose({ code: 1007, reason: 'something else' });
+  await pause(40);
+  assert.equal(got.errors.length, 1);
+});

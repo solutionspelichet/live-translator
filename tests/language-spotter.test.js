@@ -63,3 +63,18 @@ test('gate: a null verdict drops the language heard before (an answer in the oth
   g.spoken(null, 2000);
   assert.equal(g.spokenLang, null);
 });
+
+test('LanguageSpotter: words the model is not sure of keep a « strong » not-spotted verdict alive', async () => {
+  const { default: LanguageSpotter } = await import('../src/services/live/LanguageSpotter.js');
+  const { sockets, timers, createSocket } = fake();
+  const told = [];
+  const s = new LanguageSpotter({ url: 'wss://x', key: 'k', code: 'fr', onLanguage: (c, strong) => told.push([c, !!strong]), onNote() {}, timers, createSocket });
+  s.connect();
+  sockets[0].onopen();
+  sockets[0].onmessage({ data: JSON.stringify({ type: 'SpeechStarted' }) });
+  sockets[0].onmessage({ data: results([['sou', 0.3], ['pa', 0.2], ['tu', 0.4]]) });
+  sockets[0].onmessage({ data: results([['ze', 0.3], ['wa', 0.2], ['po', 0.4]]) });
+  assert.deepEqual(told.at(-1), [null, true]);
+  assert.ok(told.length >= 2, 'refreshed at every message');
+  s.abort();
+});

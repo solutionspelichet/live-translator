@@ -1,6 +1,7 @@
 // Pure part of the persisted settings (no React Native import → unit-testable).
 import { normalizeLocale } from '../i18n/index.js';
 import { DOUBAO_VOICE_ID } from '../utils/doubaoVoices.js';
+import { sanitizeGeminiVoice } from '../utils/geminiVoices.js';
 import { sanitizeGain } from '../utils/gainSlider.js';
 import { sanitizeVoiceSpeed } from '../utils/voiceSpeed.js';
 import { TEMPLATE_IDS } from '../utils/minutes.js';
@@ -45,6 +46,7 @@ export function engineOptions(settings) {
     doubaoVoiceKind: ['preset', 'auto'].includes(settings.doubaoVoiceKind) ? settings.doubaoVoiceKind : 'clone',
     doubaoVoices: sanitizeDoubaoVoices(settings.doubaoVoices),
     mistralVoices: sanitizeMistralVoices(settings.mistralVoices),
+    geminiVoice: sanitizeGeminiVoice(settings.geminiVoice),
     mistralGlossary: String(settings.mistralGlossary ?? ''),
     mistralAutoContext: settings.mistralAutoContext !== false,
     endpointingMs,
@@ -75,6 +77,7 @@ export const STRATEGIES = Object.freeze({
 export const DEFAULT_SETTINGS = Object.freeze({
   doubaoVoiceKind: 'clone', // 'clone' (the cloned voice of the BytePlus console) | 'preset' (a voice of the BytePlus list) | 'auto' (the model clones each speaker's voice by itself — experiment)
   doubaoVoices: Object.freeze({}), // preset voice chosen per language spoken: { fr: 'fr_female_…', zh: 'zh_female_…' }
+  geminiVoice: '', // Gemini live voice (a prebuilt voice name; '' = the model's own voice)
   mistralVoices: Object.freeze({}), // Mistral voice chosen per language spoken: { fr: '<voice id>' } (none = the app picks a neutral one)
   uiLang: null, // interface language chosen with the flags: 'fr' | 'en' | 'zh' (null = follow the phone: Chinese or English if the phone is set so, else French)
   strategy: 'classic', // see STRATEGIES
@@ -87,6 +90,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   micSource: 'voice_recognition', // see MIC_SOURCES (Android capture)
   micAgc: true, // use the phone's own automatic gain control when it has one
   voiceVolume: 2, // loudness of the translated voice: 1 (normal) … 2.5 (loud)
+  voiceCatchUp: true, // a sentence that had to wait for the previous one is played a bit faster, so the voice catches up with the speaker
   voiceSpeed: 1, // speed of the translated voice, pitch unchanged: 0.8 … 2 (1 = as generated)
   speed: 'normal', // see SPEEDS
   outputMode: 'stereo', // where the voices play: 'stereo' (A left, B right) | 'split' (me in the headset, the other person on the phone speaker)
@@ -176,6 +180,7 @@ export function sanitizeSettings(raw) {
     doubaoVoiceKind: ['preset', 'auto'].includes(input.doubaoVoiceKind) ? input.doubaoVoiceKind : 'clone',
     doubaoVoices: sanitizeDoubaoVoices(input.doubaoVoices),
     mistralVoices: sanitizeMistralVoices(input.mistralVoices),
+    geminiVoice: sanitizeGeminiVoice(input.geminiVoice),
     theme: ['system', 'light', 'dark'].includes(input.theme) ? input.theme : DEFAULT_SETTINGS.theme,
     voiceLayout: input.voiceLayout === 'side' ? 'side' : 'face',
     strategy: STRATEGIES[input.strategy] && STRATEGIES[input.strategy].available !== false ? input.strategy : DEFAULT_SETTINGS.strategy,
@@ -184,6 +189,7 @@ export function sanitizeSettings(raw) {
     micGain: sanitizeGain(gain),
     voiceVolume: VOICE_VOLUME_CHOICES.includes(volume) ? volume : DEFAULT_SETTINGS.voiceVolume,
     voiceSpeed: sanitizeVoiceSpeed(input.voiceSpeed),
+    voiceCatchUp: input.voiceCatchUp !== false,
     speed: SPEEDS[input.speed] ? input.speed : DEFAULT_SETTINGS.speed,
     outputMode: input.outputMode === 'split' ? 'split' : DEFAULT_SETTINGS.outputMode,
     muteWhilePlaying: typeof input.muteWhilePlaying === 'boolean' ? input.muteWhilePlaying : DEFAULT_SETTINGS.muteWhilePlaying,

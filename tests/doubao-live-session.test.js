@@ -100,7 +100,7 @@ test('close sends FinishSession and resolves on SessionFinished', async () => {
 });
 
 test('SessionFailed with a server-side timeout (55001010, 45000081) starts a new session instead of ending the turn', async () => {
-  const { session, sockets, got } = make({ timers: { setTimeout: (fn) => setTimeout(fn, 1), clearTimeout } });
+  const { session, sockets, got } = make({ connectTimeoutMs: Infinity, timers: { setTimeout: (fn) => setTimeout(fn, 1), clearTimeout } });
   session.connect();
   sockets[0].serve((w) => { w.int32(2, 153); w.bytes(1, message((m) => { m.int32(3, 55001010); m.string(4, '[Server processing timeout] node execution timeout'); })); });
   await pause(30);
@@ -111,4 +111,17 @@ test('SessionFailed with a server-side timeout (55001010, 45000081) starts a new
   await pause(30);
   assert.equal(got.errors.length, 0);
   assert.equal(sockets.length, 3);
+});
+
+test('a connection that never starts is dropped after the time-out and asked again (a stuck socket must not hold the turn for a minute)', async () => {
+  const { session, sockets, got } = make({ connectTimeoutMs: 40, timers: { setTimeout: (fn, ms) => setTimeout(fn, Math.min(ms, 10)), clearTimeout } });
+  session.connect();
+  sockets[0].onopen?.();
+  assert.equal(sockets.length, 1);
+  await pause(60);
+  assert.equal(sockets[0].closed, true, 'the stuck socket is closed');
+  assert.ok(sockets.length >= 2, 'a new one is opened');
+  assert.ok(got.notes.some((n) => /ouverture trop lente/.test(n)));
+  assert.deepEqual(got.errors, []);
+  session.abort();
 });

@@ -18,6 +18,7 @@ import MistralLiveHub from './live/MistralLiveHub';
 import MistralLiveSession from './live/MistralLiveSession';
 import { DOUBAO_LIVE, GEMINI_LIVE, MISTRAL_LIVE } from './liveProfiles';
 import TranslationEngine from './TranslationEngine';
+import MistralMemory from './MistralMemory';
 import UsageTracker from './UsageTracker';
 
 /**
@@ -62,10 +63,15 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       profile: GEMINI_LIVE,
       muteWhilePlaying: options.muteWhilePlaying,
       lowBandwidth: options.lowBandwidth,
-      createSession: (opts) => new GeminiLiveSession({ ...opts, url: env.geminiLiveWsUrl, apiKey: env.geminiKey, timers: BackgroundTimers }),
+      createSession: (opts) => new GeminiLiveSession({ ...opts, voice: options.geminiVoice, url: env.geminiLiveWsUrl, apiKey: env.geminiKey, timers: BackgroundTimers }),
     });
   }
   if (strategy === 'mistral') {
+    // Models refused for this account (tier, rate limit) are remembered between launches.
+    if (!MistralLiveHub.onBlocksChange) {
+      MistralLiveHub.onBlocksChange = (entries) => MistralMemory.save(entries);
+      MistralMemory.load().then((raw) => MistralLiveHub.restoreBlocks(raw));
+    }
     let hub = null; // one pipeline per turn, shared by the two directions (the first session of a turn creates it)
     let warm = null; // a hub connected ahead of the tap (token + socket take 2–10 s on a weak network): the next turn starts at once
     const makeHub = () => new MistralLiveHub({ apiKey: env.mistralKey, baseUrl: env.mistralBaseUrl, wsUrl: env.mistralSttWsUrl, languageName: (code) => getLanguage(code).label, timers: BackgroundTimers, fallbackSpeak: mistralFallbackVoice(languages, options.lowBandwidth), preferFallback: Boolean(options.elevenVoiceForAll), quality: options.mistralQuality, glossary: options.mistralGlossary, voiceChoice: options.mistralVoices ?? {}, autoContext: options.mistralAutoContext && !options.lowBandwidth, lowBandwidth: options.lowBandwidth, translator: options.mistralTranslator, deepl: env.deeplKey ? new DeepLClient() : null, deeplCode: (c) => getLanguage(c).deeplSource });
@@ -123,14 +129,14 @@ export default function createEngine(languages, options = {}, strategy = 'classi
       timers: BackgroundTimers,
       profile: DOUBAO_LIVE,
       // Language of the sound (optional help, needs the Deepgram key): the non-Chinese language of the pair is spotted.
-      createSpotter: ({ languages: pair, onLanguage, onNote }) => {
+      createSpotter: ({ languages: pair, onLanguage, onNote, onTranscript }) => {
         if (!env.deepgramKey) return null;
         const key = [pair.A, pair.B].find((k) => !String(DOUBAO_LIVE.outputCode(k) ?? '').startsWith('zh'));
         const lang = key ? getLanguage(key) : null;
         const code = key ? String(DOUBAO_LIVE.outputCode(key) ?? '').split('-')[0] : '';
         if (!lang?.deepgram || !code) return null;
         const params = new URLSearchParams({ model: lang.deepgramModel ?? 'nova-3', language: lang.deepgram, encoding: 'linear16', sample_rate: '16000', channels: '1', interim_results: 'true', vad_events: 'true', endpointing: '300', utterance_end_ms: '1000' });
-        return new LanguageSpotter({ url: `${env.deepgramWsUrl}?${params}`, key: env.deepgramKey, code, onLanguage, onNote, timers: BackgroundTimers });
+        return new LanguageSpotter({ url: `${env.deepgramWsUrl}?${params}`, key: env.deepgramKey, code, onLanguage, onNote, onTranscript, timers: BackgroundTimers });
       },
       muteWhilePlaying: options.muteWhilePlaying,
       lowBandwidth: options.lowBandwidth,

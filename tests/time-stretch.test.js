@@ -57,3 +57,37 @@ test('no clicks: the output has no jump bigger than the input has', () => {
   const inJump = Math.max(...x.map((v, i) => (i ? Math.abs(v - x[i - 1]) : 0)));
   assert.ok(jump < inJump * 1.6, `max step ${jump.toFixed(3)} vs ${inJump.toFixed(3)}`);
 });
+
+test('setFactor: the speed can change while the voice plays, with no gap, no NaN, and the right total length', () => {
+  const rate = 24000;
+  const tone = (seconds) => Float32Array.from({ length: Math.round(seconds * rate) }, (_, i) => 0.5 * Math.sin((2 * Math.PI * 200 * i) / rate) * (0.6 + 0.4 * Math.sin((2 * Math.PI * 3 * i) / rate)));
+  const input = tone(6);
+  const st = new TimeStretcher(rate, 1);
+  const out = [];
+  const piece = Math.round(rate * 0.1);
+  for (let at = 0, k = 0; at < input.length; at += piece, k++) {
+    // 1× for 2 s, 1.4× for 2 s, back to 1× for the last 2 s
+    const f = k < 20 ? 1 : k < 40 ? 1.4 : 1;
+    const rest = st.setFactor(f);
+    if (rest.length) out.push(rest);
+    out.push(st.push(input.subarray(at, at + piece)));
+  }
+  out.push(st.flush());
+  const total = out.reduce((n, a) => n + a.length, 0);
+  const expected = 2 * rate + (2 * rate) / 1.4 + 2 * rate;
+  assert.ok(Math.abs(total - expected) < rate * 0.15, `length ${total} vs ${Math.round(expected)}`);
+  const all = new Float32Array(total);
+  let o = 0;
+  for (const a of out) {
+    all.set(a, o);
+    o += a.length;
+  }
+  assert.ok(all.every((x) => Number.isFinite(x) && Math.abs(x) <= 1.2), 'finite, not clipped');
+  // no hole: every 50 ms window of the output carries some signal
+  const win = Math.round(rate * 0.05);
+  for (let at = 0; at + win < all.length - rate * 0.2; at += win) {
+    let peak = 0;
+    for (let i = at; i < at + win; i++) peak = Math.max(peak, Math.abs(all[i]));
+    assert.ok(peak > 0.02, `a hole at ${(at / rate).toFixed(2)} s`);
+  }
+});

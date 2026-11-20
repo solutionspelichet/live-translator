@@ -71,6 +71,13 @@
           "cameraPermission": "DualCast lit le texte d'une photo prise avec la caméra pour le traduire."
         }
       ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "DualCast utilise la caméra pour lire et traduire le texte en direct.",
+          "recordAudioAndroid": false
+        }
+      ],
       "expo-secure-store",
       "expo-font"
     ],

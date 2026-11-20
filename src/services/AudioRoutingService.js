@@ -4,7 +4,8 @@ import { AudioContext, AudioManager } from 'react-native-audio-api';
 import Power from '../../modules/dualcast-power';
 import { routeFor } from '../utils/outputRoute';
 import TimeStretcher, { stretchAll } from '../utils/timeStretch';
-import { applyLoudness, boostLoudness, clampPan, loudnessGain, pcm16ToFloat, resampleLinear } from '../utils/pcm';
+import { adaptiveSpeed, catchUpSpeed } from '../utils/voiceSpeed';
+import { boostLoudness, clampPan, pcm16ToFloat, resampleLinear, StreamLoudness } from '../utils/pcm';
 import SpeakerPlayer from './SpeakerPlayer';
 
 export const CHANNEL = Object.freeze({ LEFT: -1.0, RIGHT: 1.0 });
@@ -41,6 +42,7 @@ class AudioRoutingService {
     this.streams = new Set(); // TtsStream being played (stopAll aborts them)
     this.sessionReady = false;
     this.voiceVolume = 2; // loudness of the translated voice (1 = normal speech level)
+    this.catchUp = true; // a sentence that had to wait is played a bit faster (see catchUpSpeed)
     this.voiceSpeed = 1; // speed of the translated voice (1 = as generated, 1.3 = 30 % faster, same pitch)
     this.outputMode = 'stereo'; // see utils/outputRoute.js: 'split' = me in the headset, the other person on the phone speaker
     this.speaker = new SpeakerPlayer(Power);
@@ -57,6 +59,15 @@ class AudioRoutingService {
 
   setVoiceVolume(volume) {
     this.voiceVolume = volume;
+  }
+
+  setCatchUp(on) {
+    this.catchUp = on !== false;
+  }
+
+  /** Speed for a sentence that waited `lagMs` before it could start: the chosen speed, raised when the voice is behind. */
+  speedFor(lagMs) {
+    return this.catchUp ? catchUpSpeed(this.voiceSpeed, lagMs) : this.voiceSpeed;
   }
 
   setVoiceSpeed(speed) {
@@ -86,6 +97,34 @@ class AudioRoutingService {
 
     this.ctx = new AudioContext();
     this.sessionReady = true;
+  }
+
+  /**
+   * Make sure the audio engine really RUNS before a voice is played: `resume()` returns before the state changes, and a voice started on
+   * a context that is still « suspended » is silent or garbled. Waits up to 1.5 s for « running »; a context that stays stuck is rebuilt.
+   * @returns {Promise<string>} the final state ('running' when all is well)
+   */
+  async ensureRunning() {
+    await this.init();
+    if (this.ctx.state === 'running') return 'running';
+    try {
+      await this.ctx.resume();
+    } catch {}
+    for (let i = 0; i < 15 && this.ctx.state !== 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    if (this.ctx.state === 'running') return 'running';
+    // stuck: a new context on the (re)activated audio session
+    try {
+      this.stopAll();
+      await this.ctx.close?.();
+    } catch {}
+    this.sessionReady = false;
+    this.ctx = null;
+    await this.init();
+    try {
+      await this.ctx.resume();
+    } catch {}
+    for (let i = 0; i < 10 && this.ctx.state !== 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+    return `${this.ctx.state} (contexte recréé)`;
   }
 
   /**
@@ -158,7 +197,7 @@ class AudioRoutingService {
     }
   }
 
-  async toAudioBuffer(source) {
+  async toAudioBuffer(source, speed = this.voiceSpeed) {
     if (source.url) return this.ctx.decodeAudioData(source.url);
     if (source.data && source.encoded) return this.ctx.decodeAudioData(source.data);
     if (source.data && source.sampleRate) {
@@ -166,7 +205,7 @@ class AudioRoutingService {
       // on a 48 kHz context played back at double speed on device.
       const rate = this.ctx.sampleRate;
       // ElevenLabs speech is fairly quiet: bring it to a comfortable loudness first.
-      const loud = stretchAll(boostLoudness(pcm16ToFloat(source.data), this.voiceVolume), source.sampleRate, source.speed ?? this.voiceSpeed);
+      const loud = stretchAll(boostLoudness(pcm16ToFloat(source.data), this.voiceVolume), source.sampleRate, source.speed ?? speed);
       const samples = resampleLinear(loud, source.sampleRate, rate);
       const buffer = this.ctx.createBuffer(1, samples.length, rate);
       buffer.getChannelData(0).set(samples);
@@ -183,7 +222,7 @@ class AudioRoutingService {
   async playPanned(source, pan, opts) {
     await this.init();
     const target = routeFor(pan, this.outputMode, this.speaker.available);
-    const buffer = await this.toAudioBuffer(source);
+    const buffer = await this.toAudioBuffer(source, this.speedFor(opts?.lagMs));
     if (target.route === 'speaker') return this.speaker.playSamples(buffer.getChannelData(0), buffer.sampleRate, { voiceVolume: 1 });
     return this.playDecoded(buffer, target.pan, opts);
   }
@@ -238,13 +277,16 @@ class AudioRoutingService {
    * back to back on the Web Audio clock as they arrive, so speech starts after ~0.3 s instead of
    * after the whole sentence is ready. Rejects only when nothing at all could be played.
    */
-  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15 } = {}) {
+  async playStream(stream, pan, { volume = 1.0, prebufferSec = 0.15, lagMs = 0, catchUp = true, minLagMs = 1000, adaptiveOptions = undefined } = {}) {
     await this.init();
+    // A voice that had to wait (lagMs) follows a reserve-aware catch-up (see adaptiveSpeed); otherwise the chosen speed, as before.
+    const adaptive = catchUp && this.catchUp && lagMs > minLagMs;
+    let speed = this.voiceSpeed;
     const target = routeFor(pan, this.outputMode, this.speaker.available);
     if (target.route === 'speaker') {
       this.streams.add(stream);
       try {
-        return await this.speaker.playStream(stream, { voiceVolume: this.voiceVolume, voiceSpeed: this.voiceSpeed, prebufferSec });
+        return await this.speaker.playStream(stream, { voiceVolume: this.voiceVolume, voiceSpeed: speed, prebufferSec });
       } finally {
         this.streams.delete(stream);
       }
@@ -264,13 +306,14 @@ class AudioRoutingService {
     return new Promise((resolve, reject) => {
       let pending = [];
       let pendingLen = 0;
+      let consumedIn = 0; // input samples already taken from the stream (to know how much voice is still waiting in it)
       let nextTime = 0;
       let running = 0;
       let finished = false;
       let failure = null;
-      let voiceGain = null; // one gain for the whole sentence, so loudness doesn't jump between pieces
+      const loudness = new StreamLoudness(this.voiceVolume); // follows the voice, with a peak ceiling (no saturation)
       let first = true;
-      const stretcher = new TimeStretcher(inRate, this.voiceSpeed); // faster voice, same pitch (pass-through at 1×)
+      const stretcher = new TimeStretcher(inRate, speed); // faster voice, same pitch (pass-through at 1×)
 
       const settle = () => {
         if (!finished || running > 0) return;
@@ -294,8 +337,24 @@ class AudioRoutingService {
         }
         pending = [];
         pendingLen = 0;
-        if (voiceGain == null && joined.length) voiceGain = loudnessGain(joined, this.voiceVolume) ?? 1;
-        let voice = joined.length ? stretcher.push(applyLoudness(joined, voiceGain ?? 1)) : new Float32Array(0);
+        let held = new Float32Array(0);
+        const takenBefore = consumedIn;
+        consumedIn += joined.length;
+        if (adaptive) {
+          // audio waiting = what is scheduled but not played yet + what arrived and was not scheduled yet
+          // The stream holds everything that arrived while this burst waited its turn: that is the reserve (not only the piece in hand).
+          const inStream = Math.max(joined.length, (stream.pushed ?? 0) - takenBefore);
+          const waiting = Math.max(0, nextTime - ctx.currentTime) + inStream / inRate;
+          stream.maxWaiting = Math.max(stream.maxWaiting ?? 0, waiting); // for the journal: the reserve the catch-up could use
+          const next = adaptiveSpeed(speed, waiting, this.voiceSpeed, adaptiveOptions);
+          if (next !== speed) {
+            speed = next;
+            stream.maxSpeed = Math.max(stream.maxSpeed ?? 0, speed); // for the journal
+            held = stretcher.setFactor(speed); // back to 1×: what the stretcher held back is played first
+          }
+        }
+        let voice = joined.length ? stretcher.push(loudness.process(joined)) : new Float32Array(0);
+        if (held.length) voice = concat(held, voice);
         if (force) voice = concat(voice, stretcher.flush()); // the end of the sentence: what the stretcher kept back
         if (!voice.length) return; // the stretcher keeps a few milliseconds back until it has enough audio
         const samples = resampleLinear(voice, inRate, rate);

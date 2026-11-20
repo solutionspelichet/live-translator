@@ -29,6 +29,7 @@ export default function WordPanel({ settings, fromKey, toKey, seed }) {
   const [style, setStyle] = useState(defaultStyle(toKey));
   const [busy, setBusy] = useState(false);
   const [phoneticBusy, setPhoneticBusy] = useState(false);
+  const [phoneticFailed, setPhoneticFailed] = useState(false); // the pronunciation could not be fetched: a retry link instead of a blocking alert
   const [soundBusy, setSoundBusy] = useState(false);
   const [saved, setSaved] = useState([]);
   const [query, setQuery] = useState('');
@@ -96,6 +97,7 @@ export default function WordPanel({ settings, fromKey, toKey, seed }) {
     setBusy(true);
     stopWord();
     setCard(null);
+    setPhoneticFailed(false);
     try {
       const translated = env.deeplKey
         ? await new DeepLClient().translate(word, fromKey, toKey)
@@ -115,7 +117,7 @@ export default function WordPanel({ settings, fromKey, toKey, seed }) {
         const phonetic = await phoneticOf(cd.translated, cd.toLang, st);
         if (id === run.current) setCard((now) => (now ? { ...now, phonetic } : now));
       } catch {
-        // the translation stays; the pronunciation can be asked again with the style chips
+        if (id === run.current) setPhoneticFailed(true); // the translation stays; the pronunciation can be asked again
       }
       if (id === run.current) setPhoneticBusy(false);
     } catch (error) {
@@ -126,17 +128,18 @@ export default function WordPanel({ settings, fromKey, toKey, seed }) {
     }
   };
 
-  const changeStyle = async (st) => {
-    if (!card || st === style) return;
+  const changeStyle = async (st, force = false) => {
+    if (!card || (st === style && !force)) return;
     setStyle(st);
     if (!env.openRouterKey) return;
     setPhoneticBusy(true);
+    setPhoneticFailed(false);
     try {
       const phonetic = await phoneticOf(card.translated, card.toLang, st);
       setCard((now) => (now ? { ...now, phonetic, style: st } : now));
       if (saved.some((s) => s.id === card.id)) persist(saved.map((s) => (s.id === card.id ? { ...s, phonetic, style: st } : s)));
-    } catch (error) {
-      Alert.alert(t('Prononciation impossible'), describeError(error));
+    } catch {
+      setPhoneticFailed(true);
     }
     setPhoneticBusy(false);
   };
@@ -230,6 +233,11 @@ export default function WordPanel({ settings, fromKey, toKey, seed }) {
             <Text style={styles.phoneticWait}>Prononciation…</Text>
           ) : card.phonetic ? (
             <Plain style={styles.phonetic} selectable>{card.phonetic}</Plain>
+          ) : phoneticFailed ? (
+            <Pressable onPress={() => changeStyle(style, true)} hitSlop={8} accessibilityRole="button" style={styles.retry}>
+              <Icon name="rotate" size={15} color={c.accent} />
+              <Text style={styles.retryText}>Prononciation indisponible pour le moment. Réessayer</Text>
+            </Pressable>
           ) : !env.openRouterKey ? (
             <Text style={styles.phoneticWait}>Ajoutez une clé OpenRouter (⚙︎ → Clés API) pour voir la prononciation.</Text>
           ) : null}
@@ -299,7 +307,9 @@ const styles = themedStyles((c) => StyleSheet.create({
   save: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 14 },
   saveText: { color: c.textMuted, fontSize: 13, fontWeight: '600' },
   word: { color: c.text, fontSize: 34, lineHeight: 42, fontWeight: '700', letterSpacing: -0.5 },
-  phonetic: { color: c.accent, fontSize: 22, lineHeight: 30, fontWeight: '500' },
+  phonetic: { color: c.cyan, fontSize: 22, lineHeight: 30, fontWeight: '500' },
+  retry: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  retryText: { color: c.accent, fontSize: 14, fontWeight: '500' },
   phoneticWait: { color: c.textFaint, fontSize: 14 },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -310,5 +320,5 @@ const styles = themedStyles((c) => StyleSheet.create({
   empty: { color: c.textMuted, fontSize: 14, lineHeight: 20 },
   item: { gap: 12 },
   itemWord: { color: c.text, fontSize: 22, fontWeight: '700' },
-  itemPhonetic: { color: c.accent, fontSize: 16, marginTop: 2 },
+  itemPhonetic: { color: c.cyan, fontSize: 16, marginTop: 2 },
 }));

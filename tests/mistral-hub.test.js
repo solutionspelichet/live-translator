@@ -226,6 +226,30 @@ test('the journal says when audio goes in and nothing comes back', async () => {
   assert.ok(got.notes.some((n) => /reçu \{"type":"session.created"/.test(n)));
 });
 
+test('voice goes in and no word comes back: one fresh connection is opened (a dead or stale socket), once', async () => {
+  const { sockets, got, ab } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  const loud = Buffer.alloc(32000, 0x40).toString('base64'); // one second of a loud tone
+  for (let i = 0; i < 6; i++) ab.sendAudio(loud);
+  assert.ok(got.notes.some((n) => /aucun texte reçu après 5 s de voix envoyée/.test(n) && /nouvelle connexion/.test(n)));
+  assert.equal(sockets[0].closed, true, 'the silent socket is dropped');
+  await pause(600);
+  assert.equal(sockets.length, 2, 'a new socket (and a new token) is opened');
+  sockets[1].serve({ type: 'session.created' });
+  for (let i = 0; i < 12; i++) ab.sendAudio(loud);
+  await pause(600);
+  assert.equal(sockets.length, 2, 'only once');
+});
+
+test('a quiet microphone is told apart from a dead transcription', async () => {
+  const { sockets, got, ab } = await setup();
+  sockets[0].serve({ type: 'session.created' });
+  const quiet = Buffer.alloc(32000).toString('base64');
+  for (let i = 0; i < 9; i++) ab.sendAudio(quiet);
+  assert.ok(got.notes.some((n) => /dont 0\.0 s avec une voix/.test(n) && /presque rien entendu/.test(n)));
+  assert.equal(sockets.length, 1, 'no reconnection for silence');
+});
+
 test('a voice the speech endpoint refuses is skipped: the next one is tried and remembered', async () => {
   const tried = [];
   const { sockets, got, calls } = await setup({
@@ -811,3 +835,56 @@ test('with DeepL as the way out a limited model is left alone for 5 minutes and 
   assert.ok(until - Date.now() > 4 * 60000, 'paused for about 5 minutes');
   assert.ok(!hub.gapMs, 'no spacing of the requests: DeepL translates meanwhile');
 }).timeout?.(10000);
+
+test('a refused model is remembered between launches: serialised, restored when still valid, and a tier refusal lasts hours', async () => {
+  const { restoreBlocks, serializeBlocks, isTierRefusal } = await import('../src/utils/mistral.js');
+  const map = new Map([['mistral-large-2512', 10_000 + 6 * 3600000], ['mistral-small-latest', 5_000], ['x', NaN]]);
+  const saved = serializeBlocks(map, 10_000);
+  assert.deepEqual(saved, { 'mistral-large-2512': 10_000 + 6 * 3600000 }, 'expired and invalid entries are dropped');
+  const back = restoreBlocks(JSON.stringify(saved), 20_000);
+  assert.equal(back.get('mistral-large-2512'), 10_000 + 6 * 3600000);
+  assert.equal(restoreBlocks('not json').size, 0);
+  assert.equal(restoreBlocks({ 'bad id!': Date.now() + 1000 }).size, 0);
+  assert.equal(restoreBlocks({ 'mistral-large-2512': Date.now() + 30 * 24 * 3600000 }).size, 0, 'a nonsense far-away time is refused');
+  assert.equal(isTierRefusal({ status: 403, detail: '{"message":"This model is not available in your subscription tier","type":"tier_not_allowed"}' }), true);
+  assert.equal(isTierRefusal({ status: 429, detail: 'tier_not_allowed' }), false);
+  assert.equal(isTierRefusal({ status: 403, detail: 'forbidden' }), false);
+});
+
+test('rate-limited with DeepL as the way out: ONE Mistral request, the sentence goes to DeepL at once, and the refusal is handed to the memory of models', async () => {
+  const asked = [];
+  const changes = [];
+  MistralLiveHub.onBlocksChange = (entries) => changes.push(entries);
+  try {
+    const deepl = fakeDeepl(() => 'FR');
+    const { sockets, got } = await setup({
+      pair: ['fr', 'zh'],
+      deepl,
+      chatFail: (url, body) => {
+        asked.push(body.model);
+        return { ok: false, status: 429, text: async () => '{"message":"Rate limit exceeded"}', headers: { get: () => null } };
+      },
+    });
+    sockets[0].serve({ type: 'session.created' });
+    sockets[0].serve({ type: 'transcription.text.delta', text: 'Bonjour à tous. ' });
+    await pause(400);
+    assert.equal(asked.length, 1, 'not one request per model (the limit is the account\'s)');
+    assert.ok(deepl.calls.length >= 1, 'DeepL translated the sentence');
+    assert.equal(got.outText.length >= 1, true);
+    assert.equal(changes.length, 1);
+    assert.ok(Object.keys(changes[0]).length === 1 && Object.values(changes[0])[0] > Date.now(), 'the paused model is kept with its end time');
+  } finally {
+    MistralLiveHub.onBlocksChange = null;
+  }
+});
+
+test('a voice request that never answers does not freeze the turn: the text goes on after the time-out and the journal says why', async () => {
+  const { sockets, got, hub } = await setup({ pair: ['en', 'zh'] });
+  hub.voiceTimeoutMs = 60;
+  hub.fallbackSpeak = () => new Promise(() => {}); // ElevenLabs never answers
+  sockets[0].serve({ type: 'session.created' });
+  sockets[0].serve({ type: 'transcription.text.delta', text: 'Hello everyone. ' });
+  await pause(400);
+  assert.ok(got.notes.some((n) => /voix ElevenLabs indisponible pour cette phrase \(pas de réponse en 0 s/.test(n) || /voix ElevenLabs indisponible pour cette phrase \(pas de réponse/.test(n)), got.notes.join('\n'));
+  assert.ok(got.outText.length >= 1, 'the translation text is delivered anyway');
+});
